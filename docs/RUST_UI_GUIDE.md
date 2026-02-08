@@ -49,6 +49,25 @@ Example:
 use crate::components::ui::{Button, Card, CardContent, CardHeader, CardTitle, Input, Label};
 ```
 
+## Compatibility notes (Leptos/Trunk)
+
+Rust/UI generates **source code** into your repository. It is not a precompiled component library,
+so compatibility depends on your current framework versions and build targets.
+
+Recommendations:
+
+- Treat generated components as **owned code**: review and adjust when needed.
+- Ensure CI checks match what Trunk does (WASM target build):
+
+```bash
+cargo build --target wasm32-unknown-unknown
+trunk build
+```
+
+- Some patterns are more fragile across Leptos versions (e.g., `bind:value`).
+  If you hit CI failures, prefer stable, explicit wiring for inputs:
+  `value=move || signal.get()` + `on:input` handler updating the signal.
+
 ## Tailwind integration
 
 Trunk compiles Tailwind via `index.html`:
