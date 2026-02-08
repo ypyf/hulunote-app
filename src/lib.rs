@@ -1316,12 +1316,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             size=ButtonSize::Sm
                                                             class="w-full justify-start"
                                                             attr:aria-current=move || if is_selected { Some("page") } else { None }
-                                                            on:click=move |_| {
-                                                                set_current_db(Some(id.clone()));
-                                                                navigate.with_value(|nav| {
-                                                                    nav(&format!("/db/{}", id), Default::default());
-                                                                });
-                                                            }
+                                                            href=format!("/db/{}", id)
                                                         >
                                                             {db.name}
                                                         </Button>
