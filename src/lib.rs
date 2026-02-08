@@ -1755,9 +1755,72 @@ pub fn DbHomePage() -> impl IntoView {
                 </div>
             </div>
 
-            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                "Phase 4: Database management. Notes will be added in later phases."
-            </div>
+            <Card>
+                <CardContent>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="text-sm font-medium">"Notes"</div>
+                        <Button
+                            variant=ButtonVariant::Outline
+                            size=ButtonSize::Sm
+                            attr:disabled=true
+                            attr:title="Create note (coming next)"
+                        >
+                            "New"
+                        </Button>
+                    </div>
+
+                    <div class="mt-3">
+                        <Show
+                            when=move || !app_state.0.notes_loading.get()
+                            fallback=move || view! {
+                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Spinner />
+                                    "Loading notes…"
+                                </div>
+                            }
+                        >
+                            <Show
+                                when=move || app_state.0.notes_error.get().is_none()
+                                fallback=move || view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">
+                                            {move || app_state.0.notes_error.get().unwrap_or_default()}
+                                        </AlertDescription>
+                                    </Alert>
+                                }
+                            >
+                                <Show
+                                    when=move || !app_state.0.notes.get().is_empty()
+                                    fallback=move || view! {
+                                        <div class="text-sm text-muted-foreground">"No notes yet."</div>
+                                    }
+                                >
+                                    <div class="space-y-1">
+                                        {move || {
+                                            app_state
+                                                .0
+                                                .notes
+                                                .get()
+                                                .into_iter()
+                                                .map(|n| {
+                                                    view! {
+                                                        <div class="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+                                                            <div class="min-w-0">
+                                                                <div class="truncate text-sm font-medium">{n.title}</div>
+                                                                <div class="truncate text-xs text-muted-foreground">{n.updated_at}</div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </div>
+                                </Show>
+                            </Show>
+                        </Show>
+                    </div>
+                </CardContent>
+            </Card>
 
             <Show when=move || rename_open.get() fallback=|| ().into_view()>
                 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
