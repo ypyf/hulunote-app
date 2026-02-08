@@ -96,9 +96,10 @@ hulunote-app/
 │   └── style.css      # Global styles with Tailwind directives
 ├── Cargo.toml         # Dependencies and WASM config
 └── docs/              # Documentation
-    ├── PRODUCT.md     # Product overview
+    ├── PRODUCT.md       # Product overview
     ├── API_REFERENCE.md
-    └── LEPTOS_GUIDE.md # Leptos development guide
+    ├── LEPTOS_GUIDE.md  # Leptos development guide
+    └── TEST_GUIDE.md    # How to run unit/WASM tests
 ```
 
 ## Documentation
