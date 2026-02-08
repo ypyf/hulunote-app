@@ -3,15 +3,19 @@ mod components;
 use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Input, Label, Spinner,
 };
+use leptos::ev;
+use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_dom::helpers::window_event_listener;
 use leptos_router::components::{Route, Router, Routes};
-use leptos_router::hooks::use_navigate;
+use leptos_router::hooks::{use_navigate, use_query_map};
 use leptos_router::params::Params;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use std::sync::Arc;
+use wasm_bindgen::JsCast;
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -405,6 +409,9 @@ pub struct AppState {
 
     /// Global UI state.
     pub sidebar_collapsed: RwSignal<bool>,
+
+    /// Sidebar search query (Phase 3: UI + routing only).
+    pub search_query: RwSignal<String>,
 }
 
 const TOKEN_KEY: &str = "hulunote_token";
@@ -457,6 +464,7 @@ impl AppState {
             databases: RwSignal::new(vec![]),
             current_database_id: RwSignal::new(current_database_id),
             sidebar_collapsed: RwSignal::new(sidebar_collapsed),
+            search_query: RwSignal::new(String::new()),
         }
     }
 }
@@ -810,6 +818,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let db_loading: RwSignal<bool> = RwSignal::new(false);
     let db_error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    let search_query = app_state.0.search_query;
+    let search_ref: NodeRef<html::Input> = NodeRef::new();
+
     let sidebar_width_class = move || {
         if sidebar_collapsed.get() {
             "w-14"
@@ -897,6 +908,51 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
     let navigate = StoredValue::new(use_navigate());
 
+    // Keyboard shortcuts (Phase 3):
+    // - Cmd/Ctrl+B: toggle sidebar
+    // - Cmd/Ctrl+K: focus search
+    // - Esc: blur search
+    let _key_handle = window_event_listener(ev::keydown, move |ev: web_sys::KeyboardEvent| {
+        let is_meta = ev.meta_key() || ev.ctrl_key();
+        let key = ev.key().to_lowercase();
+
+        // Avoid hijacking shortcuts while typing in inputs.
+        let target_tag = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .map(|el| el.tag_name().to_lowercase());
+
+        if let Some(tag) = target_tag {
+            if tag == "input" || tag == "textarea" {
+                // Allow Escape to still blur.
+                if key != "escape" {
+                    return;
+                }
+            }
+        }
+
+        if is_meta && key == "b" {
+            ev.prevent_default();
+            sidebar_collapsed.update(|v| *v = !*v);
+            persist_sidebar();
+            return;
+        }
+
+        if is_meta && key == "k" {
+            ev.prevent_default();
+            if let Some(input) = search_ref.get() {
+                let _ = input.focus();
+            }
+            return;
+        }
+
+        if key == "escape" {
+            if let Some(input) = search_ref.get() {
+                let _ = input.blur();
+            }
+        }
+    });
+
     let on_logout = move |_| {
         let mut api_client = app_state.0.api_client.get_untracked();
         api_client.logout();
@@ -905,6 +961,12 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         app_state.0.databases.set(vec![]);
         app_state.0.current_database_id.set(None);
         let _ = window().location().set_href("/login");
+    };
+
+    let current_db_name = move || {
+        let id = current_db_id.get();
+        let dbs = databases.get();
+        id.and_then(|id| dbs.into_iter().find(|d| d.id == id).map(|d| d.name))
     };
 
     view! {
@@ -936,6 +998,30 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </div>
                             }
                         >
+                            <div class="rounded-md border border-border bg-muted p-3">
+                                <div class="text-[11px] font-medium text-muted-foreground">"Search"</div>
+                                <div class="mt-2">
+                                    <Input
+                                        node_ref=search_ref
+                                        r#type="search"
+                                        placeholder="Search…"
+                                        bind_value=search_query
+                                        class="h-8 text-sm"
+                                        on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                            if ev.key() == "Enter" {
+                                                let q = search_query.get();
+                                                navigate.with_value(|nav| {
+                                                    nav(&format!("/search?q={}", urlencoding::encode(&q)), Default::default());
+                                                });
+                                            }
+                                        }
+                                    />
+                                </div>
+                                <div class="mt-2 text-[11px] text-muted-foreground">
+                                    "Cmd/Ctrl+K to focus"
+                                </div>
+                            </div>
+
                             <div class="rounded-md border border-border bg-muted p-3">
                                 <div class="flex items-center justify-between">
                                     <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
@@ -1003,6 +1089,20 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </div>
 
                             <div class="rounded-md border border-border bg-muted p-3">
+                                <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
+                                <div class="mt-2 space-y-1">
+                                    <button
+                                        class="w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                                        on:click=move |_| {
+                                            navigate.with_value(|nav| nav("/settings", Default::default()));
+                                        }
+                                    >
+                                        "Settings"
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="rounded-md border border-border bg-muted p-3">
                                 <div class="text-[11px] font-medium text-muted-foreground">"Account"</div>
                                 <div class="mt-2">
                                     <Button
@@ -1019,7 +1119,32 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                     </div>
                 </aside>
 
-                <main class="min-w-0 flex-1">{children()}</main>
+                <main class="min-w-0 flex-1">
+                    <div class="mb-4 flex items-center justify-between">
+                        <div class="space-y-0.5">
+                            <div class="text-xs text-muted-foreground">"Breadcrumb"</div>
+                            <div class="text-sm font-medium">
+                                {move || {
+                                    current_db_name()
+                                        .map(|n| n.to_string())
+                                        .unwrap_or_else(|| "Hulunote".to_string())
+                                }}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Sm
+                                on:click=move |_| {
+                                    navigate.with_value(|nav| nav("/", Default::default()));
+                                }
+                            >
+                                "Home"
+                            </Button>
+                        </div>
+                    </div>
+                    {children()}
+                </main>
             </div>
         </div>
     }
@@ -1116,6 +1241,39 @@ pub fn DbHomePage() -> impl IntoView {
 }
 
 #[component]
+pub fn SearchPage() -> impl IntoView {
+    let query = use_query_map();
+    let q = move || query.get().get("q").unwrap_or_default();
+
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Search"</h1>
+                <p class="text-xs text-muted-foreground">{move || format!("q = {}", q())}</p>
+            </div>
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "Phase 3: Search UI is scaffolded. Results will be implemented in Phase 10."
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn SettingsPage() -> impl IntoView {
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Settings"</h1>
+                <p class="text-xs text-muted-foreground">"Phase 3 placeholder"</p>
+            </div>
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "Appearance/editor/account settings will be implemented in later phases."
+            </div>
+        </div>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     provide_context(AppContext(AppState::new()));
 
@@ -1130,6 +1288,16 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("db/:db_id") view=move || view! {
                     <RootAuthed>
                         <DbHomePage />
+                    </RootAuthed>
+                } />
+                <Route path=path!("search") view=move || view! {
+                    <RootAuthed>
+                        <SearchPage />
+                    </RootAuthed>
+                } />
+                <Route path=path!("settings") view=move || view! {
+                    <RootAuthed>
+                        <SettingsPage />
                     </RootAuthed>
                 } />
                 <Route path=path!("") view=RootPage />
