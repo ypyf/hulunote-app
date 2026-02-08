@@ -773,31 +773,61 @@ pub fn HomePage() -> impl IntoView {
 
 #[component]
 pub fn AppLayout(children: Children) -> impl IntoView {
+    let sidebar_collapsed = RwSignal::new(false);
+
+    let sidebar_width_class = move || {
+        if sidebar_collapsed.get() {
+            "w-14"
+        } else {
+            "w-64"
+        }
+    };
+
     view! {
         <div class="min-h-screen bg-background text-foreground">
             <div class="mx-auto flex min-h-screen w-full max-w-[1080px] gap-4 px-4 py-6">
-                <aside class="w-64 shrink-0">
+                <aside class=move || format!("{} shrink-0", sidebar_width_class())>
                     <div class="sticky top-6 space-y-4">
                         <div class="flex items-center justify-between">
-                            <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
-                            <span class="text-[11px] text-muted-foreground">"Phase 3"</span>
+                            <a href="/" class="text-sm font-medium text-foreground">
+                                <Show when=move || !sidebar_collapsed.get() fallback=|| view! { "H" }>
+                                    "Hulunote"
+                                </Show>
+                            </a>
+
+                            <button
+                                class="rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                                on:click=move |_| sidebar_collapsed.update(|v| *v = !*v)
+                                title="Toggle sidebar"
+                            >
+                                {move || if sidebar_collapsed.get() { ">" } else { "<" }}
+                            </button>
                         </div>
 
-                        <div class="rounded-md border border-border bg-muted p-3">
-                            <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
-                            <div class="mt-2 space-y-1 text-sm">
-                                <a class="block rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground" href="/">"Databases"</a>
-                                <span class="block rounded-md px-2 py-1 text-muted-foreground">"Search"</span>
-                                <span class="block rounded-md px-2 py-1 text-muted-foreground">"Settings"</span>
+                        <Show
+                            when=move || !sidebar_collapsed.get()
+                            fallback=|| view! {
+                                <div class="rounded-md border border-border bg-muted p-3 text-[11px] text-muted-foreground">
+                                    "Sidebar collapsed"
+                                </div>
+                            }
+                        >
+                            <div class="rounded-md border border-border bg-muted p-3">
+                                <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
+                                <div class="mt-2 space-y-1 text-sm">
+                                    <a class="block rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground" href="/">"Databases"</a>
+                                    <span class="block rounded-md px-2 py-1 text-muted-foreground">"Search"</span>
+                                    <span class="block rounded-md px-2 py-1 text-muted-foreground">"Settings"</span>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="rounded-md border border-border bg-muted p-3">
-                            <div class="text-[11px] font-medium text-muted-foreground">"Sidebar"</div>
-                            <div class="mt-2 text-xs text-muted-foreground">
-                                "Database list + page tree will live here."
+                            <div class="rounded-md border border-border bg-muted p-3">
+                                <div class="text-[11px] font-medium text-muted-foreground">"Sidebar"</div>
+                                <div class="mt-2 text-xs text-muted-foreground">
+                                    "Database list + page tree will live here."
+                                </div>
                             </div>
-                        </div>
+                        </Show>
                     </div>
                 </aside>
 
