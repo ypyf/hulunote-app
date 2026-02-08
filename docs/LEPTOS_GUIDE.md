@@ -143,6 +143,17 @@ let app_state = expect_context::<AppContext>();
 Key points:
 - Router hooks like `use_location()` **must** be called under a `<Router>`.
 - Prefer defining routes via `<Routes>` + `<Route>` and `path!(...)`.
+- **Route params are reactive** (`use_params()` returns a memo/signal). Do **not** read `params.get()` in the component body and stash the value in a plain variable.
+  - This triggers warnings like: "access ... outside a reactive tracking context"
+  - And it may stop your UI from updating when the route changes.
+  - Correct patterns:
+    - Read inside `view!` via a closure: `{move || params.get().ok().and_then(|p| p.id).unwrap_or_default()}`
+    - Or define a derived closure first:
+      ```rust
+      let id = move || params.get().ok().and_then(|p| p.id).unwrap_or_default();
+      view! { <p>{move || id()}</p> }
+      ```
+  - If you intentionally want a one-time read, use `get_untracked()` / `with_untracked()` and accept it won't react to route changes.
 
 Minimal example:
 
