@@ -1206,8 +1206,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             }
                         >
                             <Card>
-                                <CardHeader>
-                                    <div class="flex items-center justify-between">
+                                <CardContent>
+                                    <div class="flex items-center gap-2">
                                         <span class="sr-only">"Search"</span>
                                         <svg
                                             xmlns="http://www.w3.org/2000/svg"
@@ -1219,32 +1219,36 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                             stroke-width="2"
                                             stroke-linecap="round"
                                             stroke-linejoin="round"
-                                            class="text-muted-foreground"
+                                            class="shrink-0 text-muted-foreground"
                                             aria-hidden="true"
                                         >
                                             <circle cx="11" cy="11" r="8"></circle>
                                             <path d="m21 21-4.3-4.3"></path>
                                         </svg>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <Input
-                                        node_ref=search_ref
-                                        r#type="search"
-                                        placeholder="Search…"
-                                        bind_value=search_query
-                                        class="h-8 text-sm"
-                                        on:keydown=move |ev: web_sys::KeyboardEvent| {
-                                            if ev.key() == "Enter" {
-                                                let q = search_query.get();
-                                                navigate.with_value(|nav| {
-                                                    nav(&format!("/search?q={}", urlencoding::encode(&q)), Default::default());
-                                                });
-                                            }
-                                        }
-                                    />
-                                    <div class="mt-2 text-xs text-muted-foreground">
-                                        "Cmd/Ctrl+K to focus"
+
+                                        <div class="min-w-0 flex-1">
+                                            <Input
+                                                node_ref=search_ref
+                                                r#type="search"
+                                                placeholder="Search…"
+                                                bind_value=search_query
+                                                class="h-8 text-sm"
+                                                on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                                    if ev.key() == "Enter" {
+                                                        let q = search_query.get();
+                                                        navigate.with_value(|nav| {
+                                                            nav(&format!("/search?q={}", urlencoding::encode(&q)), Default::default());
+                                                        });
+                                                    }
+                                                }
+                                            />
+                                        </div>
+
+                                        <div class="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex">
+                                            <span class="rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px]">
+                                                "⌘K"
+                                            </span>
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
