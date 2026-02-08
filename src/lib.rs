@@ -1205,7 +1205,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </Card>
                             }
                         >
-                            <Card>
+                            <Card class="py-4">
                                 <CardContent>
                                     <div class="flex items-center gap-2">
                                         <span class="sr-only">"Search"</span>
@@ -1253,9 +1253,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card>
+                            <Card class="py-4">
                                 <CardHeader>
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex w-full items-center justify-end">
                                         <span class="sr-only">"Databases"</span>
                                         <div class="flex items-center gap-2">
                                         <Button
@@ -1329,7 +1329,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card>
+                            <Card class="py-4">
                                 <CardContent>
                                     <span class="sr-only">"Navigation"</span>
                                     <div class="space-y-1">
@@ -1347,7 +1347,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card>
+                            <Card class="py-4">
                                 <CardContent>
                                     <span class="sr-only">"Account"</span>
                                     <Button
