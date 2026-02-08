@@ -1686,18 +1686,23 @@ pub struct NoteRouteParams {
 pub fn NotePage() -> impl IntoView {
     let params = leptos_router::hooks::use_params::<NoteRouteParams>();
 
-    let (db_id, note_id) = params
-        .get()
-        .ok()
-        .map(|p| (p.db_id.unwrap_or_default(), p.note_id.unwrap_or_default()))
-        .unwrap_or_default();
+    // Use closures so params access happens inside a reactive tracking context.
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+
+    let note_id = move || {
+        params
+            .get()
+            .ok()
+            .and_then(|p| p.note_id)
+            .unwrap_or_default()
+    };
 
     view! {
         <div class="space-y-3">
             <div class="space-y-1">
                 <h1 class="text-xl font-semibold">"Note"</h1>
-                <p class="text-xs text-muted-foreground">{format!("db_id: {}", db_id)}</p>
-                <p class="text-xs text-muted-foreground">{format!("note_id: {}", note_id)}</p>
+                <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
+                <p class="text-xs text-muted-foreground">{move || format!("note_id: {}", note_id())}</p>
             </div>
             <Card>
                 <CardContent>
