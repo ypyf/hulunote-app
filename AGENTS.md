@@ -44,6 +44,8 @@ Agents must respect the following high-level constraints:
 - Architectural boundaries must not be crossed casually
 - Refactors, optimizations, or stylistic changes require explicit intent
 - Do not expand scope beyond the current task
+- All UI work must strictly follow `docs/DESIGN_TOKENS.md` and `docs/UI_GUIDELINES.md`
+- Any deviation from the Linear-inspired style is considered a bug, not a stylistic difference
 
 If a task requires changing the design itself:
 
