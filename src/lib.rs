@@ -1258,9 +1258,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 .map(|db| {
                                                     let is_selected = selected.as_deref() == Some(db.id.as_str());
                                                     let class = if is_selected {
-                                                        "w-full rounded-md bg-accent/50 px-2 py-1 text-left text-sm font-medium text-foreground ring-1 ring-accent/60"
+                                                        "w-full rounded-md bg-accent px-2 py-1 text-left text-sm text-accent-foreground"
                                                     } else {
-                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent/30 hover:text-foreground"
+                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
                                                     };
 
                                                     let id = db.id.clone();
