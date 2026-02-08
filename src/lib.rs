@@ -267,19 +267,70 @@ impl ApiClient {
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
 
-            // Backend may return `databases: null` when empty.
-            // Normalize to an empty list for a stable UI.
-            let databases_value = match data.get("databases") {
-                Some(v) if v.is_array() => v.clone(),
-                Some(v) if v.is_null() => serde_json::Value::Array(vec![]),
-                _ => serde_json::Value::Array(vec![]),
+            // hulunote backends have (at least) two shapes:
+            // 1) { "databases": [ { id, name, description, created_at, updated_at } ] }
+            // 2) { "database-list": [ { "hulunote-databases/id": ..., ... } ], "settings": {} }
+            let list_value = if let Some(v) = data.get("databases") {
+                v.clone()
+            } else if let Some(v) = data.get("database-list") {
+                v.clone()
+            } else {
+                serde_json::Value::Null
             };
 
-            Ok(serde_json::from_value(databases_value).map_err(|e| e.to_string())?)
+            // Normalize null/invalid to empty list for a stable UI.
+            let list = match list_value {
+                serde_json::Value::Array(v) => v,
+                _ => vec![],
+            };
+
+            let mut out: Vec<Database> = Vec::with_capacity(list.len());
+            for item in list {
+                // Preferred (new) format.
+                if item.get("id").and_then(|v| v.as_str()).is_some() {
+                    if let Ok(db) = serde_json::from_value::<Database>(item.clone()) {
+                        out.push(db);
+                        continue;
+                    }
+                }
+
+                // Legacy/namespaced format.
+                let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+                let id = get_s("hulunote-databases/id")
+                    .or_else(|| get_s("id"))
+                    .unwrap_or_default();
+                let name = get_s("hulunote-databases/name")
+                    .or_else(|| get_s("name"))
+                    .unwrap_or_default();
+                let description = get_s("hulunote-databases/description")
+                    .or_else(|| get_s("description"))
+                    .unwrap_or_default();
+                let created_at = get_s("hulunote-databases/created-at")
+                    .or_else(|| get_s("created_at"))
+                    .unwrap_or_default();
+                let updated_at = get_s("hulunote-databases/updated-at")
+                    .or_else(|| get_s("updated_at"))
+                    .unwrap_or_default();
+
+                // Only push if it looks like a real database record.
+                if !id.trim().is_empty() && !name.trim().is_empty() {
+                    out.push(Database {
+                        id,
+                        name,
+                        description,
+                        created_at,
+                        updated_at,
+                    });
+                }
+            }
+
+            Ok(out)
         } else if res.status().as_u16() == 401 {
             Err("Unauthorized".to_string())
         } else {
-            Err("Failed to get databases".to_string())
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Failed to get databases ({status}): {body}"))
         }
     }
 
