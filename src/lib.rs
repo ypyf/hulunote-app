@@ -424,7 +424,7 @@ pub fn LoginPage() -> impl IntoView {
                     <div>
                         <button
                             type="submit"
-                            disabled=loading.get()
+                            disabled=move || loading.get()
                             class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                         >
                             {move || if loading.get() { "Signing in..." } else { "Sign in" }}
@@ -621,7 +621,7 @@ pub fn RegistrationPage() -> impl IntoView {
                         <div>
                             <button
                                 type="submit"
-                                disabled=loading.get()
+                                disabled=move || loading.get()
                                 class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                             >
                                 {move || if loading.get() { "Creating account..." } else { "Create account" }}
@@ -692,7 +692,7 @@ pub fn HomePage() -> impl IntoView {
                             <button
                                 class="text-gray-500 hover:text-gray-700"
                                 on:click=move |_| load_databases()
-                                disabled=loading.get()
+                                disabled=move || loading.get()
                             >
                                 {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
                             </button>
