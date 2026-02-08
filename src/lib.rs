@@ -129,21 +129,21 @@ pub struct CreateDatabaseRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UpdateDatabaseRequest {
-    // Backend accepts `database_id` or `id`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Backend accepts `database-id` or `id`.
+    #[serde(rename = "database-id", skip_serializing_if = "Option::is_none")]
     pub database_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 
-    // Backend uses `db_name` for rename.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Backend uses `db-name` for rename.
+    #[serde(rename = "db-name", skip_serializing_if = "Option::is_none")]
     pub db_name: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "is-public", skip_serializing_if = "Option::is_none")]
     pub is_public: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "is-default", skip_serializing_if = "Option::is_none")]
     pub is_default: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "is-delete", skip_serializing_if = "Option::is_none")]
     pub is_delete: Option<bool>,
 }
 
