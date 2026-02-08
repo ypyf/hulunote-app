@@ -7,7 +7,9 @@ use crate::components::ui::{
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::{Route, Router, Routes};
+use leptos_router::hooks::use_navigate;
 use leptos_router::path;
+use leptos_router::params::Params;
 use serde::{Deserialize, Serialize};
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
@@ -886,9 +888,12 @@ pub fn AppLayout(children: Children) -> impl IntoView {
         persist_sidebar();
     };
 
+    let navigate = use_navigate();
+
     let on_select_db = move |id: String| {
-        current_db_id.set(Some(id));
+        current_db_id.set(Some(id.clone()));
         persist_current_db();
+        navigate(&format!("/db/{}", id), Default::default());
     };
 
     let on_logout = move |_| {
@@ -1007,16 +1012,90 @@ pub fn AppLayout(children: Children) -> impl IntoView {
 }
 
 #[component]
-pub fn RootPage() -> impl IntoView {
+pub fn RootAuthed(children: Children) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
 
     view! {
         <Show when=is_authenticated fallback=move || view! { <LoginPage /> }>
             <AppLayout>
-                <HomePage />
+                {children()}
             </AppLayout>
         </Show>
+    }
+}
+
+#[component]
+pub fn RootPage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
+    let navigate = use_navigate();
+
+    // If we already have a database selected, treat `/` as a redirect to `/db/:db_id`.
+    Effect::new(move |_| {
+        if is_authenticated() {
+            if let Some(id) = app_state.0.current_database_id.get() {
+                if !id.trim().is_empty() {
+                    navigate(&format!("/db/{}", id), Default::default());
+                }
+            }
+        }
+    });
+
+    view! {
+        <RootAuthed>
+            <HomePage />
+        </RootAuthed>
+    }
+}
+
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct DbRouteParams {
+    pub db_id: Option<String>,
+}
+
+#[component]
+pub fn DbHomePage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<DbRouteParams>();
+
+    let db_id = move || params.get().ok().and_then(|p| p.db_id);
+
+    // Keep global selection in sync with URL.
+    Effect::new(move |_| {
+        if let Some(id) = db_id() {
+            if app_state.0.current_database_id.get() != Some(id.clone()) {
+                app_state.0.current_database_id.set(Some(id));
+            }
+        }
+    });
+
+    let db_name = move || {
+        let id = db_id()?;
+        app_state
+            .0
+            .databases
+            .get()
+            .into_iter()
+            .find(|d| d.id == id)
+            .map(|d| d.name)
+    };
+
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">
+                    {move || db_name().unwrap_or_else(|| "Database".to_string())}
+                </h1>
+                <p class="text-xs text-muted-foreground">
+                    {move || format!("db_id: {}", db_id().unwrap_or_default())}
+                </p>
+            </div>
+
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "Phase 3: This is the database home page. Note list and editor will be added in later phases."
+            </div>
+        </div>
     }
 }
 
@@ -1026,12 +1105,17 @@ pub fn App() -> impl IntoView {
 
     // IMPORTANT:
     // - Leptos CSR requires the `csr` feature on `leptos`.
-    // - `use_location()`/router hooks require a <Router> context.
+    // - router hooks require a <Router> context.
     view! {
         <Router>
             <Routes fallback=|| view! { <div class="px-4 py-8 text-xs text-muted-foreground">"Not found"</div> }>
                 <Route path=path!("login") view=LoginPage />
                 <Route path=path!("signup") view=RegistrationPage />
+                <Route path=path!("db/:db_id") view=move || view! {
+                    <RootAuthed>
+                        <DbHomePage />
+                    </RootAuthed>
+                } />
                 <Route path=path!("") view=RootPage />
             </Routes>
         </Router>
