@@ -244,7 +244,16 @@ impl ApiClient {
 
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-            Ok(serde_json::from_value(data["databases"].clone()).map_err(|e| e.to_string())?)
+
+            // Backend may return `databases: null` when empty.
+            // Normalize to an empty list for a stable UI.
+            let databases_value = match data.get("databases") {
+                Some(v) if v.is_array() => v.clone(),
+                Some(v) if v.is_null() => serde_json::Value::Array(vec![]),
+                _ => serde_json::Value::Array(vec![]),
+            };
+
+            Ok(serde_json::from_value(databases_value).map_err(|e| e.to_string())?)
         } else if res.status().as_u16() == 401 {
             Err("Unauthorized".to_string())
         } else {
