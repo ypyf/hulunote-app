@@ -1650,7 +1650,7 @@ pub fn DbHomePage() -> impl IntoView {
                     <Button
                         variant=ButtonVariant::Outline
                         size=ButtonSize::Sm
-                        class="bg-surface hover:bg-surface-hover"
+                        class="bg-surface hover:bg-accent-soft"
                         on:click=on_open_rename
                     >
                         "Rename"
