@@ -257,6 +257,67 @@ impl ApiClient {
             .map_err(|e| e.to_string())
     }
 
+    fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
+        // hulunote backends have (at least) two shapes:
+        // 1) { "databases": [ { id, name, description, created_at, updated_at } ] }
+        // 2) { "database-list": [ { "hulunote-databases/id": ..., ... } ], "settings": {} }
+        let list_value = if let Some(v) = data.get("databases") {
+            v.clone()
+        } else if let Some(v) = data.get("database-list") {
+            v.clone()
+        } else {
+            serde_json::Value::Null
+        };
+
+        // Normalize null/invalid to empty list for a stable UI.
+        let list = match list_value {
+            serde_json::Value::Array(v) => v,
+            _ => vec![],
+        };
+
+        let mut out: Vec<Database> = Vec::with_capacity(list.len());
+        for item in list {
+            // Preferred (new) format.
+            if item.get("id").and_then(|v| v.as_str()).is_some() {
+                if let Ok(db) = serde_json::from_value::<Database>(item.clone()) {
+                    out.push(db);
+                    continue;
+                }
+            }
+
+            // Legacy/namespaced format.
+            let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let id = get_s("hulunote-databases/id")
+                .or_else(|| get_s("id"))
+                .unwrap_or_default();
+            let name = get_s("hulunote-databases/name")
+                .or_else(|| get_s("name"))
+                .unwrap_or_default();
+            let description = get_s("hulunote-databases/description")
+                .or_else(|| get_s("description"))
+                .unwrap_or_default();
+            let created_at = get_s("hulunote-databases/created-at")
+                .or_else(|| get_s("created_at"))
+                .unwrap_or_default();
+            let updated_at = get_s("hulunote-databases/updated-at")
+                .or_else(|| get_s("updated_at"))
+                .unwrap_or_default();
+
+            // Only push if it looks like a real database record.
+            if !id.trim().is_empty() && !name.trim().is_empty() {
+                out.push(Database {
+                    id,
+                    name,
+                    description,
+                    created_at,
+                    updated_at,
+                });
+            }
+        }
+
+        out
+    }
+
     pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
         // First try with current token
         let res = Self::request_database_list(&self.base_url, self.get_auth_token()).await?;
@@ -266,65 +327,7 @@ impl ApiClient {
 
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-
-            // hulunote backends have (at least) two shapes:
-            // 1) { "databases": [ { id, name, description, created_at, updated_at } ] }
-            // 2) { "database-list": [ { "hulunote-databases/id": ..., ... } ], "settings": {} }
-            let list_value = if let Some(v) = data.get("databases") {
-                v.clone()
-            } else if let Some(v) = data.get("database-list") {
-                v.clone()
-            } else {
-                serde_json::Value::Null
-            };
-
-            // Normalize null/invalid to empty list for a stable UI.
-            let list = match list_value {
-                serde_json::Value::Array(v) => v,
-                _ => vec![],
-            };
-
-            let mut out: Vec<Database> = Vec::with_capacity(list.len());
-            for item in list {
-                // Preferred (new) format.
-                if item.get("id").and_then(|v| v.as_str()).is_some() {
-                    if let Ok(db) = serde_json::from_value::<Database>(item.clone()) {
-                        out.push(db);
-                        continue;
-                    }
-                }
-
-                // Legacy/namespaced format.
-                let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
-                let id = get_s("hulunote-databases/id")
-                    .or_else(|| get_s("id"))
-                    .unwrap_or_default();
-                let name = get_s("hulunote-databases/name")
-                    .or_else(|| get_s("name"))
-                    .unwrap_or_default();
-                let description = get_s("hulunote-databases/description")
-                    .or_else(|| get_s("description"))
-                    .unwrap_or_default();
-                let created_at = get_s("hulunote-databases/created-at")
-                    .or_else(|| get_s("created_at"))
-                    .unwrap_or_default();
-                let updated_at = get_s("hulunote-databases/updated-at")
-                    .or_else(|| get_s("updated_at"))
-                    .unwrap_or_default();
-
-                // Only push if it looks like a real database record.
-                if !id.trim().is_empty() && !name.trim().is_empty() {
-                    out.push(Database {
-                        id,
-                        name,
-                        description,
-                        created_at,
-                        updated_at,
-                    });
-                }
-            }
-
-            Ok(out)
+            Ok(Self::parse_database_list_response(data))
         } else if res.status().as_u16() == 401 {
             Err("Unauthorized".to_string())
         } else {
@@ -1050,10 +1053,14 @@ mod tests {
             username: None,
             password: "pass".to_string(),
             registration_code: "FA8E-AF6E-4578-9347".to_string(),
+            ack_number: None,
+            binding_code: None,
+            binding_platform: Some("whatsapp".to_string()),
         };
         let v = serde_json::to_value(req).expect("should serialize");
         assert_eq!(v["email"], "u@example.com");
         assert_eq!(v["registration_code"], "FA8E-AF6E-4578-9347");
+        assert_eq!(v["binding-platform"], "whatsapp");
     }
 
     #[test]
@@ -1102,5 +1109,46 @@ mod tests {
         let mut client = ApiClient::new("http://localhost:6689".to_string());
         client.set_token("my-jwt-token".to_string());
         assert!(client.is_authenticated());
+    }
+
+    #[test]
+    fn test_parse_database_list_response_new_shape() {
+        let v = serde_json::json!({
+            "databases": [
+                {
+                    "id": "db1",
+                    "name": "My DB",
+                    "description": "desc",
+                    "created_at": "t1",
+                    "updated_at": "t2"
+                }
+            ]
+        });
+
+        let out = ApiClient::parse_database_list_response(v);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "db1");
+        assert_eq!(out[0].name, "My DB");
+    }
+
+    #[test]
+    fn test_parse_database_list_response_legacy_shape() {
+        let v = serde_json::json!({
+            "database-list": [
+                {
+                    "hulunote-databases/id": "0a1dd8e1-e255-4b35-937e-bac27dea1274",
+                    "hulunote-databases/name": "ypyf-9361",
+                    "hulunote-databases/description": "",
+                    "hulunote-databases/created-at": "2026-02-08T15:59:24.130460+00:00",
+                    "hulunote-databases/updated-at": "2026-02-08T15:59:24.130460+00:00"
+                }
+            ],
+            "settings": {}
+        });
+
+        let out = ApiClient::parse_database_list_response(v);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "ypyf-9361");
+        assert!(out[0].id.starts_with("0a1dd8e1"));
     }
 }
