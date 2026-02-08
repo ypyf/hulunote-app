@@ -197,8 +197,10 @@ impl ApiClient {
         self.token.as_ref()
     }
 
-    fn get_auth_header(&self) -> Option<String> {
-        self.token.as_ref().map(|t| format!("Bearer {}", t))
+    /// The legacy Hulunote clients use `X-FUNCTOR-API-TOKEN` as the auth header.
+    /// Prefer that to avoid backend/header mismatches.
+    fn get_auth_token(&self) -> Option<String> {
+        self.token.clone()
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
@@ -222,13 +224,16 @@ impl ApiClient {
 
     async fn request_database_list(
         base_url: &str,
-        auth_header: Option<String>,
+        token: Option<String>,
     ) -> Result<reqwest::Response, String> {
         let client = reqwest::Client::new();
         let mut req = client.post(format!("{}/hulunote/get-database-list", base_url));
-        if let Some(header) = auth_header {
-            req = req.header("Authorization", header);
+
+        // Match the legacy client contract.
+        if let Some(token) = token {
+            req = req.header("X-FUNCTOR-API-TOKEN", token);
         }
+
         req.json(&serde_json::json!({}))
             .send()
             .await
@@ -237,7 +242,7 @@ impl ApiClient {
 
     pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
         // First try with current token
-        let res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
+        let res = Self::request_database_list(&self.base_url, self.get_auth_token()).await?;
 
         // Backend (hulunote-rust) does not provide a refresh-token endpoint.
         // If token is invalid/expired, caller should force re-login.
@@ -987,17 +992,17 @@ mod tests {
     }
 
     #[test]
-    fn test_api_client_get_auth_header_without_token() {
+    fn test_api_client_get_auth_token_without_token() {
         let client = ApiClient::new("http://localhost:6689".to_string());
-        assert!(client.get_auth_header().is_none());
+        assert!(client.get_auth_token().is_none());
     }
 
     #[test]
-    fn test_api_client_get_auth_header_with_token() {
+    fn test_api_client_get_auth_token_with_token() {
         let mut client = ApiClient::new("http://localhost:6689".to_string());
         client.set_token("my-jwt-token".to_string());
-        let header = client.get_auth_header().expect("Should have auth header");
-        assert_eq!(header, "Bearer my-jwt-token");
+        let token = client.get_auth_token().expect("Should have auth token");
+        assert_eq!(token, "my-jwt-token");
     }
 
     #[test]
