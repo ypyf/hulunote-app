@@ -8,7 +8,7 @@ This client is built with **Leptos** (Rust WASM framework) and connects to the [
 
 ## Tech Stack
 
-- **Framework**: Leptos 0.7.x (Rust WASM)
+- **Framework**: Leptos 0.8.x (Rust WASM)
 - **Build Tool**: Trunk
 - **Styling**: Tailwind CSS
 - **Routing**: leptos_router

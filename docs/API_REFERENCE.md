@@ -51,23 +51,38 @@ Response (success) (hulunote-rust):
 
 ## Database Endpoints
 
+> Note: hulunote-rust responses/requests are **kebab-case** / legacy-compatible.
+> In the wild you may see both the “new” (`databases`) and “legacy” (`database-list`) response shapes.
+>
+> Auth header may be either:
+> - `Authorization: Bearer <jwt>` (hulunote-rust documented)
+> - `X-FUNCTOR-API-TOKEN: <jwt>` (legacy client)
+
 ### Get Database List
 ```http
 POST /hulunote/get-database-list
 Authorization: Bearer <token>
 Content-Type: application/json
 
-Response:
+Request:
+{}
+
+Response (hulunote-rust):
 {
-  "databases": [
+  "database-list": [
     {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "My Notebook",
-      "description": "My personal notes",
-      "created_at": "2026-02-08T10:00:00Z",
-      "updated_at": "2026-02-08T10:00:00Z"
+      "hulunote-databases/id": "0a1dd8e1-e255-4b35-937e-bac27dea1274",
+      "hulunote-databases/name": "My Notebook",
+      "hulunote-databases/description": "My personal notes",
+      "hulunote-databases/account-id": 3,
+      "hulunote-databases/is-default": true,
+      "hulunote-databases/is-delete": false,
+      "hulunote-databases/is-public": false,
+      "hulunote-databases/created-at": "2026-02-08T15:59:24.130460+00:00",
+      "hulunote-databases/updated-at": "2026-02-08T15:59:24.130460+00:00"
     }
-  ]
+  ],
+  "settings": {}
 }
 ```
 
@@ -77,21 +92,24 @@ POST /hulunote/new-database
 Authorization: Bearer <token>
 Content-Type: application/json
 
-Request:
+Request (hulunote-rust handler expects these keys):
 {
-  "name": "New Database",
+  "database-name": "New Database",
   "description": "Description here"
 }
+
+(Backend struct uses `database_name` internally, but it is deserialized from kebab-case.)
 
 Response:
 {
   "database": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "name": "New Database",
-    "description": "Description here",
-    "created_at": "2026-02-08T10:00:00Z",
-    "updated_at": "2026-02-08T10:00:00Z"
-  }
+    "hulunote-databases/id": "...",
+    "hulunote-databases/name": "New Database",
+    "hulunote-databases/description": "Description here",
+    "hulunote-databases/created-at": "...",
+    "hulunote-databases/updated-at": "..."
+  },
+  "success": true
 }
 ```
 
@@ -103,13 +121,41 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Updated Name"
+  "database_id": "<uuid>",
+  "db_name": "Updated Name"
 }
+
+Notes:
+- The backend accepts `database_id` **or** `id`.
+- Currently supports updating: `db_name` (name), `is_public`, `is_default`, `is_delete`.
+- **Does not update description** (as of current hulunote-rust handler).
 
 Response:
 {
   "success": true
+}
+```
+
+### Delete Database (Soft Delete)
+```http
+POST /hulunote/delete-database
+Authorization: Bearer <token>
+Content-Type: application/json
+
+Request (either id or name):
+{
+  "database-id": "<uuid>"
+}
+
+OR
+{
+  "database-name": "My Notebook"
+}
+
+Response:
+{
+  "success": true,
+  "message": "Database deleted successfully"
 }
 ```
 
