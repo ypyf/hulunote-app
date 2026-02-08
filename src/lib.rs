@@ -70,6 +70,19 @@ pub struct GetNoteListRequest {
     pub page_size: i32,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SignupRequest {
+    pub email: String,
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SignupResponse {
+    pub message: String,
+    pub user: Option<User>,
+}
+
 #[derive(Clone)]
 pub struct ApiClient {
     base_url: String,
@@ -121,6 +134,30 @@ impl ApiClient {
         } else {
             Err(format!("Failed to get databases"))
         }
+    }
+
+    pub async fn signup(&self, email: &str, username: &str, password: &str) -> Result<SignupResponse, String> {
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&format!("{}/login/web-signup", self.base_url))
+            .json(&SignupRequest {
+                email: email.to_string(),
+                username: username.to_string(),
+                password: password.to_string(),
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            res.json().await.map_err(|e| e.to_string())
+        } else {
+            Err(format!("Signup failed"))
+        }
+    }
+
+    pub fn logout(&mut self) {
+        self.token = None;
     }
 }
 
@@ -196,11 +233,17 @@ pub fn LoginPage() -> impl IntoView {
     view! {
         <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
             <div class="max-w-md w-full space-y-8">
-                <div>
-                    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                        "Sign in to Hulunote"
-                    </h2>
-                </div>
+                    <div>
+                        <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                            "Sign in to Hulunote"
+                        </h2>
+                        <p class="mt-2 text-center text-sm text-gray-600">
+                            "Or "
+                            <a href="/signup" class="font-medium text-indigo-600 hover:text-indigo-500">
+                                "create a new account"
+                            </a>
+                        </p>
+                    </div>
                 <form class="mt-8 space-y-6" on:submit=on_submit>
                     <div class="rounded-md shadow-sm -space-y-px">
                         <div>
@@ -235,6 +278,176 @@ pub fn LoginPage() -> impl IntoView {
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn RegistrationPage() -> impl IntoView {
+    let email: RwSignal<String> = RwSignal::new(String::new());
+    let username: RwSignal<String> = RwSignal::new(String::new());
+    let password: RwSignal<String> = RwSignal::new(String::new());
+    let confirm_password: RwSignal<String> = RwSignal::new(String::new());
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let success: RwSignal<bool> = RwSignal::new(false);
+
+    let app_state = expect_context::<AppContext>();
+
+    let on_submit = move |_| {
+        let email_val = email.get();
+        let username_val = username.get();
+        let password_val = password.get();
+        let confirm_password_val = confirm_password.get();
+        let mut api_client = app_state.0.api_client.get_untracked();
+
+        if password_val != confirm_password_val {
+            error.set(Some("Passwords do not match".to_string()));
+            return;
+        }
+
+        if password_val.len() < 6 {
+            error.set(Some("Password must be at least 6 characters".to_string()));
+            return;
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        spawn_local(async move {
+            match api_client.signup(&email_val, &username_val, &password_val).await {
+                Ok(_response) => {
+                    success.set(true);
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    let email_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                email.set(input.value());
+            }
+        }
+    };
+
+    let username_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                username.set(input.value());
+            }
+        }
+    };
+
+    let password_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                password.set(input.value());
+            }
+        }
+    };
+
+    let confirm_password_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                confirm_password.set(input.value());
+            }
+        }
+    };
+
+    view! {
+        <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
+            <div class="max-w-md w-full space-y-8">
+                <div>
+                    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                        "Create your account"
+                    </h2>
+                    <p class="mt-2 text-center text-sm text-gray-600">
+                        "Or "
+                        <a href="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
+                            "sign in to existing account"
+                        </a>
+                    </p>
+                </div>
+                <Show when=move || !success.get() fallback=move || view! {
+                    <div class="text-center">
+                        <div class="rounded-md bg-green-50 p-4 mb-4">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                </div>
+                                <div class="ml-3">
+                                    <p class="text-sm font-medium text-green-800">
+                                        "Account created successfully! Redirecting to login..."
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <a href="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
+                            "Click here to sign in"
+                        </a>
+                    </div>
+                }>
+                    <form class="mt-8 space-y-6" on:submit=on_submit>
+                        <div class="rounded-md shadow-sm -space-y-px">
+                            <div>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Username"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    on:input=username_input
+                                />
+                            </div>
+                            <div>
+                                <input
+                                    type="email"
+                                    required
+                                    placeholder="Email address"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    on:input=email_input
+                                />
+                            </div>
+                            <div>
+                                <input
+                                    type="password"
+                                    required
+                                    placeholder="Password (min 6 characters)"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    on:input=password_input
+                                />
+                            </div>
+                            <div>
+                                <input
+                                    type="password"
+                                    required
+                                    placeholder="Confirm password"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    on:input=confirm_password_input
+                                />
+                            </div>
+                        </div>
+
+                        {move || error.get().map(|e| view! { <div class="text-red-500 text-sm text-center">{e}</div> })}
+
+                        <div>
+                            <button
+                                type="submit"
+                                disabled=loading.get()
+                                class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                            >
+                                {move || if loading.get() { "Creating account..." } else { "Create account" }}
+                            </button>
+                        </div>
+                    </form>
+                </Show>
             </div>
         </div>
     }
@@ -287,7 +500,11 @@ pub fn App() -> impl IntoView {
     let pathname = move || location.pathname.get();
 
     view! {
-        <Show when=move || pathname() == "/login" fallback=move || view! { <HomePage /> }>
+        <Show when=move || pathname() == "/login" fallback=move || view! {
+            <Show when=move || pathname() == "/signup" fallback=move || view! { <HomePage /> }>
+                <RegistrationPage />
+            </Show>
+        }>
             <LoginPage />
         </Show>
     }
@@ -463,6 +680,49 @@ mod tests {
         assert_eq!(json["database_id"], "db-1");
         assert_eq!(json["page"], 1);
         assert_eq!(json["page_size"], 20);
+    }
+
+    #[test]
+    fn test_signup_request_serialization() {
+        let req = SignupRequest {
+            email: "user@example.com".to_string(),
+            username: "newuser".to_string(),
+            password: "securepassword123".to_string(),
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["email"], "user@example.com");
+        assert_eq!(json["username"], "newuser");
+        assert_eq!(json["password"], "securepassword123");
+    }
+
+    #[test]
+    fn test_signup_response_deserialization() {
+        let json_data = json!({
+            "message": "User created successfully",
+            "user": {
+                "id": "user-123",
+                "email": "newuser@example.com",
+                "username": "newuser"
+            }
+        });
+
+        let response: SignupResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.message, "User created successfully");
+        assert!(response.user.is_some());
+        assert_eq!(response.user.unwrap().email, "newuser@example.com");
+    }
+
+    #[test]
+    fn test_signup_response_without_user() {
+        let json_data = json!({
+            "message": "User created successfully",
+            "user": null
+        });
+
+        let response: SignupResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.message, "User created successfully");
+        assert!(response.user.is_none());
     }
 
     #[test]
