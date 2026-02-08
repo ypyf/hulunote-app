@@ -40,14 +40,15 @@
 
 ## Phase 4: Database Management
 
-- [ ] Implement database list view
-- [ ] Implement database selection
-- [ ] Implement database creation dialog
-- [ ] Implement database rename dialog
-- [ ] Implement database deletion
-- [ ] Connect to `POST /hulunote/get-database-list`
-- [ ] Connect to `POST /hulunote/new-database`
-- [ ] Connect to `POST /hulunote/update-database`
+- [x] Implement database list view (sidebar)
+- [x] Implement database selection
+- [x] Implement database creation dialog
+- [x] Implement database rename dialog
+- [x] Implement database deletion
+- [x] Connect to `POST /hulunote/get-database-list`
+- [x] Connect to `POST /hulunote/new-database`
+- [x] Connect to `POST /hulunote/update-database`
+- [x] Connect to `POST /hulunote/delete-database`
 
 ## Phase 5: Note Management (List View)
 
