@@ -47,7 +47,7 @@ brew install tailwindcss
 ### Development
 
 ```bash
-# Start dev server at http://localhost:8080 (with auto-rebuild)
+# Start dev server(with auto-rebuild)
 trunk serve
 ```
 
@@ -109,10 +109,6 @@ hulunote-app/
 - [Leptos Development Guide](./docs/LEPTOS_GUIDE.md)
 - [Test Guide](./docs/TEST_GUIDE.md)
 - [Rust/UI Guide](./docs/RUST_UI_GUIDE.md)
-
-## Backend Connection
-
-Default backend URL: `http://localhost:6689`
 
 ## Desktop Build
 
