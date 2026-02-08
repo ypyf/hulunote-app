@@ -1,0 +1,137 @@
+# AGENTS.md
+
+## How Agents Are Expected to Work Here
+
+Agents operating in this repository must follow a strict, engineering-driven workflow:
+
+- Work from an explicit TODO list
+- Complete **one task at a time**
+- Prefer **test-driven development** when behavior changes
+- Verify work against:
+  - Design documents (PRD, specs, invariants)
+  - Tests and acceptance criteria
+- Commit all code changes
+- Preserve reusable lessons in this file
+
+Uncommitted changes or undocumented lessons are considered incomplete work.
+
+If a task is ambiguous, underspecified, or conflicts with existing design:
+
+- Stop
+- Explain the issue clearly
+- Request clarification
+- Do **not** guess or invent requirements
+
+---
+
+## Definition of Done (Agent-Level)
+
+A task is considered complete **only if all applicable conditions are met**:
+
+- Expected behavior is defined and verified by tests (when applicable)
+- Code changes are committed to Git
+- Reusable lessons have been recorded in `AGENTS.md` (when applicable)
+
+Speed is never prioritized over correctness, test coverage, or clarity.
+
+---
+
+## Design and Architecture Constraints
+
+Agents must respect the following high-level constraints:
+
+- Design documents are the source of truth, not existing code behavior
+- Architectural boundaries must not be crossed casually
+- Refactors, optimizations, or stylistic changes require explicit intent
+- Do not expand scope beyond the current task
+
+If a task requires changing the design itself:
+
+- Propose the design change explicitly
+- Do not silently adjust behavior
+
+---
+
+## Test-Driven Development Expectations
+
+For tasks involving behavior changes or new functionality:
+
+- Prefer writing or identifying tests **before** implementation
+- Tests define expected behavior and completion criteria
+- Tests should fail before implementation and pass after (when applicable)
+
+If TDD is not feasible:
+
+- Explicitly state why (e.g. pure refactor, documentation-only change)
+- Never skip tests silently
+
+Tests are treated as executable design constraints.
+
+---
+
+## Version Control Discipline
+
+This repository is Git-managed.
+
+Rules:
+
+- Any task that modifies code **must** end with a commit
+- Each TODO item maps to at most one commit
+- Commits must:
+  - Be scoped to the current task
+  - Include relevant tests
+  - Have clear, imperative commit messages explaining WHAT and WHY
+
+Uncommitted work is considered unfinished work.
+
+---
+
+## Common Pitfalls to Avoid
+
+Agents should be especially careful to avoid:
+
+- Making assumptions about undocumented behavior
+- Treating existing behavior as correct without design confirmation
+- Refactoring or optimizing “while you’re here”
+- Skipping tests because changes seem “small”
+- Forgetting to persist lessons learned after a difficult task
+
+If something was confusing, non-obvious, or surprising once,
+it will be confusing again unless documented here.
+
+---
+
+## Updating This File
+
+Agents **must** update `AGENTS.md` when:
+
+- An incorrect assumption was made
+- A library or framework behaved in a non-obvious way
+- A specific mental model was required to succeed
+- A mistake is likely to be repeated in the future
+
+When adding entries:
+
+- Capture **distilled conclusions**, not debugging timelines
+- Clearly state:
+  - The incorrect assumption or pitfall
+  - The correct mental model
+  - Why the incorrect approach fails
+  - The correct approach to use next time
+- Keep entries concise, factual, and actionable
+
+If no reusable knowledge was gained:
+
+- Explicitly state that no update is required
+- Do not add filler content
+
+---
+
+## Final Principle
+
+This file exists so that:
+> **The second attempt is always easier than the first.**
+
+Agents are expected to leave the codebase
+more understandable, more predictable, and less fragile
+than they found it.
