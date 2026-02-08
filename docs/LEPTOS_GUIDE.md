@@ -62,12 +62,21 @@ view! {
 
 Closure must match expected signature. Avoid generic closures in view!.
 
-## Cargo.toml for WASM
+## Cargo.toml for WASM / CSR
+
+Client-side rendering (CSR) in Leptos requires enabling the `csr` feature on the `leptos` crate.
 
 ```toml
 [lib]
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]  # cdylib is REQUIRED
+
+[dependencies]
+# Enable client-side rendering
+leptos = { version = "0.7.x", features = ["csr"] }
+
+# Router does not have a `csr` feature; use the default crate features
+leptos_router = "0.7.x"
 
 [dependencies.web-sys]
 version = "0.3"
@@ -81,6 +90,10 @@ features = [
     "EventTarget",
 ]
 ```
+
+If you forget to enable `csr`, you will see a runtime warning like:
+
+> It seems like you're trying to use Leptos in client-side rendering mode, but the `csr` feature is not enabled...
 
 ## web-sys Types
 
