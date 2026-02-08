@@ -169,6 +169,15 @@ pub struct GetNoteListRequest {
     pub page_size: i32,
 }
 
+fn today_yyyymmdd_local() -> String {
+    // Use system local timezone (browser runtime).
+    let d = js_sys::Date::new_0();
+    let y = d.get_full_year();
+    let m = d.get_month() + 1;
+    let day = d.get_date();
+    format!("{:04}{:02}{:02}", y, m, day)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
@@ -544,6 +553,81 @@ impl ApiClient {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             Err(format!("Delete database failed ({status}): {body}"))
+        }
+    }
+
+    fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
+        let note_value = data.get("note").cloned().unwrap_or(data);
+
+        // Preferred (new) format.
+        if note_value.get("id").and_then(|v| v.as_str()).is_some() {
+            if let Ok(note) = serde_json::from_value::<Note>(note_value.clone()) {
+                return Some(note);
+            }
+        }
+
+        // Legacy/namespaced format.
+        let get_s = |k: &str| {
+            note_value
+                .get(k)
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        };
+        let id = get_s("hulunote-notes/id")
+            .or_else(|| get_s("id"))
+            .unwrap_or_default();
+        let database_id = get_s("hulunote-notes/database-id")
+            .or_else(|| get_s("database_id"))
+            .or_else(|| get_s("database-id"))
+            .unwrap_or_default();
+        let title = get_s("hulunote-notes/title")
+            .or_else(|| get_s("title"))
+            .unwrap_or_default();
+        let created_at = get_s("hulunote-notes/created-at")
+            .or_else(|| get_s("created_at"))
+            .unwrap_or_default();
+        let updated_at = get_s("hulunote-notes/updated-at")
+            .or_else(|| get_s("updated_at"))
+            .unwrap_or_default();
+
+        if id.trim().is_empty() {
+            return None;
+        }
+
+        Some(Note {
+            id,
+            database_id,
+            title,
+            content: String::new(),
+            created_at,
+            updated_at,
+        })
+    }
+
+    pub async fn create_note(&self, database_id: &str, title: &str) -> Result<Note, String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/new-note", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        // Be liberal: some deployments accept snake_case, some kebab-case.
+        let payload = serde_json::json!({
+            "database_id": database_id,
+            "database-id": database_id,
+            "title": title,
+        });
+
+        let res = req.json(&payload).send().await.map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            Self::parse_create_note_response(data)
+                .ok_or_else(|| "Create note succeeded but response could not be parsed".to_string())
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Create note failed ({status}): {body}"))
         }
     }
 
@@ -1592,6 +1676,40 @@ pub struct DbRouteParams {
     pub db_id: Option<String>,
 }
 
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct NoteRouteParams {
+    pub db_id: Option<String>,
+    pub note_id: Option<String>,
+}
+
+#[component]
+pub fn NotePage() -> impl IntoView {
+    let params = leptos_router::hooks::use_params::<NoteRouteParams>();
+
+    let (db_id, note_id) = params
+        .get()
+        .ok()
+        .map(|p| (p.db_id.unwrap_or_default(), p.note_id.unwrap_or_default()))
+        .unwrap_or_default();
+
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Note"</h1>
+                <p class="text-xs text-muted-foreground">{format!("db_id: {}", db_id)}</p>
+                <p class="text-xs text-muted-foreground">{format!("note_id: {}", note_id)}</p>
+            </div>
+            <Card>
+                <CardContent>
+                    <div class="text-sm text-muted-foreground">
+                        "Note detail/editor will be implemented next (Phase 5/6)."
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    }
+}
+
 #[component]
 pub fn DbHomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
@@ -1599,6 +1717,10 @@ pub fn DbHomePage() -> impl IntoView {
     let navigate = StoredValue::new(use_navigate());
 
     let rename_open: RwSignal<bool> = RwSignal::new(false);
+
+    // Phase 5: create note (non-paginated)
+    let create_note_loading: RwSignal<bool> = RwSignal::new(false);
+    let create_note_error: RwSignal<Option<String>> = RwSignal::new(None);
     let rename_value: RwSignal<String> = RwSignal::new(String::new());
     let rename_loading: RwSignal<bool> = RwSignal::new(false);
     let rename_error: RwSignal<Option<String>> = RwSignal::new(None);
@@ -1616,29 +1738,15 @@ pub fn DbHomePage() -> impl IntoView {
         }
     };
 
-    // Keep global selection in sync with URL.
-    Effect::new(move |_| {
-        let id = db_id();
-        if !id.trim().is_empty() && app_state.0.current_database_id.get() != Some(id.clone()) {
-            app_state.0.current_database_id.set(Some(id.clone()));
-            persist_current_db(&id);
-        }
-    });
-
-    // Phase 5 (non-paginated): load notes for current database.
-    Effect::new(move |_| {
+    let reload_notes = move || {
         let id = db_id();
         if id.trim().is_empty() {
             return;
         }
-
-        // Avoid reloading if we already have notes for the same DB.
-        // (Later we'll track per-db cache; for now keep it simple.)
         app_state.0.notes_loading.set(true);
         app_state.0.notes_error.set(None);
 
         let api_client = app_state.0.api_client.get_untracked();
-
         spawn_local(async move {
             match api_client.get_all_note_list(&id).await {
                 Ok(notes) => {
@@ -1659,6 +1767,20 @@ pub fn DbHomePage() -> impl IntoView {
             }
             app_state.0.notes_loading.set(false);
         });
+    };
+
+    // Keep global selection in sync with URL.
+    Effect::new(move |_| {
+        let id = db_id();
+        if !id.trim().is_empty() && app_state.0.current_database_id.get() != Some(id.clone()) {
+            app_state.0.current_database_id.set(Some(id.clone()));
+            persist_current_db(&id);
+        }
+    });
+
+    // Phase 5 (non-paginated): load notes for current database.
+    Effect::new(move |_| {
+        reload_notes();
     });
 
     let db = move || {
@@ -1667,6 +1789,37 @@ pub fn DbHomePage() -> impl IntoView {
     };
 
     let refresh_databases = move || {
+        let id = db_id();
+        if id.trim().is_empty() {
+            return;
+        }
+        app_state.0.notes_loading.set(true);
+        app_state.0.notes_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.get_all_note_list(&id).await {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        app_state.0.notes_error.set(Some(e));
+                        app_state.0.notes.set(vec![]);
+                    }
+                }
+            }
+            app_state.0.notes_loading.set(false);
+        });
+    };
+
+    let _refresh_databases = move || {
         let mut c = app_state.0.api_client.get_untracked();
         spawn_local(async move {
             if let Ok(dbs) = c.get_database_list().await {
@@ -1803,14 +1956,65 @@ pub fn DbHomePage() -> impl IntoView {
                         <Button
                             variant=ButtonVariant::Outline
                             size=ButtonSize::Sm
-                            attr:disabled=true
-                            attr:title="Create note (coming next)"
+                            attr:disabled=move || create_note_loading.get()
+                            on:click=move |_| {
+                                if create_note_loading.get_untracked() {
+                                    return;
+                                }
+
+                                create_note_loading.set(true);
+                                create_note_error.set(None);
+
+                                let id = db_id();
+                                let title = today_yyyymmdd_local();
+                                let api_client = app_state.0.api_client.get_untracked();
+
+                                spawn_local(async move {
+                                    match api_client.create_note(&id, &title).await {
+                                        Ok(note) => {
+                                            // Refresh list then navigate to note.
+                                            reload_notes();
+                                            navigate.with_value(|nav| {
+                                                nav(
+                                                    &format!("/db/{}/note/{}", id, note.id),
+                                                    Default::default(),
+                                                );
+                                            });
+                                        }
+                                        Err(e) => {
+                                            if e == "Unauthorized" {
+                                                let mut c = app_state.0.api_client.get_untracked();
+                                                c.logout();
+                                                app_state.0.api_client.set(c);
+                                                app_state.0.current_user.set(None);
+                                                let _ = window().location().set_href("/login");
+                                            } else {
+                                                create_note_error.set(Some(e));
+                                            }
+                                        }
+                                    }
+                                    create_note_loading.set(false);
+                                });
+                            }
+                            attr:title="New note"
                         >
-                            "New"
+                            {move || if create_note_loading.get() { "Creating..." } else { "New" }}
                         </Button>
                     </div>
 
-                    <div class="mt-3">
+                    <div class="mt-3 space-y-2">
+                        <Show when=move || create_note_error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                create_note_error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
                         <Show
                             when=move || !app_state.0.notes_loading.get()
                             fallback=move || view! {
@@ -1845,12 +2049,15 @@ pub fn DbHomePage() -> impl IntoView {
                                                 .into_iter()
                                                 .map(|n| {
                                                     view! {
-                                                        <div class="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+                                                        <a
+                                                            href=format!("/db/{}/note/{}", db_id(), n.id)
+                                                            class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                        >
                                                             <div class="min-w-0">
                                                                 <div class="truncate text-sm font-medium">{n.title}</div>
                                                                 <div class="truncate text-xs text-muted-foreground">{n.updated_at}</div>
                                                             </div>
-                                                        </div>
+                                                        </a>
                                                     }
                                                 })
                                                 .collect_view()
@@ -2014,6 +2221,11 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("db/:db_id") view=move || view! {
                     <RootAuthed>
                         <DbHomePage />
+                    </RootAuthed>
+                } />
+                <Route path=path!("db/:db_id/note/:note_id") view=move || view! {
+                    <RootAuthed>
+                        <NotePage />
                     </RootAuthed>
                 } />
                 <Route path=path!("search") view=move || view! {
