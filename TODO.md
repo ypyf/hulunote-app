@@ -23,7 +23,7 @@
 - [x] Implement login API integration (`POST /login/web-login`)
 - [x] Implement registration API integration (`POST /login/web-signup`)
 - [x] Implement JWT token storage (localStorage)
-- [x] Implement token refresh mechanism
+- [x] Handle expired/invalid token (backend has no refresh-token endpoint; force re-login on 401)
 - [x] Implement logout functionality
 - [x] Handle session persistence on reload
 - [x] Create auth middleware (protected routes)

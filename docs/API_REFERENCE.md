@@ -19,14 +19,11 @@ Request:
   "password": "password123"
 }
 
-Response (success):
+Response (success) (hulunote-rust):
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "username": "username"
-  }
+  "token": "<jwt>",
+  "hulunote": { /* account info object (backend-defined fields) */ },
+  "region": null
 }
 ```
 
@@ -43,14 +40,12 @@ Request:
   "registration_code": "FA8E-AF6E-4578-9347"
 }
 
-Response (success):
+Response (success) (hulunote-rust):
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "username": "username"
-  }
+  "token": "<jwt>",
+  "hulunote": { /* account info object (backend-defined fields) */ },
+  "database": "<db_name>",
+  "region": null
 }
 ```
 

@@ -137,7 +137,7 @@ This project (hulunote-app) is a fresh implementation of the hulunote client.
 #### 4.1.1 Account
 | Field | Type | Description |
 |-------|------|-------------|
-| id | UUID | Unique identifier |
+| id | i64 | Unique identifier (hulunote-rust account id) |
 | email | String | Email address |
 | username | String | Username |
 | password_hash | String | Hashed password |
@@ -238,15 +238,12 @@ This client communicates with the hulunote backend API. See [API_REFERENCE.md](.
    v
 4. System validates registration code
    |
-   +-- success --> Create account, send verification email
+   +-- success --> Create account (no email verification in hulunote-rust)
    |
    +-- failure --> Return error message
    |
    v
-5. Email verification (optional)
-   |
-   v
-6. Complete registration, redirect to homepage
+5. Complete registration, redirect to login/homepage
 ```
 
 ### 6.2 Login Flow

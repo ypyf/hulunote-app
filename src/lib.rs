@@ -45,29 +45,21 @@ fn get_api_url() -> String {
     EnvConfig::new().api_url
 }
 
+/// Backend account info object.
+///
+/// hulunote-rust returns this under the `hulunote` field.
+/// We keep it flexible to avoid breaking when backend fields evolve.
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct User {
-    pub id: String,
-    pub email: String,
-    pub username: String,
+pub struct AccountInfo {
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginResponse {
     pub token: String,
-    pub refresh_token: Option<String>,
-    pub user: User,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RefreshTokenRequest {
-    pub refresh_token: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RefreshTokenResponse {
-    pub token: String,
-    pub refresh_token: Option<String>,
+    pub hulunote: AccountInfo,
+    pub region: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -126,21 +118,23 @@ pub struct GetNoteListRequest {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
-    pub username: String,
+    pub username: Option<String>,
     pub password: String,
+    pub registration_code: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupResponse {
-    pub message: String,
-    pub user: Option<User>,
+    pub token: String,
+    pub hulunote: AccountInfo,
+    pub database: Option<String>,
+    pub region: Option<String>,
 }
 
 #[derive(Clone)]
 pub struct ApiClient {
     base_url: String,
     token: Option<String>,
-    refresh_token: Option<String>,
 }
 
 impl ApiClient {
@@ -148,7 +142,6 @@ impl ApiClient {
         Self {
             base_url,
             token: None,
-            refresh_token: None,
         }
     }
 
@@ -158,15 +151,7 @@ impl ApiClient {
             .and_then(|w| w.local_storage().ok().flatten())
             .and_then(|s| s.get_item(TOKEN_KEY).ok().flatten());
 
-        let refresh_token = leptos::web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
-            .and_then(|s| s.get_item(REFRESH_TOKEN_KEY).ok().flatten());
-
-        Self {
-            base_url,
-            token,
-            refresh_token,
-        }
+        Self { base_url, token }
     }
 
     pub fn save_to_storage(&self) {
@@ -176,9 +161,6 @@ impl ApiClient {
             if let Some(token) = &self.token {
                 let _ = storage.set_item(TOKEN_KEY, token);
             }
-            if let Some(refresh_token) = &self.refresh_token {
-                let _ = storage.set_item(REFRESH_TOKEN_KEY, refresh_token);
-            }
         }
     }
 
@@ -187,7 +169,6 @@ impl ApiClient {
             .and_then(|w| w.local_storage().ok().flatten())
         {
             let _ = storage.remove_item(TOKEN_KEY);
-            let _ = storage.remove_item(REFRESH_TOKEN_KEY);
             let _ = storage.remove_item(USER_KEY);
         }
     }
@@ -196,43 +177,12 @@ impl ApiClient {
         self.token = Some(token);
     }
 
-    pub fn set_refresh_token(&mut self, refresh_token: Option<String>) {
-        self.refresh_token = refresh_token;
-    }
-
     pub fn get_token(&self) -> Option<&String> {
         self.token.as_ref()
     }
 
     fn get_auth_header(&self) -> Option<String> {
         self.token.as_ref().map(|t| format!("Bearer {}", t))
-    }
-
-    pub async fn refresh_token(&mut self) -> Result<bool, String> {
-        let refresh_token = match &self.refresh_token {
-            Some(token) => token.clone(),
-            None => return Err("No refresh token available".to_string()),
-        };
-
-        let client = reqwest::Client::new();
-        let res = client
-            .post(&format!("{}/login/refresh", self.base_url))
-            .json(&RefreshTokenRequest {
-                refresh_token,
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            let response: RefreshTokenResponse = res.json().await.map_err(|e| e.to_string())?;
-            self.token = Some(response.token);
-            self.refresh_token = response.refresh_token;
-            self.save_to_storage();
-            Ok(true)
-        } else {
-            Err("Token refresh failed".to_string())
-        }
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
@@ -273,13 +223,8 @@ impl ApiClient {
         // First try with current token
         let mut res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
 
-        // If unauthorized, attempt refresh once then retry
-        if res.status().as_u16() == 401 {
-            let refreshed = self.refresh_token().await.unwrap_or(false);
-            if refreshed {
-                res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
-            }
-        }
+        // Backend (hulunote-rust) does not provide a refresh-token endpoint.
+        // If token is invalid/expired, caller should force re-login.
 
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
@@ -291,14 +236,25 @@ impl ApiClient {
         }
     }
 
-    pub async fn signup(&self, email: &str, username: &str, password: &str) -> Result<SignupResponse, String> {
+    pub async fn signup(
+        &self,
+        email: &str,
+        username: &str,
+        password: &str,
+        registration_code: &str,
+    ) -> Result<SignupResponse, String> {
         let client = reqwest::Client::new();
         let res = client
             .post(&format!("{}/login/web-signup", self.base_url))
             .json(&SignupRequest {
                 email: email.to_string(),
-                username: username.to_string(),
+                username: if username.trim().is_empty() {
+                    None
+                } else {
+                    Some(username.to_string())
+                },
                 password: password.to_string(),
+                registration_code: registration_code.to_string(),
             })
             .send()
             .await
@@ -307,13 +263,12 @@ impl ApiClient {
         if res.status().is_success() {
             res.json().await.map_err(|e| e.to_string())
         } else {
-            Err(format!("Signup failed"))
+            Err("Signup failed".to_string())
         }
     }
 
     pub fn logout(&mut self) {
         self.token = None;
-        self.refresh_token = None;
         Self::clear_storage();
     }
 
@@ -325,15 +280,14 @@ impl ApiClient {
 #[derive(Clone)]
 pub struct AppState {
     pub api_client: RwSignal<ApiClient>,
-    pub current_user: RwSignal<Option<User>>,
+    pub current_user: RwSignal<Option<AccountInfo>>,
     pub databases: RwSignal<Vec<Database>>,
 }
 
 const TOKEN_KEY: &str = "hulunote_token";
-const REFRESH_TOKEN_KEY: &str = "hulunote_refresh_token";
 const USER_KEY: &str = "hulunote_user";
 
-fn save_user_to_storage(user: &User) {
+fn save_user_to_storage(user: &AccountInfo) {
     if let Ok(json) = serde_json::to_string(user) {
         if let Some(storage) = web_sys::window()
             .and_then(|w| w.local_storage().ok().flatten())
@@ -343,7 +297,7 @@ fn save_user_to_storage(user: &User) {
     }
 }
 
-fn load_user_from_storage() -> Option<User> {
+fn load_user_from_storage() -> Option<AccountInfo> {
     if let Some(storage) = web_sys::window()
         .and_then(|w| w.local_storage().ok().flatten())
     {
@@ -390,11 +344,10 @@ pub fn LoginPage() -> impl IntoView {
             match api_client.login(&email_val, &password_val).await {
                 Ok(response) => {
                     api_client.set_token(response.token);
-                    api_client.set_refresh_token(response.refresh_token);
                     api_client.save_to_storage();
-                    save_user_to_storage(&response.user);
+                    save_user_to_storage(&response.hulunote);
                     app_state.0.api_client.set(api_client);
-                    app_state.0.current_user.set(Some(response.user));
+                    app_state.0.current_user.set(Some(response.hulunote));
                     let _ = window().location().set_href("/");
                 }
                 Err(e) => {
@@ -480,6 +433,7 @@ pub fn RegistrationPage() -> impl IntoView {
     let username: RwSignal<String> = RwSignal::new(String::new());
     let password: RwSignal<String> = RwSignal::new(String::new());
     let confirm_password: RwSignal<String> = RwSignal::new(String::new());
+    let registration_code: RwSignal<String> = RwSignal::new(String::new());
     let error: RwSignal<Option<String>> = RwSignal::new(None);
     let loading: RwSignal<bool> = RwSignal::new(false);
     let success: RwSignal<bool> = RwSignal::new(false);
@@ -491,6 +445,7 @@ pub fn RegistrationPage() -> impl IntoView {
         let username_val = username.get();
         let password_val = password.get();
         let confirm_password_val = confirm_password.get();
+        let reg_code_val = registration_code.get();
         let api_client = app_state.0.api_client.get_untracked();
 
         if password_val != confirm_password_val {
@@ -503,12 +458,21 @@ pub fn RegistrationPage() -> impl IntoView {
             return;
         }
 
+        if reg_code_val.trim().is_empty() {
+            error.set(Some("Registration code is required".to_string()));
+            return;
+        }
+
         loading.set(true);
         error.set(None);
 
         spawn_local(async move {
-            match api_client.signup(&email_val, &username_val, &password_val).await {
+            match api_client
+                .signup(&email_val, &username_val, &password_val, &reg_code_val)
+                .await
+            {
                 Ok(_response) => {
+                    // Backend returns a token on signup; we keep UX simple and ask user to sign in.
                     success.set(true);
                 }
                 Err(e) => {
@@ -547,6 +511,14 @@ pub fn RegistrationPage() -> impl IntoView {
         if let Some(target) = e.target() {
             if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
                 confirm_password.set(input.value());
+            }
+        }
+    };
+
+    let registration_code_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                registration_code.set(input.value());
             }
         }
     };
@@ -620,8 +592,17 @@ pub fn RegistrationPage() -> impl IntoView {
                                     type="password"
                                     required
                                     placeholder="Confirm password"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                     on:input=confirm_password_input
+                                />
+                            </div>
+                            <div>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Registration code (required)"
+                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    on:input=registration_code_input
                                 />
                             </div>
                         </div>
@@ -828,7 +809,6 @@ mod tests {
         let client = ApiClient::new("http://localhost:6689".to_string());
         assert_eq!(client.base_url, "http://localhost:6689");
         assert!(client.token.is_none());
-        assert!(client.refresh_token.is_none());
     }
 
     #[test]
@@ -853,10 +833,10 @@ mod tests {
     }
 
     #[test]
-    fn test_api_client_set_refresh_token() {
-        let mut client = ApiClient::new("http://localhost:6689".to_string());
-        client.set_refresh_token(Some("my-refresh-token".to_string()));
-        assert_eq!(client.refresh_token, Some("my-refresh-token".to_string()));
+    fn test_api_client_no_refresh_token_support() {
+        // hulunote-rust does not expose refresh tokens.
+        let client = ApiClient::new("http://localhost:6689".to_string());
+        assert!(client.get_token().is_none());
     }
 
     #[test]
