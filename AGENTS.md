@@ -94,6 +94,7 @@ Rules:
   - Be scoped to the current task
   - Include relevant tests
   - Have clear, imperative commit messages explaining WHAT and WHY
+- **Never revert/restore/reset user-authored docs (AGENTS.md, docs/*) as part of an unrelated change.** If doc diffs appear unexpectedly, stop and ask for confirmation; if separation is needed, move doc changes into a dedicated commit instead of discarding them.
 
 Uncommitted work is considered unfinished work.
 
