@@ -838,9 +838,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         }
     };
 
-    let persist_current_db = move || {
+    let set_current_db = move |id: Option<String>| {
+        current_db_id.set(id.clone());
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let v = current_db_id.get().unwrap_or_default();
+            let v = id.unwrap_or_default();
             let _ = storage.set_item(CURRENT_DB_KEY, &v);
         }
     };
@@ -895,8 +896,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         let dbs = databases.get();
         if selected.is_none() {
             if let Some(first) = dbs.first() {
-                current_db_id.set(Some(first.id.clone()));
-                persist_current_db();
+                set_current_db(Some(first.id.clone()));
             }
         }
     });
@@ -959,7 +959,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         app_state.0.api_client.set(api_client);
         app_state.0.current_user.set(None);
         app_state.0.databases.set(vec![]);
-        app_state.0.current_database_id.set(None);
+        set_current_db(None);
         let _ = window().location().set_href("/login");
     };
 
@@ -1067,12 +1067,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                         <button
                                                             class=class
                                                             on:click=move |_| {
-                                                                current_db_id.set(Some(id.clone()));
-                                                                if let Some(storage) = web_sys::window()
-                                                                    .and_then(|w| w.local_storage().ok().flatten())
-                                                                {
-                                                                    let _ = storage.set_item(CURRENT_DB_KEY, &id);
-                                                                }
+                                                                set_current_db(Some(id.clone()));
                                                                 navigate.with_value(|nav| {
                                                                     nav(&format!("/db/{}", id), Default::default());
                                                                 });
@@ -1136,10 +1131,16 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 variant=ButtonVariant::Outline
                                 size=ButtonSize::Sm
                                 on:click=move |_| {
-                                    navigate.with_value(|nav| nav("/", Default::default()));
+                                    if let Some(id) = current_db_id.get() {
+                                        navigate.with_value(|nav| {
+                                            nav(&format!("/db/{}", id), Default::default());
+                                        });
+                                    } else {
+                                        navigate.with_value(|nav| nav("/", Default::default()));
+                                    }
                                 }
                             >
-                                "Home"
+                                "Current DB"
                             </Button>
                         </div>
                     </div>
