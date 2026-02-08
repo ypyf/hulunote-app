@@ -222,7 +222,7 @@ POST /hulunote/get-all-note-list
 Authorization: Bearer <token>
 Content-Type: application/json
 
-Request:
+Request (backend expects `database_id`):
 {
   "database_id": "550e8400-e29b-41d4-a716-446655440000"
 }
