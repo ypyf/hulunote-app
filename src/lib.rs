@@ -1,7 +1,8 @@
 mod components;
 
 use crate::components::ui::{
-    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Input, Label, Spinner,
+    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
+    CardHeader, CardTitle, Input, Label, Spinner,
 };
 use leptos::ev;
 use leptos::html;
@@ -638,13 +639,14 @@ pub fn LoginPage() -> impl IntoView {
                     <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
                 </div>
 
-                <div class="rounded-md border border-border bg-muted px-5 py-5 shadow-sm">
-                    <div class="mb-4 space-y-1">
-                        <h1 class="text-lg font-medium text-foreground">"Log in"</h1>
-                        <p class="text-xs text-muted-foreground">"Use your email and password to continue."</p>
-                    </div>
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-lg">"Log in"</CardTitle>
+                        <CardDescription class="text-xs">"Use your email and password to continue."</CardDescription>
+                    </CardHeader>
 
-                    <form class="flex flex-col gap-3" on:submit=on_submit>
+                    <CardContent>
+                        <form class="flex flex-col gap-3" on:submit=on_submit>
                         <div class="flex flex-col gap-1.5">
                             <Label html_for="email" class="text-xs">"Email"</Label>
                             <Input
@@ -701,7 +703,8 @@ pub fn LoginPage() -> impl IntoView {
                             <a class="text-primary underline underline-offset-4" href="/signup">"Sign up"</a>
                         </div>
                     </form>
-                </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     }
@@ -772,11 +775,12 @@ pub fn RegistrationPage() -> impl IntoView {
                     <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
                 </div>
 
-                <div class="rounded-md border border-border bg-muted px-5 py-5 shadow-sm">
-                    <div class="mb-4 space-y-1">
-                        <h1 class="text-lg font-medium text-foreground">"Create account"</h1>
-                        <p class="text-xs text-muted-foreground">"A registration code is required."</p>
-                    </div>
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-lg">"Create account"</CardTitle>
+                        <CardDescription class="text-xs">"A registration code is required."</CardDescription>
+                    </CardHeader>
+                    <CardContent>
 
                     <Show
                         when=move || !success.get()
@@ -884,7 +888,8 @@ pub fn RegistrationPage() -> impl IntoView {
                             </div>
                         </form>
                     </Show>
-                </div>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     }
@@ -916,9 +921,13 @@ pub fn HomePage() -> impl IntoView {
                 </p>
             </div>
 
-            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                "Phase 3: Layout & Navigation. Main content will become note list/editor in later phases."
-            </div>
+            <Card>
+                <CardContent>
+                    <div class="text-sm text-muted-foreground">
+                        "Phase 3: Layout & Navigation. Main content will become note list/editor in later phases."
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     }
 }
@@ -1163,7 +1172,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
     view! {
         <div class="min-h-screen bg-background text-foreground">
-            <div class="mx-auto flex min-h-screen w-full max-w-[1080px] gap-4 px-4 py-6">
+            <div class="mx-auto flex min-h-screen w-full max-w-5xl gap-4 px-4 py-6">
                 <aside class=move || format!("{} shrink-0", sidebar_width_class())>
                     <div class="sticky top-6 space-y-4">
                         <div class="flex items-center justify-between">
@@ -1173,26 +1182,34 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </Show>
                             </a>
 
-                            <button
-                                class="rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Icon
                                 on:click=on_toggle_sidebar
-                                title="Toggle sidebar"
+                                attr:title="Toggle sidebar"
+                                class="h-8 w-8"
                             >
-                                {move || if sidebar_collapsed.get() { ">" } else { "<" }}
-                            </button>
+                                <span class="text-xs text-muted-foreground">
+                                    {move || if sidebar_collapsed.get() { ">" } else { "<" }}
+                                </span>
+                            </Button>
                         </div>
 
                         <Show
                             when=move || !sidebar_collapsed.get()
                             fallback=|| view! {
-                                <div class="rounded-md border border-border bg-muted p-3 text-[11px] text-muted-foreground">
-                                    "Sidebar collapsed"
-                                </div>
+                                <Card>
+                                    <CardContent>
+                                        <div class="text-xs text-muted-foreground">"Sidebar collapsed"</div>
+                                    </CardContent>
+                                </Card>
                             }
                         >
-                            <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Search"</div>
-                                <div class="mt-2">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle class="text-xs text-muted-foreground">"Search"</CardTitle>
+                                </CardHeader>
+                                <CardContent>
                                     <Input
                                         node_ref=search_ref
                                         r#type="search"
@@ -1208,32 +1225,39 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                             }
                                         }
                                     />
-                                </div>
-                                <div class="mt-2 text-[11px] text-muted-foreground">
-                                    "Cmd/Ctrl+K to focus"
-                                </div>
-                            </div>
+                                    <div class="mt-2 text-xs text-muted-foreground">
+                                        "Cmd/Ctrl+K to focus"
+                                    </div>
+                                </CardContent>
+                            </Card>
 
-                            <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="flex items-center justify-between">
+                            <Card>
+                                <CardHeader>
+                                    <div class="flex items-center justify-between">
                                     <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
                                     <div class="flex items-center gap-2">
-                                        <button
-                                            class="text-[11px] text-muted-foreground hover:text-foreground"
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Icon
                                             on:click=move |_| open_create_dialog()
-                                            title="New database"
+                                            attr:title="New database"
+                                            class="h-7 w-7"
                                         >
-                                            "+"
-                                        </button>
-                                        <button
-                                            class="text-[11px] text-muted-foreground hover:text-foreground"
+                                            <span class="text-xs text-muted-foreground">"+"</span>
+                                        </Button>
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Icon
                                             on:click=move |_| load_databases()
-                                            title="Refresh"
+                                            attr:title="Refresh"
+                                            class="h-7 w-7"
                                         >
-                                            "↻"
-                                        </button>
+                                            <span class="text-xs text-muted-foreground">"↻"</span>
+                                        </Button>
                                     </div>
                                 </div>
+                                </CardHeader>
+                                <CardContent>
 
                                 <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
                                     {move || db_error.get().map(|e| view! {
@@ -1257,16 +1281,19 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 .into_iter()
                                                 .map(|db| {
                                                     let is_selected = selected.as_deref() == Some(db.id.as_str());
-                                                    let class = if is_selected {
-                                                        "w-full rounded-md bg-accent px-2 py-1 text-left text-sm text-accent-foreground"
+                                                    let variant = if is_selected {
+                                                        ButtonVariant::Accent
                                                     } else {
-                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                                                        ButtonVariant::Ghost
                                                     };
 
                                                     let id = db.id.clone();
                                                     view! {
-                                                        <button
-                                                            class=class
+                                                        <Button
+                                                            variant=variant
+                                                            size=ButtonSize::Sm
+                                                            class="w-full justify-start"
+                                                            attr:aria-current=move || if is_selected { Some("page") } else { None }
                                                             on:click=move |_| {
                                                                 set_current_db(Some(id.clone()));
                                                                 navigate.with_value(|nav| {
@@ -1275,32 +1302,41 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             }
                                                         >
                                                             {db.name}
-                                                        </button>
+                                                        </Button>
                                                     }
                                                 })
                                                 .collect_view()
                                         }}
                                     </Show>
                                 </div>
-                            </div>
+                                </CardContent>
+                            </Card>
 
-                            <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
-                                <div class="mt-2 space-y-1">
-                                    <button
-                                        class="w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle class="text-xs text-muted-foreground">"Navigation"</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div class="space-y-1">
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        size=ButtonSize::Sm
+                                        class="w-full justify-start"
                                         on:click=move |_| {
                                             navigate.with_value(|nav| nav("/settings", Default::default()));
                                         }
                                     >
                                         "Settings"
-                                    </button>
+                                    </Button>
                                 </div>
-                            </div>
+                                </CardContent>
+                            </Card>
 
-                            <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Account"</div>
-                                <div class="mt-2">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle class="text-xs text-muted-foreground">"Account"</CardTitle>
+                                </CardHeader>
+                                <CardContent>
                                     <Button
                                         variant=ButtonVariant::Outline
                                         size=ButtonSize::Sm
@@ -1309,8 +1345,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                     >
                                         "Sign out"
                                     </Button>
-                                </div>
-                            </div>
+                                </CardContent>
+                            </Card>
                         </Show>
                     </div>
                 </aside>
