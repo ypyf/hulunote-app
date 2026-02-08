@@ -772,13 +772,51 @@ pub fn HomePage() -> impl IntoView {
 }
 
 #[component]
+pub fn AppLayout(children: Children) -> impl IntoView {
+    view! {
+        <div class="min-h-screen bg-background text-foreground">
+            <div class="mx-auto flex min-h-screen w-full max-w-[1080px] gap-4 px-4 py-6">
+                <aside class="w-64 shrink-0">
+                    <div class="sticky top-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
+                            <span class="text-[11px] text-muted-foreground">"Phase 3"</span>
+                        </div>
+
+                        <div class="rounded-md border border-border bg-muted p-3">
+                            <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
+                            <div class="mt-2 space-y-1 text-sm">
+                                <a class="block rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground" href="/">"Databases"</a>
+                                <span class="block rounded-md px-2 py-1 text-muted-foreground">"Search"</span>
+                                <span class="block rounded-md px-2 py-1 text-muted-foreground">"Settings"</span>
+                            </div>
+                        </div>
+
+                        <div class="rounded-md border border-border bg-muted p-3">
+                            <div class="text-[11px] font-medium text-muted-foreground">"Sidebar"</div>
+                            <div class="mt-2 text-xs text-muted-foreground">
+                                "Database list + page tree will live here."
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <main class="min-w-0 flex-1">{children()}</main>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 pub fn RootPage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
 
     view! {
         <Show when=is_authenticated fallback=move || view! { <LoginPage /> }>
-            <HomePage />
+            <AppLayout>
+                <HomePage />
+            </AppLayout>
         </Show>
     }
 }
