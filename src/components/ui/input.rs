@@ -3,6 +3,7 @@
 use leptos::html;
 use leptos::prelude::*;
 use tw_merge::tw_merge;
+use wasm_bindgen::JsCast;
 
 #[allow(dead_code)]
 #[component]
@@ -20,7 +21,11 @@ pub fn Input(
     #[prop(optional)] required: bool,
     #[prop(optional)] autofocus: bool,
 
-    // Two-way binding (like bind:value)
+    // Two-way binding
+    //
+    // NOTE: We intentionally avoid `bind:value=...` here because Leptos binding
+    // APIs/macros have changed across versions, and Trunk builds for wasm32 in CI.
+    // This manual wiring is stable.
     #[prop(into, optional)] bind_value: Option<RwSignal<String>>,
 
     // Ref for direct DOM access
@@ -36,23 +41,34 @@ pub fn Input(
     );
 
     match bind_value {
-        Some(signal) => view! {
-            <input
-                data-name="Input"
-                type=r#type
-                class=merged_class
-                placeholder=placeholder
-                name=name
-                id=id
-                disabled=disabled
-                readonly=readonly
-                required=required
-                autofocus=autofocus
-                bind:value=signal
-                node_ref=node_ref
-            />
+        Some(signal) => {
+            let on_input = move |ev: web_sys::Event| {
+                if let Some(target) = ev.target() {
+                    if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                        signal.set(input.value());
+                    }
+                }
+            };
+
+            view! {
+                <input
+                    data-name="Input"
+                    type=r#type
+                    class=merged_class
+                    placeholder=placeholder
+                    name=name
+                    id=id
+                    disabled=disabled
+                    readonly=readonly
+                    required=required
+                    autofocus=autofocus
+                    value=move || signal.get()
+                    on:input=on_input
+                    node_ref=node_ref
+                />
+            }
+            .into_any()
         }
-        .into_any(),
         None => view! {
             <input
                 data-name="Input"
