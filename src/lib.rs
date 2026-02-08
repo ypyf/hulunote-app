@@ -13,16 +13,23 @@ impl EnvConfig {
     pub fn new() -> Self {
         let default_api_url = "http://localhost:6689".to_string();
 
+        // We support BOTH `window.ENV.API_URL` (documented in README) and
+        // `window.ENV.api_url` (legacy/implementation detail) for compatibility.
         if let Some(window) = web_sys::window() {
             if let Some(env) = window.get("ENV") {
                 if !env.is_undefined() && env.is_object() {
-                    match js_sys::Reflect::get(&env, &"api_url".into()) {
-                        Ok(api_url) => {
-                            if let Some(url_str) = api_url.as_string() {
-                                return Self { api_url: url_str };
-                            }
+                    // 1) Prefer README style: API_URL
+                    if let Ok(api_url) = js_sys::Reflect::get(&env, &"API_URL".into()) {
+                        if let Some(url_str) = api_url.as_string() {
+                            return Self { api_url: url_str };
                         }
-                        Err(_) => {}
+                    }
+
+                    // 2) Fallback: api_url
+                    if let Ok(api_url) = js_sys::Reflect::get(&env, &"api_url".into()) {
+                        if let Some(url_str) = api_url.as_string() {
+                            return Self { api_url: url_str };
+                        }
                     }
                 }
             }
@@ -247,18 +254,40 @@ impl ApiClient {
         }
     }
 
-    pub async fn get_database_list(&self) -> Result<Vec<Database>, String> {
+    async fn request_database_list(
+        base_url: &str,
+        auth_header: Option<String>,
+    ) -> Result<reqwest::Response, String> {
         let client = reqwest::Client::new();
-        let mut req = client.post(&format!("{}/hulunote/get-database-list", self.base_url));
-        if let Some(header) = self.get_auth_header() {
+        let mut req = client.post(&format!("{}/hulunote/get-database-list", base_url));
+        if let Some(header) = auth_header {
             req = req.header("Authorization", header);
         }
-        let res = req.json(&serde_json::json!({})).send().await.map_err(|e| e.to_string())?;
+        req.json(&serde_json::json!({}))
+            .send()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
+        // First try with current token
+        let mut res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
+
+        // If unauthorized, attempt refresh once then retry
+        if res.status().as_u16() == 401 {
+            let refreshed = self.refresh_token().await.unwrap_or(false);
+            if refreshed {
+                res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
+            }
+        }
+
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
             Ok(serde_json::from_value(data["databases"].clone()).map_err(|e| e.to_string())?)
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
         } else {
-            Err(format!("Failed to get databases"))
+            Err("Failed to get databases".to_string())
         }
     }
 
@@ -620,6 +649,45 @@ pub fn HomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let databases = app_state.0.databases;
 
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Load databases once we land on the home page.
+    // If token is invalid/expired, ApiClient::get_database_list will try refresh once.
+    // If still unauthorized, we force logout + redirect to /login.
+    let load_databases = move || {
+        let mut api_client = app_state.0.api_client.get_untracked();
+        loading.set(true);
+        error.set(None);
+
+        spawn_local(async move {
+            match api_client.get_database_list().await {
+                Ok(dbs) => {
+                    app_state.0.databases.set(dbs);
+                    app_state.0.api_client.set(api_client);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        // Session is not valid anymore.
+                        api_client.logout();
+                        app_state.0.api_client.set(api_client);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        error.set(Some(e));
+                        app_state.0.api_client.set(api_client);
+                    }
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    // Trigger on mount
+    Effect::new(move |_| {
+        load_databases();
+    });
+
     view! {
         <div class="min-h-screen bg-gray-50">
             <nav class="bg-white shadow-sm">
@@ -630,7 +698,14 @@ pub fn HomePage() -> impl IntoView {
                                 <h1 class="text-xl font-bold text-gray-900">"Hulunote"</h1>
                             </div>
                         </div>
-                        <div class="flex items-center">
+                        <div class="flex items-center gap-3">
+                            <button
+                                class="text-gray-500 hover:text-gray-700"
+                                on:click=move |_| load_databases()
+                                disabled=loading.get()
+                            >
+                                {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
+                            </button>
                             <button class="text-gray-500 hover:text-gray-700">"Settings"</button>
                         </div>
                     </div>
@@ -638,15 +713,46 @@ pub fn HomePage() -> impl IntoView {
             </nav>
 
             <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                <div class="px-4 py-6 sm:px-0">
-                    <div class="border-4 border-dashed border-gray-200 rounded-lg h-96 flex items-center justify-center">
-                        <p class="text-gray-500">
-                            {move || if databases.get().is_empty() {
-                                "No databases yet. Create your first database to get started."
-                            } else {
-                                "Select a database to view notes."
-                            }}
-                        </p>
+                <div class="px-4 py-6 sm:px-0 space-y-4">
+                    {move || error.get().map(|e| view!{
+                        <div class="rounded-md bg-red-50 p-4 text-sm text-red-700">{e}</div>
+                    })}
+
+                    <div class="border border-gray-200 bg-white rounded-lg p-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">"Databases"</h2>
+                            <span class="text-sm text-gray-500">{move || format!("{}", databases.get().len())}</span>
+                        </div>
+
+                        <div class="mt-3">
+                            <Show
+                                when=move || !databases.get().is_empty()
+                                fallback=move || view! {
+                                    <p class="text-gray-500">
+                                        {move || if loading.get() {
+                                            "Loading databases..."
+                                        } else {
+                                            "No databases yet. Create your first database to get started."
+                                        }}
+                                    </p>
+                                }
+                            >
+                                <ul class="space-y-2">
+                                    {move || {
+                                        databases
+                                            .get()
+                                            .into_iter()
+                                            .map(|db| view! {
+                                                <li class="border border-gray-100 rounded p-2">
+                                                    <div class="font-medium text-gray-900">{db.name}</div>
+                                                    <div class="text-sm text-gray-500">{db.description}</div>
+                                                </li>
+                                            })
+                                            .collect_view()
+                                    }}
+                                </ul>
+                            </Show>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -660,21 +766,48 @@ pub fn App() -> impl IntoView {
 
     let location = use_location();
     let pathname = move || location.pathname.get();
+
     let app_state = expect_context::<AppContext>();
-    let is_authenticated = move || app_state.0.api_client.get_untracked().is_authenticated();
+
+    // IMPORTANT: use reactive reads (get), not get_untracked, so auth changes rerender.
+    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
+
+    // Simple route protection: if user is not authenticated and tries to access any
+    // non-auth page, redirect to /login.
+    Effect::new(move |_| {
+        let path = pathname();
+        let authed = is_authenticated();
+        let is_auth_page = path == "/login" || path == "/signup";
+
+        if !authed && !is_auth_page {
+            let _ = window().location().set_href("/login");
+        }
+
+        // Optional: if already authenticated and visits /login, send them home
+        if authed && path == "/login" {
+            let _ = window().location().set_href("/");
+        }
+    });
 
     view! {
-        <Show when=move || pathname() == "/login" fallback=move || view! {
-            <Show when=move || pathname() == "/signup" fallback=move || view! {
-                <Show when=is_authenticated fallback=move || view! {
-                    <HomePage />
-                }>
-                    <HomePage />
+        <Show
+            when=move || pathname() == "/login"
+            fallback=move || view! {
+                <Show
+                    when=move || pathname() == "/signup"
+                    fallback=move || view! {
+                        <Show
+                            when=is_authenticated
+                            fallback=move || view! { <LoginPage /> }
+                        >
+                            <HomePage />
+                        </Show>
+                    }
+                >
+                    <RegistrationPage />
                 </Show>
-            }>
-                <RegistrationPage />
-            </Show>
-        }>
+            }
+        >
             <LoginPage />
         </Show>
     }
