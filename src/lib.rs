@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_router::hooks::use_location;
+use leptos_router::components::{Route, Router, Routes};
+use leptos_router::path;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -750,55 +751,32 @@ pub fn HomePage() -> impl IntoView {
 }
 
 #[component]
+pub fn RootPage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
+
+    view! {
+        <Show when=is_authenticated fallback=move || view! { <LoginPage /> }>
+            <HomePage />
+        </Show>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     provide_context(AppContext(AppState::new()));
 
-    let location = use_location();
-    let pathname = move || location.pathname.get();
-
-    let app_state = expect_context::<AppContext>();
-
-    // IMPORTANT: use reactive reads (get), not get_untracked, so auth changes rerender.
-    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
-
-    // Simple route protection: if user is not authenticated and tries to access any
-    // non-auth page, redirect to /login.
-    Effect::new(move |_| {
-        let path = pathname();
-        let authed = is_authenticated();
-        let is_auth_page = path == "/login" || path == "/signup";
-
-        if !authed && !is_auth_page {
-            let _ = window().location().set_href("/login");
-        }
-
-        // Optional: if already authenticated and visits /login, send them home
-        if authed && path == "/login" {
-            let _ = window().location().set_href("/");
-        }
-    });
-
+    // IMPORTANT:
+    // - Leptos CSR requires the `csr` feature on `leptos`.
+    // - `use_location()`/router hooks require a <Router> context.
     view! {
-        <Show
-            when=move || pathname() == "/login"
-            fallback=move || view! {
-                <Show
-                    when=move || pathname() == "/signup"
-                    fallback=move || view! {
-                        <Show
-                            when=is_authenticated
-                            fallback=move || view! { <LoginPage /> }
-                        >
-                            <HomePage />
-                        </Show>
-                    }
-                >
-                    <RegistrationPage />
-                </Show>
-            }
-        >
-            <LoginPage />
-        </Show>
+        <Router>
+            <Routes fallback=|| view! { <div class="p-4 text-gray-600">"Not found"</div> }>
+                <Route path=path!("login") view=LoginPage />
+                <Route path=path!("signup") view=RegistrationPage />
+                <Route path=path!("") view=RootPage />
+            </Routes>
+        </Router>
     }
 }
 
