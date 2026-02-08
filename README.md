@@ -108,6 +108,7 @@ hulunote-app/
 - [API Reference](./docs/API_REFERENCE.md)
 - [Leptos Development Guide](./docs/LEPTOS_GUIDE.md)
 - [Test Guide](./docs/TEST_GUIDE.md)
+- [Rust/UI Guide](./docs/RUST_UI_GUIDE.md)
 
 ## Backend Connection
 

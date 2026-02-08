@@ -1,3 +1,4 @@
+mod components;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::{Route, Router, Routes};
