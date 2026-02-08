@@ -366,9 +366,13 @@ impl ApiClient {
     }
 
     fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
-        // Expected shape (hulunote-rust): { "notes": [ { id, database_id, title, content, created_at, updated_at } ] }
-        // Be tolerant: if the payload is already an array, accept it.
+        // hulunote backends have multiple shapes:
+        // 1) { "notes": [ { id, database_id, title, content, created_at, updated_at } ] }
+        // 2) { "note-list": [ { "hulunote-notes/id": ..., "hulunote-notes/title": ..., ... } ] }
+        // 3) raw array
         let list_value = if let Some(v) = data.get("notes") {
+            v.clone()
+        } else if let Some(v) = data.get("note-list") {
             v.clone()
         } else {
             data.clone()
@@ -381,10 +385,45 @@ impl ApiClient {
 
         let mut out: Vec<Note> = Vec::with_capacity(list.len());
         for item in list {
-            if let Ok(note) = serde_json::from_value::<Note>(item) {
-                out.push(note);
+            // Preferred (new) format.
+            if item.get("id").and_then(|v| v.as_str()).is_some() {
+                if let Ok(note) = serde_json::from_value::<Note>(item.clone()) {
+                    out.push(note);
+                    continue;
+                }
+            }
+
+            // Legacy/namespaced format.
+            let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let id = get_s("hulunote-notes/id")
+                .or_else(|| get_s("id"))
+                .unwrap_or_default();
+            let database_id = get_s("hulunote-notes/database-id")
+                .or_else(|| get_s("database_id"))
+                .or_else(|| get_s("database-id"))
+                .unwrap_or_default();
+            let title = get_s("hulunote-notes/title")
+                .or_else(|| get_s("title"))
+                .unwrap_or_default();
+            let created_at = get_s("hulunote-notes/created-at")
+                .or_else(|| get_s("created_at"))
+                .unwrap_or_default();
+            let updated_at = get_s("hulunote-notes/updated-at")
+                .or_else(|| get_s("updated_at"))
+                .unwrap_or_default();
+
+            if !id.trim().is_empty() && !database_id.trim().is_empty() {
+                out.push(Note {
+                    id,
+                    database_id,
+                    title,
+                    content: String::new(),
+                    created_at,
+                    updated_at,
+                });
             }
         }
+
         out
     }
 
@@ -2200,5 +2239,27 @@ mod tests {
         assert_eq!(out[0].id, "n1");
         assert_eq!(out[0].database_id, "db1");
         assert_eq!(out[0].title, "Hello");
+    }
+
+    #[test]
+    fn test_parse_note_list_response_legacy_shape_note_list() {
+        let v = serde_json::json!({
+            "note-list": [
+                {
+                    "hulunote-notes/id": "n2",
+                    "hulunote-notes/database-id": "db2",
+                    "hulunote-notes/title": "Legacy",
+                    "hulunote-notes/created-at": "t1",
+                    "hulunote-notes/updated-at": "t2"
+                }
+            ]
+        });
+
+        let out = ApiClient::parse_note_list_response(v);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "n2");
+        assert_eq!(out[0].database_id, "db2");
+        assert_eq!(out[0].title, "Legacy");
+        assert_eq!(out[0].updated_at, "t2");
     }
 }

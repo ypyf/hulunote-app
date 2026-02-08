@@ -227,11 +227,25 @@ Request (backend expects kebab-case `database-id`):
   "database-id": "550e8400-e29b-41d4-a716-446655440000"
 }
 
-Response:
+Response (observed hulunote-rust legacy shape):
+{
+  "note-list": [
+    {
+      "hulunote-notes/id": "...",
+      "hulunote-notes/database-id": "...",
+      "hulunote-notes/title": "Note Title",
+      "hulunote-notes/created-at": "...",
+      "hulunote-notes/updated-at": "..."
+    }
+  ]
+}
+
+Response (newer shape):
 {
   "notes": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
+      "database_id": "...",
       "title": "Note Title",
       "content": "Content here",
       "created_at": "2026-02-08T10:00:00Z",
