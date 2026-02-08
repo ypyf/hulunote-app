@@ -388,41 +388,17 @@ impl ApiClient {
         out
     }
 
-    pub async fn get_all_note_list(
-        &self,
-        database_id: &str,
-        database_name: Option<&str>,
-    ) -> Result<Vec<Note>, String> {
+    pub async fn get_all_note_list(&self, database_id: &str) -> Result<Vec<Note>, String> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/get-all-note-list", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
 
-        // Be liberal in what we send: different deployed hulunote-rust builds
-        // use different field names (snake_case vs kebab-case vs legacy `database`).
-        let mut payload = serde_json::json!({
-            "database_id": database_id,
-            "database-id": database_id,
-        });
-        if let Some(name) = database_name {
-            if !name.trim().is_empty() {
-                if let serde_json::Value::Object(map) = &mut payload {
-                    map.insert(
-                        "database_name".to_string(),
-                        serde_json::Value::String(name.to_string()),
-                    );
-                    map.insert(
-                        "database-name".to_string(),
-                        serde_json::Value::String(name.to_string()),
-                    );
-                    map.insert(
-                        "database".to_string(),
-                        serde_json::Value::String(name.to_string()),
-                    );
-                }
-            }
-        }
-
-        let res = req.json(&payload).send().await.map_err(|e| e.to_string())?;
+        // hulunote-rust handler expects kebab-case: `database-id`
+        let res = req
+            .json(&serde_json::json!({ "database-id": database_id }))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
 
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
@@ -1623,16 +1599,9 @@ pub fn DbHomePage() -> impl IntoView {
         app_state.0.notes_error.set(None);
 
         let api_client = app_state.0.api_client.get_untracked();
-        let db_name = app_state
-            .0
-            .databases
-            .get_untracked()
-            .into_iter()
-            .find(|d| d.id == id)
-            .map(|d| d.name);
 
         spawn_local(async move {
-            match api_client.get_all_note_list(&id, db_name.as_deref()).await {
+            match api_client.get_all_note_list(&id).await {
                 Ok(notes) => {
                     app_state.0.notes.set(notes);
                 }
