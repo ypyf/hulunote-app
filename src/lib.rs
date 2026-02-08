@@ -134,9 +134,24 @@ pub struct GetNoteListRequest {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
+
+    /// Some hulunote backends expect a `username` string; older clients sometimes pass email here.
     pub username: Option<String>,
+
     pub password: String,
+
+    /// Registration/invite code.
     pub registration_code: String,
+
+    /// Optional fields used by some deployed backends (see legacy client).
+    #[serde(rename = "ack-number", skip_serializing_if = "Option::is_none")]
+    pub ack_number: Option<String>,
+
+    #[serde(rename = "binding-code", skip_serializing_if = "Option::is_none")]
+    pub binding_code: Option<String>,
+
+    #[serde(rename = "binding-platform", skip_serializing_if = "Option::is_none")]
+    pub binding_platform: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -218,7 +233,9 @@ impl ApiClient {
         if res.status().is_success() {
             res.json().await.map_err(|e| e.to_string())
         } else {
-            Err("Login failed".to_string())
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Login failed ({status}): {body}"))
         }
     }
 
@@ -274,17 +291,26 @@ impl ApiClient {
         registration_code: &str,
     ) -> Result<SignupResponse, String> {
         let client = reqwest::Client::new();
+
+        // Try to be compatible with the legacy client contract used in some deployments.
+        let username = if username.trim().is_empty() {
+            None
+        } else {
+            Some(username.to_string())
+        };
+
         let res = client
             .post(format!("{}/login/web-signup", self.base_url))
             .json(&SignupRequest {
                 email: email.to_string(),
-                username: if username.trim().is_empty() {
-                    None
-                } else {
-                    Some(username.to_string())
-                },
+                username,
                 password: password.to_string(),
                 registration_code: registration_code.to_string(),
+                // Leave ack/binding codes empty unless the backend requires them.
+                // But provide a default binding-platform matching the legacy client.
+                ack_number: None,
+                binding_code: None,
+                binding_platform: Some("whatsapp".to_string()),
             })
             .send()
             .await
@@ -293,7 +319,9 @@ impl ApiClient {
         if res.status().is_success() {
             res.json().await.map_err(|e| e.to_string())
         } else {
-            Err("Signup failed".to_string())
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Signup failed ({status}): {body}"))
         }
     }
 
