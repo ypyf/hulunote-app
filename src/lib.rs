@@ -2,7 +2,7 @@ mod components;
 
 use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
-    CardFooter, CardHeader, CardItem, CardList, CardTitle, Input, Label, Spinner,
+    CardHeader, CardItem, CardList, CardTitle, Input, Label, Spinner,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -380,78 +380,75 @@ pub fn LoginPage() -> impl IntoView {
 
     view! {
         <div class="min-h-screen bg-background">
-            <div class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-12">
-                <div class="mb-6">
+            <div class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-10">
+                <div class="mb-6 flex items-center justify-center">
                     <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
-                    <div class="text-xs text-muted-foreground">"Notes, organized."</div>
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-xl">"Sign in"</CardTitle>
-                        <CardDescription>
-                            "Welcome back. Use your Hulunote account to continue."
-                        </CardDescription>
-                    </CardHeader>
+                <div class="rounded-md border border-border bg-muted px-5 py-5 shadow-sm">
+                    <div class="mb-4 space-y-1">
+                        <h1 class="text-lg font-medium text-foreground">"Log in"</h1>
+                        <p class="text-xs text-muted-foreground">"Use your email and password to continue."</p>
+                    </div>
 
-                    <CardContent>
-                        <form class="flex flex-col gap-4" on:submit=on_submit>
-                            <div class="flex flex-col gap-2">
-                                <Label html_for="email">"Email"</Label>
-                                <Input
-                                    id="email"
-                                    r#type="email"
-                                    placeholder="you@example.com"
-                                    bind_value=email
-                                    required=true
-                                />
-                            </div>
-
-                            <div class="flex flex-col gap-2">
-                                <Label html_for="password">"Password"</Label>
-                                <Input
-                                    id="password"
-                                    r#type="password"
-                                    placeholder="••••••••"
-                                    bind_value=password
-                                    required=true
-                                />
-                            </div>
-
-                            <Show
-                                when=move || error.get().is_some()
-                                fallback=|| ().into_view()
-                            >
-                                {move || {
-                                    error.get().map(|e| view! {
-                                        <Alert class="border-destructive/30">
-                                            <AlertDescription class="text-destructive">{e}</AlertDescription>
-                                        </Alert>
-                                    })
-                                }}
-                            </Show>
-
-                            <Button
-                                class="w-full"
-                                attr:disabled=move || loading.get()
-                            >
-                                <span class="inline-flex items-center gap-2">
-                                    <Show when=move || loading.get() fallback=|| ().into_view()>
-                                        <Spinner />
-                                    </Show>
-                                    {move || if loading.get() { "Signing in..." } else { "Sign in" }}
-                                </span>
-                            </Button>
-                        </form>
-                    </CardContent>
-
-                    <CardFooter class="justify-between">
-                        <div class="text-xs text-muted-foreground">
-                            "No account? "
-                            <a class="text-primary underline underline-offset-4" href="/signup">"Create one"</a>
+                    <form class="flex flex-col gap-3" on:submit=on_submit>
+                        <div class="flex flex-col gap-1.5">
+                            <Label html_for="email" class="text-xs">"Email"</Label>
+                            <Input
+                                id="email"
+                                r#type="email"
+                                placeholder="you@example.com"
+                                bind_value=email
+                                required=true
+                                class="h-8 text-sm"
+                            />
                         </div>
-                    </CardFooter>
-                </Card>
+
+                        <div class="flex flex-col gap-1.5">
+                            <Label html_for="password" class="text-xs">"Password"</Label>
+                            <Input
+                                id="password"
+                                r#type="password"
+                                placeholder="••••••••"
+                                bind_value=password
+                                required=true
+                                class="h-8 text-sm"
+                            />
+                        </div>
+
+                        <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">
+                                                {e}
+                                            </AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
+                        <Button
+                            class="w-full"
+                            size=ButtonSize::Sm
+                            attr:disabled=move || loading.get()
+                        >
+                            <span class="inline-flex items-center gap-2">
+                                <Show when=move || loading.get() fallback=|| ().into_view()>
+                                    <Spinner />
+                                </Show>
+                                {move || if loading.get() { "Signing in..." } else { "Continue" }}
+                            </span>
+                        </Button>
+
+                        <div class="pt-1 text-xs text-muted-foreground">
+                            "No account? "
+                            <a class="text-primary underline underline-offset-4" href="/signup">"Sign up"</a>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     }
@@ -517,118 +514,124 @@ pub fn RegistrationPage() -> impl IntoView {
 
     view! {
         <div class="min-h-screen bg-background">
-            <div class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-12">
-                <div class="mb-6">
+            <div class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-10">
+                <div class="mb-6 flex items-center justify-center">
                     <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
-                    <div class="text-xs text-muted-foreground">"Create your account."</div>
                 </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle class="text-xl">"Create account"</CardTitle>
-                        <CardDescription>
-                            "Create a new Hulunote account using a registration code."
-                        </CardDescription>
-                    </CardHeader>
+                <div class="rounded-md border border-border bg-muted px-5 py-5 shadow-sm">
+                    <div class="mb-4 space-y-1">
+                        <h1 class="text-lg font-medium text-foreground">"Create account"</h1>
+                        <p class="text-xs text-muted-foreground">"A registration code is required."</p>
+                    </div>
 
-                    <CardContent>
-                        <Show
-                            when=move || !success.get()
-                            fallback=move || view! {
-                                <Alert>
-                                    <AlertDescription>
-                                        "Account created. You can now "
-                                        <a class="text-primary underline underline-offset-4" href="/login">"sign in"</a>
-                                        "."
-                                    </AlertDescription>
-                                </Alert>
-                            }
-                        >
-                            <form class="flex flex-col gap-4" on:submit=on_submit>
-                                <div class="flex flex-col gap-2">
-                                    <Label html_for="username">"Username"</Label>
-                                    <Input
-                                        id="username"
-                                        r#type="text"
-                                        placeholder="yourname"
-                                        bind_value=username
-                                        required=true
-                                    />
-                                </div>
+                    <Show
+                        when=move || !success.get()
+                        fallback=move || view! {
+                            <Alert>
+                                <AlertDescription class="text-xs">
+                                    "Account created. You can now "
+                                    <a class="text-primary underline underline-offset-4" href="/login">"log in"</a>
+                                    "."
+                                </AlertDescription>
+                            </Alert>
+                        }
+                    >
+                        <form class="flex flex-col gap-3" on:submit=on_submit>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="username" class="text-xs">"Username"</Label>
+                                <Input
+                                    id="username"
+                                    r#type="text"
+                                    placeholder="yourname"
+                                    bind_value=username
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
 
-                                <div class="flex flex-col gap-2">
-                                    <Label html_for="email">"Email"</Label>
-                                    <Input
-                                        id="email"
-                                        r#type="email"
-                                        placeholder="you@example.com"
-                                        bind_value=email
-                                        required=true
-                                    />
-                                </div>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="email" class="text-xs">"Email"</Label>
+                                <Input
+                                    id="email"
+                                    r#type="email"
+                                    placeholder="you@example.com"
+                                    bind_value=email
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
 
-                                <div class="flex flex-col gap-2">
-                                    <Label html_for="password">"Password"</Label>
-                                    <Input
-                                        id="password"
-                                        r#type="password"
-                                        placeholder="••••••••"
-                                        bind_value=password
-                                        required=true
-                                    />
-                                </div>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="password" class="text-xs">"Password"</Label>
+                                <Input
+                                    id="password"
+                                    r#type="password"
+                                    placeholder="••••••••"
+                                    bind_value=password
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
 
-                                <div class="flex flex-col gap-2">
-                                    <Label html_for="confirm_password">"Confirm password"</Label>
-                                    <Input
-                                        id="confirm_password"
-                                        r#type="password"
-                                        placeholder="••••••••"
-                                        bind_value=confirm_password
-                                        required=true
-                                    />
-                                </div>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="confirm_password" class="text-xs">"Confirm password"</Label>
+                                <Input
+                                    id="confirm_password"
+                                    r#type="password"
+                                    placeholder="••••••••"
+                                    bind_value=confirm_password
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
 
-                                <div class="flex flex-col gap-2">
-                                    <Label html_for="registration_code">"Registration code"</Label>
-                                    <Input
-                                        id="registration_code"
-                                        r#type="text"
-                                        placeholder="FA8E-AF6E-4578-9347"
-                                        bind_value=registration_code
-                                        required=true
-                                    />
-                                </div>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="registration_code" class="text-xs">"Registration code"</Label>
+                                <Input
+                                    id="registration_code"
+                                    r#type="text"
+                                    placeholder="FA8E-AF6E-4578-9347"
+                                    bind_value=registration_code
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
 
-                                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
-                                    {move || {
-                                        error.get().map(|e| view! {
+                            <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                                {move || {
+                                    error.get().map(|e| {
+                                        view! {
                                             <Alert class="border-destructive/30">
-                                                <AlertDescription class="text-destructive">{e}</AlertDescription>
+                                                <AlertDescription class="text-destructive text-xs">
+                                                    {e}
+                                                </AlertDescription>
                                             </Alert>
-                                        })
-                                    }}
-                                </Show>
+                                        }
+                                    })
+                                }}
+                            </Show>
 
-                                <Button class="w-full" attr:disabled=move || loading.get()>
-                                    <span class="inline-flex items-center gap-2">
-                                        <Show when=move || loading.get() fallback=|| ().into_view()>
-                                            <Spinner />
-                                        </Show>
-                                        {move || if loading.get() { "Creating..." } else { "Create account" }}
-                                    </span>
-                                </Button>
-                            </form>
-                        </Show>
-                    </CardContent>
+                            <Button
+                                class="w-full"
+                                size=ButtonSize::Sm
+                                attr:disabled=move || loading.get()
+                            >
+                                <span class="inline-flex items-center gap-2">
+                                    <Show when=move || loading.get() fallback=|| ().into_view()>
+                                        <Spinner />
+                                    </Show>
+                                    {move || if loading.get() { "Creating..." } else { "Continue" }}
+                                </span>
+                            </Button>
 
-                    <CardFooter class="justify-between">
-                        <div class="text-xs text-muted-foreground">
-                            "Already have an account? "
-                            <a class="text-primary underline underline-offset-4" href="/login">"Sign in"</a>
-                        </div>
-                    </CardFooter>
-                </Card>
+                            <div class="pt-1 text-xs text-muted-foreground">
+                                "Already have an account? "
+                                <a class="text-primary underline underline-offset-4" href="/login">"Log in"</a>
+                            </div>
+                        </form>
+                    </Show>
+                </div>
             </div>
         </div>
     }
