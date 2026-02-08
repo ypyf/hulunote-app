@@ -8,8 +8,4 @@ open = true
 [watch]
 features = []
 
-[tools.tailwind]
-config = "tailwind.config.js"
-css_file = "dist/style.css"
-input = "public/style.css"
-output = "dist/style.css"
+# Tailwind is configured via index.html <link data-trunk rel="tailwind-css" ...>
