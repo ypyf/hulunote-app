@@ -13,9 +13,9 @@ pub fn Input(
 
     // Common HTML attributes
     #[prop(into, default = "text")] r#type: &'static str,
-    #[prop(into, optional)] placeholder: Option<String>,
-    #[prop(into, optional)] name: Option<String>,
-    #[prop(into, optional)] id: Option<String>,
+    #[prop(into, optional)] placeholder: String,
+    #[prop(into, optional)] name: String,
+    #[prop(into, optional)] id: String,
     #[prop(optional)] disabled: bool,
     #[prop(optional)] readonly: bool,
     #[prop(optional)] required: bool,
@@ -26,7 +26,7 @@ pub fn Input(
     // NOTE: We intentionally avoid `bind:value=...` here because Leptos binding
     // APIs/macros have changed across versions, and Trunk builds for wasm32 in CI.
     // This manual wiring is stable.
-    #[prop(into, optional)] bind_value: Option<RwSignal<String>>,
+    #[prop(into)] bind_value: RwSignal<String>,
 
     // Ref for direct DOM access
     #[prop(optional)] node_ref: NodeRef<html::Input>,
@@ -40,50 +40,30 @@ pub fn Input(
         class
     );
 
-    match bind_value {
-        Some(signal) => {
-            let on_input = move |ev: web_sys::Event| {
-                if let Some(target) = ev.target() {
-                    if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                        signal.set(input.value());
-                    }
-                }
-            };
-
-            view! {
-                <input
-                    data-name="Input"
-                    type=r#type
-                    class=merged_class
-                    placeholder=placeholder
-                    name=name
-                    id=id
-                    disabled=disabled
-                    readonly=readonly
-                    required=required
-                    autofocus=autofocus
-                    value=move || signal.get()
-                    on:input=on_input
-                    node_ref=node_ref
-                />
+    let on_input = move |ev: web_sys::Event| {
+        if let Some(target) = ev.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                bind_value.set(input.value());
             }
-            .into_any()
         }
-        None => view! {
-            <input
-                data-name="Input"
-                type=r#type
-                class=merged_class
-                placeholder=placeholder
-                name=name
-                id=id
-                disabled=disabled
-                readonly=readonly
-                required=required
-                autofocus=autofocus
-                node_ref=node_ref
-            />
-        }
-        .into_any(),
+    };
+
+    view! {
+        <input
+            data-name="Input"
+            type=r#type
+            class=merged_class
+            placeholder=placeholder
+            name=name
+            id=id
+            disabled=disabled
+            readonly=readonly
+            required=required
+            autofocus=autofocus
+            value=move || bind_value.get()
+            on:input=on_input
+            node_ref=node_ref
+        />
     }
+    .into_any()
 }

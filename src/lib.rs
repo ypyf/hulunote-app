@@ -1,10 +1,18 @@
 mod components;
+
+use crate::components::ui::{
+    Alert, AlertDescription, Button, Card, CardContent, CardDescription, CardFooter, CardHeader,
+    CardTitle, Input, Label, Spinner,
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
+
+// Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
+#[cfg(all(target_arch = "wasm32", not(test)))]
+use wasm_bindgen::prelude::wasm_bindgen;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EnvConfig {
@@ -342,7 +350,9 @@ pub fn LoginPage() -> impl IntoView {
 
     let app_state = expect_context::<AppContext>();
 
-    let on_submit = move |_| {
+    let on_submit = move |ev: web_sys::SubmitEvent| {
+        ev.prevent_default();
+
         let email_val = email.get();
         let password_val = password.get();
         let mut api_client = app_state.0.api_client.get_untracked();
@@ -368,70 +378,75 @@ pub fn LoginPage() -> impl IntoView {
         });
     };
 
-    let email_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                email.set(input.value());
-            }
-        }
-    };
-
-    let password_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                password.set(input.value());
-            }
-        }
-    };
-
     view! {
-        <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
-            <div class="max-w-md w-full space-y-8">
-                    <div>
-                        <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                            "Sign in to Hulunote"
-                        </h2>
-                        <p class="mt-2 text-center text-sm text-gray-600">
-                            "Or "
-                            <a href="/signup" class="font-medium text-indigo-600 hover:text-indigo-500">
-                                "create a new account"
-                            </a>
-                        </p>
-                    </div>
-                <form class="mt-8 space-y-6" on:submit=on_submit>
-                    <div class="rounded-md shadow-sm -space-y-px">
-                        <div>
-                            <input
-                                type="email"
-                                required
-                                placeholder="Email address"
-                                class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                on:input=email_input
-                            />
-                        </div>
-                        <div>
-                            <input
-                                type="password"
-                                required
-                                placeholder="Password"
-                                class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                on:input=password_input
-                            />
-                        </div>
-                    </div>
+        <div class="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
+            <div class="w-full max-w-md">
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-2xl">"Sign in"</CardTitle>
+                        <CardDescription>
+                            "Welcome back. Use your Hulunote account to continue."
+                        </CardDescription>
+                    </CardHeader>
 
-                    {move || error.get().map(|e| view! { <div class="text-red-500 text-sm text-center">{e}</div> })}
+                    <CardContent>
+                        <form class="flex flex-col gap-4" on:submit=on_submit>
+                            <div class="flex flex-col gap-2">
+                                <Label html_for="email">"Email"</Label>
+                                <Input
+                                    id="email"
+                                    r#type="email"
+                                    placeholder="you@example.com"
+                                    bind_value=email
+                                    required=true
+                                />
+                            </div>
 
-                    <div>
-                        <button
-                            type="submit"
-                            disabled=move || loading.get()
-                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-                        >
-                            {move || if loading.get() { "Signing in..." } else { "Sign in" }}
-                        </button>
-                    </div>
-                </form>
+                            <div class="flex flex-col gap-2">
+                                <Label html_for="password">"Password"</Label>
+                                <Input
+                                    id="password"
+                                    r#type="password"
+                                    placeholder="••••••••"
+                                    bind_value=password
+                                    required=true
+                                />
+                            </div>
+
+                            <Show
+                                when=move || error.get().is_some()
+                                fallback=|| ().into_view()
+                            >
+                                {move || {
+                                    error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive">{e}</AlertDescription>
+                                        </Alert>
+                                    })
+                                }}
+                            </Show>
+
+                            <Button
+                                class="w-full"
+                                attr:disabled=move || loading.get()
+                            >
+                                <span class="inline-flex items-center gap-2">
+                                    <Show when=move || loading.get() fallback=|| ().into_view()>
+                                        <Spinner />
+                                    </Show>
+                                    {move || if loading.get() { "Signing in..." } else { "Sign in" }}
+                                </span>
+                            </Button>
+                        </form>
+                    </CardContent>
+
+                    <CardFooter class="justify-between">
+                        <div class="text-sm text-muted-foreground">
+                            "No account? "
+                            <a class="text-primary underline underline-offset-4" href="/signup">"Create one"</a>
+                        </div>
+                    </CardFooter>
+                </Card>
             </div>
         </div>
     }
@@ -450,7 +465,9 @@ pub fn RegistrationPage() -> impl IntoView {
 
     let app_state = expect_context::<AppContext>();
 
-    let on_submit = move |_| {
+    let on_submit = move |ev: web_sys::SubmitEvent| {
+        ev.prevent_default();
+
         let email_val = email.get();
         let username_val = username.get();
         let password_val = password.get();
@@ -493,143 +510,115 @@ pub fn RegistrationPage() -> impl IntoView {
         });
     };
 
-    let email_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                email.set(input.value());
-            }
-        }
-    };
-
-    let username_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                username.set(input.value());
-            }
-        }
-    };
-
-    let password_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                password.set(input.value());
-            }
-        }
-    };
-
-    let confirm_password_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                confirm_password.set(input.value());
-            }
-        }
-    };
-
-    let registration_code_input = move |e: web_sys::Event| {
-        if let Some(target) = e.target() {
-            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
-                registration_code.set(input.value());
-            }
-        }
-    };
-
     view! {
-        <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
-            <div class="max-w-md w-full space-y-8">
-                <div>
-                    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                        "Create your account"
-                    </h2>
-                    <p class="mt-2 text-center text-sm text-gray-600">
-                        "Or "
-                        <a href="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
-                            "sign in to existing account"
-                        </a>
-                    </p>
-                </div>
-                <Show when=move || !success.get() fallback=move || view! {
-                    <div class="text-center">
-                        <div class="rounded-md bg-green-50 p-4 mb-4">
-                            <div class="flex">
-                                <div class="flex-shrink-0">
-                                    <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                </div>
-                                <div class="ml-3">
-                                    <p class="text-sm font-medium text-green-800">
-                                        "Account created successfully! Redirecting to login..."
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <a href="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
-                            "Click here to sign in"
-                        </a>
-                    </div>
-                }>
-                    <form class="mt-8 space-y-6" on:submit=on_submit>
-                        <div class="rounded-md shadow-sm -space-y-px">
-                            <div>
-                                <input
-                                    type="text"
-                                    required
-                                    placeholder="Username"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    on:input=username_input
-                                />
-                            </div>
-                            <div>
-                                <input
-                                    type="email"
-                                    required
-                                    placeholder="Email address"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    on:input=email_input
-                                />
-                            </div>
-                            <div>
-                                <input
-                                    type="password"
-                                    required
-                                    placeholder="Password (min 6 characters)"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    on:input=password_input
-                                />
-                            </div>
-                            <div>
-                                <input
-                                    type="password"
-                                    required
-                                    placeholder="Confirm password"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    on:input=confirm_password_input
-                                />
-                            </div>
-                            <div>
-                                <input
-                                    type="text"
-                                    required
-                                    placeholder="Registration code (required)"
-                                    class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                    on:input=registration_code_input
-                                />
-                            </div>
-                        </div>
+        <div class="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
+            <div class="w-full max-w-md">
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-2xl">"Create account"</CardTitle>
+                        <CardDescription>
+                            "Create a new Hulunote account using a registration code."
+                        </CardDescription>
+                    </CardHeader>
 
-                        {move || error.get().map(|e| view! { <div class="text-red-500 text-sm text-center">{e}</div> })}
+                    <CardContent>
+                        <Show
+                            when=move || !success.get()
+                            fallback=move || view! {
+                                <Alert>
+                                    <AlertDescription>
+                                        "Account created. You can now "
+                                        <a class="text-primary underline underline-offset-4" href="/login">"sign in"</a>
+                                        "."
+                                    </AlertDescription>
+                                </Alert>
+                            }
+                        >
+                            <form class="flex flex-col gap-4" on:submit=on_submit>
+                                <div class="flex flex-col gap-2">
+                                    <Label html_for="username">"Username"</Label>
+                                    <Input
+                                        id="username"
+                                        r#type="text"
+                                        placeholder="yourname"
+                                        bind_value=username
+                                        required=true
+                                    />
+                                </div>
 
-                        <div>
-                            <button
-                                type="submit"
-                                disabled=move || loading.get()
-                                class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-                            >
-                                {move || if loading.get() { "Creating account..." } else { "Create account" }}
-                            </button>
+                                <div class="flex flex-col gap-2">
+                                    <Label html_for="email">"Email"</Label>
+                                    <Input
+                                        id="email"
+                                        r#type="email"
+                                        placeholder="you@example.com"
+                                        bind_value=email
+                                        required=true
+                                    />
+                                </div>
+
+                                <div class="flex flex-col gap-2">
+                                    <Label html_for="password">"Password"</Label>
+                                    <Input
+                                        id="password"
+                                        r#type="password"
+                                        placeholder="••••••••"
+                                        bind_value=password
+                                        required=true
+                                    />
+                                </div>
+
+                                <div class="flex flex-col gap-2">
+                                    <Label html_for="confirm_password">"Confirm password"</Label>
+                                    <Input
+                                        id="confirm_password"
+                                        r#type="password"
+                                        placeholder="••••••••"
+                                        bind_value=confirm_password
+                                        required=true
+                                    />
+                                </div>
+
+                                <div class="flex flex-col gap-2">
+                                    <Label html_for="registration_code">"Registration code"</Label>
+                                    <Input
+                                        id="registration_code"
+                                        r#type="text"
+                                        placeholder="FA8E-AF6E-4578-9347"
+                                        bind_value=registration_code
+                                        required=true
+                                    />
+                                </div>
+
+                                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                                    {move || {
+                                        error.get().map(|e| view! {
+                                            <Alert class="border-destructive/30">
+                                                <AlertDescription class="text-destructive">{e}</AlertDescription>
+                                            </Alert>
+                                        })
+                                    }}
+                                </Show>
+
+                                <Button class="w-full" attr:disabled=move || loading.get()>
+                                    <span class="inline-flex items-center gap-2">
+                                        <Show when=move || loading.get() fallback=|| ().into_view()>
+                                            <Spinner />
+                                        </Show>
+                                        {move || if loading.get() { "Creating..." } else { "Create account" }}
+                                    </span>
+                                </Button>
+                            </form>
+                        </Show>
+                    </CardContent>
+
+                    <CardFooter class="justify-between">
+                        <div class="text-sm text-muted-foreground">
+                            "Already have an account? "
+                            <a class="text-primary underline underline-offset-4" href="/login">"Sign in"</a>
                         </div>
-                    </form>
-                </Show>
+                    </CardFooter>
+                </Card>
             </div>
         </div>
     }
@@ -643,9 +632,6 @@ pub fn HomePage() -> impl IntoView {
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    // Load databases once we land on the home page.
-    // If token is invalid/expired, ApiClient::get_database_list will try refresh once.
-    // If still unauthorized, we force logout + redirect to /login.
     let load_databases = move || {
         let mut api_client = app_state.0.api_client.get_untracked();
         loading.set(true);
@@ -659,7 +645,6 @@ pub fn HomePage() -> impl IntoView {
                 }
                 Err(e) => {
                     if e == "Unauthorized" {
-                        // Session is not valid anymore.
                         api_client.logout();
                         app_state.0.api_client.set(api_client);
                         app_state.0.current_user.set(None);
@@ -674,78 +659,82 @@ pub fn HomePage() -> impl IntoView {
         });
     };
 
-    // Trigger on mount
     Effect::new(move |_| {
         load_databases();
     });
 
     view! {
-        <div class="min-h-screen bg-gray-50">
-            <nav class="bg-white shadow-sm">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="flex justify-between h-16">
-                        <div class="flex">
-                            <div class="flex-shrink-0 flex items-center">
-                                <h1 class="text-xl font-bold text-gray-900">"Hulunote"</h1>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <button
-                                class="text-gray-500 hover:text-gray-700"
-                                on:click=move |_| load_databases()
-                                disabled=move || loading.get()
-                            >
-                                {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
-                            </button>
-                            <button class="text-gray-500 hover:text-gray-700">"Settings"</button>
-                        </div>
+        <div class="min-h-screen bg-muted/30 px-4 py-8">
+            <div class="mx-auto w-full max-w-3xl space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-semibold">"Hulunote"</h1>
+                        <p class="text-sm text-muted-foreground">"Databases"</p>
                     </div>
-                </div>
-            </nav>
 
-            <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                <div class="px-4 py-6 sm:px-0 space-y-4">
-                    {move || error.get().map(|e| view!{
-                        <div class="rounded-md bg-red-50 p-4 text-sm text-red-700">{e}</div>
-                    })}
-
-                    <div class="border border-gray-200 bg-white rounded-lg p-4">
-                        <div class="flex items-center justify-between">
-                            <h2 class="text-lg font-semibold text-gray-900">"Databases"</h2>
-                            <span class="text-sm text-gray-500">{move || format!("{}", databases.get().len())}</span>
-                        </div>
-
-                        <div class="mt-3">
-                            <Show
-                                when=move || !databases.get().is_empty()
-                                fallback=move || view! {
-                                    <p class="text-gray-500">
-                                        {move || if loading.get() {
-                                            "Loading databases..."
-                                        } else {
-                                            "No databases yet. Create your first database to get started."
-                                        }}
-                                    </p>
-                                }
-                            >
-                                <ul class="space-y-2">
-                                    {move || {
-                                        databases
-                                            .get()
-                                            .into_iter()
-                                            .map(|db| view! {
-                                                <li class="border border-gray-100 rounded p-2">
-                                                    <div class="font-medium text-gray-900">{db.name}</div>
-                                                    <div class="text-sm text-gray-500">{db.description}</div>
-                                                </li>
-                                            })
-                                            .collect_view()
-                                    }}
-                                </ul>
+                    <Button
+                        attr:disabled=move || loading.get()
+                        on:click=move |_| load_databases()
+                    >
+                        <span class="inline-flex items-center gap-2">
+                            <Show when=move || loading.get() fallback=|| ().into_view()>
+                                <Spinner />
                             </Show>
-                        </div>
-                    </div>
+                            {move || if loading.get() { "Refreshing" } else { "Refresh" }}
+                        </span>
+                    </Button>
                 </div>
+
+                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                    {move || {
+                        error.get().map(|e| view! {
+                            <Alert class="border-destructive/30">
+                                <AlertDescription class="text-destructive">{e}</AlertDescription>
+                            </Alert>
+                        })
+                    }}
+                </Show>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>"Databases"</CardTitle>
+                        <CardDescription>
+                            {move || format!("{} total", databases.get().len())}
+                        </CardDescription>
+                    </CardHeader>
+
+                    <CardContent>
+                        <Show
+                            when=move || !databases.get().is_empty()
+                            fallback=move || view! {
+                                <div class="text-sm text-muted-foreground">
+                                    {move || if loading.get() {
+                                        "Loading databases..."
+                                    } else {
+                                        "No databases yet."
+                                    }}
+                                </div>
+                            }
+                        >
+                            <div class="flex flex-col gap-2">
+                                {move || {
+                                    databases
+                                        .get()
+                                        .into_iter()
+                                        .map(|db| {
+                                            view! {
+                                                <div class="rounded-lg border bg-background px-4 py-3">
+                                                    <div class="font-medium">{db.name}</div>
+                                                    <div class="text-sm text-muted-foreground">{db.description}</div>
+                                                </div>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </div>
+                        </Show>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     }
