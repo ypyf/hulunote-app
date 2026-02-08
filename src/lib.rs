@@ -393,11 +393,21 @@ impl ApiClient {
 pub struct AppState {
     pub api_client: RwSignal<ApiClient>,
     pub current_user: RwSignal<Option<AccountInfo>>,
+
+    /// Loaded from backend.
     pub databases: RwSignal<Vec<Database>>,
+
+    /// Current database selection (drives routing in later phases).
+    pub current_database_id: RwSignal<Option<String>>,
+
+    /// Global UI state.
+    pub sidebar_collapsed: RwSignal<bool>,
 }
 
 const TOKEN_KEY: &str = "hulunote_token";
 const USER_KEY: &str = "hulunote_user";
+const SIDEBAR_COLLAPSED_KEY: &str = "hulunote_sidebar_collapsed";
+const CURRENT_DB_KEY: &str = "hulunote_current_database_id";
 
 fn save_user_to_storage(user: &AccountInfo) {
     if let Ok(json) = serde_json::to_string(user) {
@@ -420,10 +430,30 @@ impl AppState {
     pub fn new() -> Self {
         let stored_client = ApiClient::load_from_storage();
         let stored_user = load_user_from_storage();
+
+        let (sidebar_collapsed, current_database_id) = if let Some(storage) =
+            web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+        {
+            let sidebar_collapsed = storage
+                .get_item(SIDEBAR_COLLAPSED_KEY)
+                .ok()
+                .flatten()
+                .map(|v| v == "1" || v == "true")
+                .unwrap_or(false);
+
+            let current_database_id = storage.get_item(CURRENT_DB_KEY).ok().flatten();
+
+            (sidebar_collapsed, current_database_id)
+        } else {
+            (false, None)
+        };
+
         Self {
             api_client: RwSignal::new(stored_client),
             current_user: RwSignal::new(stored_user),
             databases: RwSignal::new(vec![]),
+            current_database_id: RwSignal::new(current_database_id),
+            sidebar_collapsed: RwSignal::new(sidebar_collapsed),
         }
     }
 }
@@ -736,15 +766,78 @@ pub fn RegistrationPage() -> impl IntoView {
 #[component]
 pub fn HomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
+    let current_db_id = app_state.0.current_database_id;
     let databases = app_state.0.databases;
 
-    let loading: RwSignal<bool> = RwSignal::new(false);
-    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let current_db_name = move || {
+        current_db_id
+            .get()
+            .and_then(|id| databases.get().into_iter().find(|d| d.id == id))
+            .map(|d| d.name)
+    };
+
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Hulunote"</h1>
+                <p class="text-xs text-muted-foreground">
+                    {move || {
+                        current_db_name()
+                            .map(|n| format!("Database: {}", n))
+                            .unwrap_or_else(|| "Select a database in the sidebar.".to_string())
+                    }}
+                </p>
+            </div>
+
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "Phase 3: Layout & Navigation. Main content will become note list/editor in later phases."
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn AppLayout(children: Children) -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+
+    let databases = app_state.0.databases;
+    let current_db_id = app_state.0.current_database_id;
+    let sidebar_collapsed = app_state.0.sidebar_collapsed;
+
+    let db_loading: RwSignal<bool> = RwSignal::new(false);
+    let db_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let sidebar_width_class = move || if sidebar_collapsed.get() { "w-14" } else { "w-64" };
+
+    let persist_sidebar = move || {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item(
+                SIDEBAR_COLLAPSED_KEY,
+                if sidebar_collapsed.get() { "1" } else { "0" },
+            );
+        }
+    };
+
+    let persist_current_db = move || {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let v = current_db_id.get().unwrap_or_default();
+            let _ = storage.set_item(CURRENT_DB_KEY, &v);
+        }
+    };
 
     let load_databases = move || {
+        // Avoid parallel loads.
+        if db_loading.get_untracked() {
+            return;
+        }
+
         let mut api_client = app_state.0.api_client.get_untracked();
-        loading.set(true);
-        error.set(None);
+        if !api_client.is_authenticated() {
+            return;
+        }
+
+        db_loading.set(true);
+        db_error.set(None);
 
         spawn_local(async move {
             match api_client.get_database_list().await {
@@ -759,124 +852,53 @@ pub fn HomePage() -> impl IntoView {
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        error.set(Some(e));
+                        db_error.set(Some(e));
                         app_state.0.api_client.set(api_client);
                     }
                 }
             }
-            loading.set(false);
+            db_loading.set(false);
         });
     };
 
+    // Initial load when we enter the authenticated shell.
     Effect::new(move |_| {
-        load_databases();
+        let authed = app_state.0.api_client.get().is_authenticated();
+        if authed && databases.get().is_empty() {
+            load_databases();
+        }
     });
+
+    // If there is no selection yet, pick a default once databases arrive.
+    Effect::new(move |_| {
+        let selected = current_db_id.get();
+        let dbs = databases.get();
+        if selected.is_none() {
+            if let Some(first) = dbs.first() {
+                current_db_id.set(Some(first.id.clone()));
+                persist_current_db();
+            }
+        }
+    });
+
+    let on_toggle_sidebar = move |_| {
+        sidebar_collapsed.update(|v| *v = !*v);
+        persist_sidebar();
+    };
+
+    let on_select_db = move |id: String| {
+        current_db_id.set(Some(id));
+        persist_current_db();
+    };
 
     let on_logout = move |_| {
         let mut api_client = app_state.0.api_client.get_untracked();
         api_client.logout();
         app_state.0.api_client.set(api_client);
         app_state.0.current_user.set(None);
+        app_state.0.databases.set(vec![]);
+        app_state.0.current_database_id.set(None);
         let _ = window().location().set_href("/login");
-    };
-
-    view! {
-        <div class="min-h-screen bg-background">
-            <div class="mx-auto w-full max-w-[1080px] px-4 py-8">
-                <div class="mb-4 flex items-center justify-between">
-                    <div class="space-y-1">
-                        <h1 class="text-xl font-semibold">"Hulunote"</h1>
-                        <p class="text-xs text-muted-foreground">"Databases"</p>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                        <Button
-                            attr:disabled=move || loading.get()
-                            on:click=move |_| load_databases()
-                        >
-                            <span class="inline-flex items-center gap-2">
-                                <Show when=move || loading.get() fallback=|| ().into_view()>
-                                    <Spinner />
-                                </Show>
-                                {move || if loading.get() { "Refreshing" } else { "Refresh" }}
-                            </span>
-                        </Button>
-
-                        <Button
-                            variant=ButtonVariant::Outline
-                            size=ButtonSize::Sm
-                            on:click=on_logout
-                        >
-                            "Sign out"
-                        </Button>
-                    </div>
-                </div>
-
-                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
-                    {move || {
-                        error.get().map(|e| view! {
-                            <Alert class="border-destructive/30">
-                                <AlertDescription class="text-destructive">{e}</AlertDescription>
-                            </Alert>
-                        })
-                    }}
-                </Show>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>"Databases"</CardTitle>
-                        <CardDescription>
-                            {move || format!("{} total", databases.get().len())}
-                        </CardDescription>
-                    </CardHeader>
-
-                    <CardContent>
-                        <Show
-                            when=move || !databases.get().is_empty()
-                            fallback=move || view! {
-                                <div class="text-xs text-muted-foreground">
-                                    {move || if loading.get() {
-                                        "Loading databases..."
-                                    } else {
-                                        "No databases yet."
-                                    }}
-                                </div>
-                            }
-                        >
-                            <CardList>
-                                {move || {
-                                    databases
-                                        .get()
-                                        .into_iter()
-                                        .map(|db| {
-                                            view! {
-                                                <CardItem class="flex flex-col items-start gap-1 rounded-md border px-4 py-3">
-                                                    <div class="text-sm font-medium">{db.name}</div>
-                                                    <div class="text-xs text-muted-foreground">{db.description}</div>
-                                                </CardItem>
-                                            }
-                                        })
-                                        .collect_view()
-                                }}
-                            </CardList>
-                        </Show>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
-    }
-}
-
-#[component]
-pub fn AppLayout(children: Children) -> impl IntoView {
-    let sidebar_collapsed = RwSignal::new(false);
-
-    let sidebar_width_class = move || {
-        if sidebar_collapsed.get() {
-            "w-14"
-        } else {
-            "w-64"
-        }
     };
 
     view! {
@@ -893,7 +915,7 @@ pub fn AppLayout(children: Children) -> impl IntoView {
 
                             <button
                                 class="rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                                on:click=move |_| sidebar_collapsed.update(|v| *v = !*v)
+                                on:click=on_toggle_sidebar
                                 title="Toggle sidebar"
                             >
                                 {move || if sidebar_collapsed.get() { ">" } else { "<" }}
@@ -909,18 +931,69 @@ pub fn AppLayout(children: Children) -> impl IntoView {
                             }
                         >
                             <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
-                                <div class="mt-2 space-y-1 text-sm">
-                                    <a class="block rounded-md px-2 py-1 hover:bg-accent hover:text-accent-foreground" href="/">"Databases"</a>
-                                    <span class="block rounded-md px-2 py-1 text-muted-foreground">"Search"</span>
-                                    <span class="block rounded-md px-2 py-1 text-muted-foreground">"Settings"</span>
+                                <div class="flex items-center justify-between">
+                                    <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
+                                    <button
+                                        class="text-[11px] text-muted-foreground hover:text-foreground"
+                                        on:click=move |_| load_databases()
+                                        title="Refresh"
+                                    >
+                                        "↻"
+                                    </button>
+                                </div>
+
+                                <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || db_error.get().map(|e| view! {
+                                        <div class="mt-2 text-[11px] text-destructive">{e}</div>
+                                    })}
+                                </Show>
+
+                                <div class="mt-2 space-y-1">
+                                    <Show
+                                        when=move || !databases.get().is_empty()
+                                        fallback=move || view! {
+                                            <div class="text-[11px] text-muted-foreground">
+                                                {move || if db_loading.get() { "Loading..." } else { "No databases" }}
+                                            </div>
+                                        }
+                                    >
+                                        {move || {
+                                            let selected = current_db_id.get();
+                                            databases
+                                                .get()
+                                                .into_iter()
+                                                .map(|db| {
+                                                    let is_selected = selected.as_deref() == Some(db.id.as_str());
+                                                    let class = if is_selected {
+                                                        "w-full rounded-md bg-accent px-2 py-1 text-left text-sm text-accent-foreground"
+                                                    } else {
+                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                                                    };
+
+                                                    let id = db.id.clone();
+                                                    view! {
+                                                        <button class=class on:click=move |_| on_select_db(id.clone())>
+                                                            {db.name}
+                                                        </button>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </Show>
                                 </div>
                             </div>
 
                             <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Sidebar"</div>
-                                <div class="mt-2 text-xs text-muted-foreground">
-                                    "Database list + page tree will live here."
+                                <div class="text-[11px] font-medium text-muted-foreground">"Account"</div>
+                                <div class="mt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        on:click=on_logout
+                                        class="w-full"
+                                    >
+                                        "Sign out"
+                                    </Button>
                                 </div>
                             </div>
                         </Show>
