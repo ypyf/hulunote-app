@@ -2,7 +2,7 @@ mod components;
 
 use crate::components::ui::{
     Alert, AlertDescription, Button, Card, CardContent, CardDescription, CardFooter, CardHeader,
-    CardTitle, Input, Label, Spinner,
+    CardItem, CardList, CardTitle, Input, Label, Spinner,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -379,11 +379,16 @@ pub fn LoginPage() -> impl IntoView {
     };
 
     view! {
-        <div class="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-            <div class="w-full max-w-md">
+        <div class="min-h-screen bg-background">
+            <div class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-12">
+                <div class="mb-6">
+                    <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
+                    <div class="text-xs text-muted-foreground">"Notes, organized."</div>
+                </div>
+
                 <Card>
                     <CardHeader>
-                        <CardTitle class="text-2xl">"Sign in"</CardTitle>
+                        <CardTitle class="text-xl">"Sign in"</CardTitle>
                         <CardDescription>
                             "Welcome back. Use your Hulunote account to continue."
                         </CardDescription>
@@ -441,7 +446,7 @@ pub fn LoginPage() -> impl IntoView {
                     </CardContent>
 
                     <CardFooter class="justify-between">
-                        <div class="text-sm text-muted-foreground">
+                        <div class="text-xs text-muted-foreground">
                             "No account? "
                             <a class="text-primary underline underline-offset-4" href="/signup">"Create one"</a>
                         </div>
@@ -511,11 +516,16 @@ pub fn RegistrationPage() -> impl IntoView {
     };
 
     view! {
-        <div class="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-            <div class="w-full max-w-md">
+        <div class="min-h-screen bg-background">
+            <div class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-4 py-12">
+                <div class="mb-6">
+                    <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
+                    <div class="text-xs text-muted-foreground">"Create your account."</div>
+                </div>
+
                 <Card>
                     <CardHeader>
-                        <CardTitle class="text-2xl">"Create account"</CardTitle>
+                        <CardTitle class="text-xl">"Create account"</CardTitle>
                         <CardDescription>
                             "Create a new Hulunote account using a registration code."
                         </CardDescription>
@@ -613,7 +623,7 @@ pub fn RegistrationPage() -> impl IntoView {
                     </CardContent>
 
                     <CardFooter class="justify-between">
-                        <div class="text-sm text-muted-foreground">
+                        <div class="text-xs text-muted-foreground">
                             "Already have an account? "
                             <a class="text-primary underline underline-offset-4" href="/login">"Sign in"</a>
                         </div>
@@ -663,26 +673,40 @@ pub fn HomePage() -> impl IntoView {
         load_databases();
     });
 
+    let on_logout = move |_| {
+        let mut api_client = app_state.0.api_client.get_untracked();
+        api_client.logout();
+        app_state.0.api_client.set(api_client);
+        app_state.0.current_user.set(None);
+        let _ = window().location().set_href("/login");
+    };
+
     view! {
-        <div class="min-h-screen bg-muted/30 px-4 py-8">
-            <div class="mx-auto w-full max-w-3xl space-y-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="text-2xl font-semibold">"Hulunote"</h1>
-                        <p class="text-sm text-muted-foreground">"Databases"</p>
+        <div class="min-h-screen bg-background">
+            <div class="mx-auto w-full max-w-[1080px] px-4 py-8">
+                <div class="mb-4 flex items-center justify-between">
+                    <div class="space-y-1">
+                        <h1 class="text-xl font-semibold">"Hulunote"</h1>
+                        <p class="text-xs text-muted-foreground">"Databases"</p>
                     </div>
 
-                    <Button
-                        attr:disabled=move || loading.get()
-                        on:click=move |_| load_databases()
-                    >
-                        <span class="inline-flex items-center gap-2">
-                            <Show when=move || loading.get() fallback=|| ().into_view()>
-                                <Spinner />
-                            </Show>
-                            {move || if loading.get() { "Refreshing" } else { "Refresh" }}
-                        </span>
-                    </Button>
+                    <div class="flex items-center gap-2">
+                        <Button
+                            attr:disabled=move || loading.get()
+                            on:click=move |_| load_databases()
+                        >
+                            <span class="inline-flex items-center gap-2">
+                                <Show when=move || loading.get() fallback=|| ().into_view()>
+                                    <Spinner />
+                                </Show>
+                                {move || if loading.get() { "Refreshing" } else { "Refresh" }}
+                            </span>
+                        </Button>
+
+                        <Button on:click=on_logout class="bg-transparent border border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                            "Sign out"
+                        </Button>
+                    </div>
                 </div>
 
                 <Show when=move || error.get().is_some() fallback=|| ().into_view()>
@@ -707,7 +731,7 @@ pub fn HomePage() -> impl IntoView {
                         <Show
                             when=move || !databases.get().is_empty()
                             fallback=move || view! {
-                                <div class="text-sm text-muted-foreground">
+                                <div class="text-xs text-muted-foreground">
                                     {move || if loading.get() {
                                         "Loading databases..."
                                     } else {
@@ -716,22 +740,22 @@ pub fn HomePage() -> impl IntoView {
                                 </div>
                             }
                         >
-                            <div class="flex flex-col gap-2">
+                            <CardList>
                                 {move || {
                                     databases
                                         .get()
                                         .into_iter()
                                         .map(|db| {
                                             view! {
-                                                <div class="rounded-lg border bg-background px-4 py-3">
-                                                    <div class="font-medium">{db.name}</div>
-                                                    <div class="text-sm text-muted-foreground">{db.description}</div>
-                                                </div>
+                                                <CardItem class="flex flex-col items-start gap-1 rounded-md border px-4 py-3">
+                                                    <div class="text-sm font-medium">{db.name}</div>
+                                                    <div class="text-xs text-muted-foreground">{db.description}</div>
+                                                </CardItem>
                                             }
                                         })
                                         .collect_view()
                                 }}
-                            </div>
+                            </CardList>
                         </Show>
                     </CardContent>
                 </Card>
@@ -761,7 +785,7 @@ pub fn App() -> impl IntoView {
     // - `use_location()`/router hooks require a <Router> context.
     view! {
         <Router>
-            <Routes fallback=|| view! { <div class="p-4 text-gray-600">"Not found"</div> }>
+            <Routes fallback=|| view! { <div class="px-4 py-8 text-xs text-muted-foreground">"Not found"</div> }>
                 <Route path=path!("login") view=LoginPage />
                 <Route path=path!("signup") view=RegistrationPage />
                 <Route path=path!("") view=RootPage />
