@@ -33,6 +33,19 @@ module.exports = {
         input: "rgb(var(--border) / <alpha-value>)",
         primary: "rgb(var(--accent) / <alpha-value>)",
         "primary-foreground": "rgb(var(--accent-foreground) / <alpha-value>)",
+
+        secondary: "rgb(var(--secondary) / <alpha-value>)",
+        "secondary-foreground": "rgb(var(--secondary-foreground) / <alpha-value>)",
+
+        destructive: "rgb(var(--destructive) / <alpha-value>)",
+        "destructive-foreground": "rgb(var(--destructive-foreground) / <alpha-value>)",
+
+        warning: "rgb(var(--warning) / <alpha-value>)",
+        "warning-foreground": "rgb(var(--warning-foreground) / <alpha-value>)",
+
+        success: "rgb(var(--success) / <alpha-value>)",
+        "success-foreground": "rgb(var(--success-foreground) / <alpha-value>)",
+
         card: "rgb(var(--muted) / <alpha-value>)",
         "card-foreground": "rgb(var(--foreground) / <alpha-value>)",
       },
