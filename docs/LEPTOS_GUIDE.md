@@ -153,6 +153,10 @@ Key points:
       let id = move || params.get().ok().and_then(|p| p.id).unwrap_or_default();
       view! { <p>{move || id()}</p> }
       ```
+  - In **event handlers / async tasks**, prefer **untracked** reads (you want the current value, not a reactive dependency):
+      ```rust
+      let id_now = params.get_untracked().ok().and_then(|p| p.id).unwrap_or_default();
+      ```
   - If you intentionally want a one-time read, use `get_untracked()` / `with_untracked()` and accept it won't react to route changes.
 
 Minimal example:
