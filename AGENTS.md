@@ -97,6 +97,7 @@ Agents should be especially careful to avoid:
 - Refactoring or optimizing “while you’re here”
 - Skipping tests because changes seem “small”
 - Forgetting to persist lessons learned after a difficult task
+- Doing UI work without actually **opening the page in a browser**
 
 If something was confusing, non-obvious, or surprising once,
 it will be confusing again unless documented here.
