@@ -1769,7 +1769,15 @@ pub fn DbHomePage() -> impl IntoView {
     let delete_loading: RwSignal<bool> = RwSignal::new(false);
     let delete_error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Params are reactive; read tracked in effects/views, and read untracked in event handlers.
     let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+    let db_id_untracked = move || {
+        params
+            .get_untracked()
+            .ok()
+            .and_then(|p| p.db_id)
+            .unwrap_or_default()
+    };
 
     let persist_current_db = move |id: &str| {
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
@@ -1778,66 +1786,76 @@ pub fn DbHomePage() -> impl IntoView {
     };
 
     // Notes loading guards (avoid duplicate loads + ignore stale responses).
-    let notes_request_id: RwSignal<u64> = RwSignal::new(0);
-    let notes_last_loaded_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+    // Use Arc + atomics/mutexes to satisfy Send bounds and avoid disposed-signal panics.
+    let notes_request_id = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let notes_last_loaded_db_id = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
 
-    let load_notes = move |force: bool| {
-        let id = db_id();
-        if id.trim().is_empty() {
-            return;
-        }
+    let load_notes_for = {
+        let notes_request_id = notes_request_id.clone();
+        let notes_last_loaded_db_id = notes_last_loaded_db_id.clone();
 
-        if !force {
-            let already_loaded =
-                notes_last_loaded_db_id.get_untracked().as_deref() == Some(id.as_str());
-            let has_error = app_state.0.notes_error.get_untracked().is_some();
-            let is_loading = app_state.0.notes_loading.get_untracked();
-
-            // If we already loaded this DB and there is no error, don't refetch.
-            if already_loaded && !has_error && !is_loading {
-                return;
-            }
-        }
-
-        notes_last_loaded_db_id.set(Some(id.clone()));
-
-        let req_id = notes_request_id.get_untracked().saturating_add(1);
-        notes_request_id.set(req_id);
-
-        app_state.0.notes_loading.set(true);
-        app_state.0.notes_error.set(None);
-
-        let api_client = app_state.0.api_client.get_untracked();
-        spawn_local(async move {
-            let result = api_client.get_all_note_list(&id).await;
-
-            // Ignore stale responses.
-            if notes_request_id.get_untracked() != req_id {
+        move |id: String, force: bool| {
+            if id.trim().is_empty() {
                 return;
             }
 
-            match result {
-                Ok(notes) => {
-                    app_state.0.notes.set(notes);
+            if !force {
+                let already_loaded = notes_last_loaded_db_id
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.as_deref().map(|s| s == id.as_str()))
+                    .unwrap_or(false);
+                let has_error = app_state.0.notes_error.get_untracked().is_some();
+                let is_loading = app_state.0.notes_loading.get_untracked();
+
+                if already_loaded && !has_error && !is_loading {
+                    return;
                 }
-                Err(e) => {
-                    if e == "Unauthorized" {
-                        let mut c = app_state.0.api_client.get_untracked();
-                        c.logout();
-                        app_state.0.api_client.set(c);
-                        app_state.0.current_user.set(None);
-                        let _ = window().location().set_href("/login");
-                    } else {
-                        app_state.0.notes_error.set(Some(e));
-                        app_state.0.notes.set(vec![]);
+            }
+
+            if let Ok(mut g) = notes_last_loaded_db_id.lock() {
+                *g = Some(id.clone());
+            }
+
+            let req_id = notes_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+            app_state.0.notes_loading.set(true);
+            app_state.0.notes_error.set(None);
+
+            let api_client = app_state.0.api_client.get_untracked();
+            let notes_request_id = notes_request_id.clone();
+
+            spawn_local(async move {
+                let result = api_client.get_all_note_list(&id).await;
+
+                // Ignore stale responses.
+                if notes_request_id.load(std::sync::atomic::Ordering::Relaxed) != req_id {
+                    return;
+                }
+
+                match result {
+                    Ok(notes) => {
+                        app_state.0.notes.set(notes);
+                    }
+                    Err(e) => {
+                        if e == "Unauthorized" {
+                            let mut c = app_state.0.api_client.get_untracked();
+                            c.logout();
+                            app_state.0.api_client.set(c);
+                            app_state.0.current_user.set(None);
+                            let _ = window().location().set_href("/login");
+                        } else {
+                            app_state.0.notes_error.set(Some(e));
+                            app_state.0.notes.set(vec![]);
+                        }
                     }
                 }
-            }
-            app_state.0.notes_loading.set(false);
-        });
+                app_state.0.notes_loading.set(false);
+            });
+        }
     };
 
-    let reload_notes = move || load_notes(true);
+    let load_notes_for_sv = StoredValue::new(load_notes_for);
 
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
@@ -1850,7 +1868,9 @@ pub fn DbHomePage() -> impl IntoView {
 
     // Phase 5 (non-paginated): load notes for current database.
     Effect::new(move |_| {
-        load_notes(false);
+        load_notes_for_sv.with_value(|f| {
+            f(db_id(), false);
+        });
     });
 
     let db = move || {
@@ -2025,15 +2045,18 @@ pub fn DbHomePage() -> impl IntoView {
                                 create_note_loading.set(true);
                                 create_note_error.set(None);
 
-                                let id = db_id();
+                                let id = db_id_untracked();
                                 let title = next_available_daily_note_title(&app_state.0.notes.get_untracked());
                                 let api_client = app_state.0.api_client.get_untracked();
+                                let load_notes_for_sv = load_notes_for_sv;
 
                                 spawn_local(async move {
                                     match api_client.create_note(&id, &title).await {
                                         Ok(note) => {
                                             // Refresh list then navigate to note.
-                                            reload_notes();
+                                            load_notes_for_sv.with_value(|f| {
+                                                f(id.clone(), true);
+                                            });
                                             navigate.with_value(|nav| {
                                                 nav(
                                                     &format!("/db/{}/note/{}", id, note.id),
