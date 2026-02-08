@@ -12,7 +12,9 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-leptos = { version = "0.8.11", features = ["csr"] }
+# Pin exact versions to keep the Leptos ecosystem in sync.
+# (Cargo's caret requirements would otherwise float patch versions.)
+leptos = { version = "0.8.15", features = ["csr"] }
 leptos_router = "0.8.11"
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
@@ -25,7 +27,7 @@ js-sys = "0.3"
 tw_merge = { version = "0.1.17", features = ["variant"] }
 icons = { version = "0.18.0", features = ["leptos"] }
 leptos_ui = "0.3.20"
-leptos_dom = "0.8.7"
+leptos_dom = "0.8.7" # keep aligned with the resolved Leptos patch set
 
 [dependencies.web-sys]
 version = "0.3"
