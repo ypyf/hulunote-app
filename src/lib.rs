@@ -1602,13 +1602,18 @@ pub fn DbHomePage() -> impl IntoView {
                 </div>
 
                 <div class="flex items-center gap-2">
-                    <Button variant=ButtonVariant::Outline size=ButtonSize::Sm on:click=on_open_rename>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        class="bg-muted/40 hover:bg-muted/60"
+                        on:click=on_open_rename
+                    >
                         "Rename"
                     </Button>
                     <Button
                         variant=ButtonVariant::Outline
                         size=ButtonSize::Sm
-                        class="border-destructive/40 text-destructive hover:bg-destructive/10"
+                        class="bg-destructive/5 border-destructive/40 text-destructive hover:bg-destructive/10"
                         on:click=on_open_delete
                     >
                         "Delete"
