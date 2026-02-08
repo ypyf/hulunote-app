@@ -1051,7 +1051,7 @@ pub fn RootPage() -> impl IntoView {
 
 #[derive(Params, PartialEq, Clone, Debug)]
 pub struct DbRouteParams {
-    pub db_id: Option<String>,
+    pub db_id: String,
 }
 
 #[component]
@@ -1059,19 +1059,18 @@ pub fn DbHomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<DbRouteParams>();
 
-    let db_id = move || params.get().ok().and_then(|p| p.db_id);
+    let db_id = move || params.get().ok().map(|p| p.db_id).unwrap_or_default();
 
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
-        if let Some(id) = db_id() {
-            if app_state.0.current_database_id.get() != Some(id.clone()) {
-                app_state.0.current_database_id.set(Some(id));
-            }
+        let id = db_id();
+        if !id.trim().is_empty() && app_state.0.current_database_id.get() != Some(id.clone()) {
+            app_state.0.current_database_id.set(Some(id));
         }
     });
 
     let db_name = move || {
-        let id = db_id()?;
+        let id = db_id();
         app_state
             .0
             .databases
@@ -1088,7 +1087,7 @@ pub fn DbHomePage() -> impl IntoView {
                     {move || db_name().unwrap_or_else(|| "Database".to_string())}
                 </h1>
                 <p class="text-xs text-muted-foreground">
-                    {move || format!("db_id: {}", db_id().unwrap_or_default())}
+                    {move || format!("db_id: {}", db_id())}
                 </p>
             </div>
 
