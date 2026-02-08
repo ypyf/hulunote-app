@@ -1738,17 +1738,46 @@ pub fn DbHomePage() -> impl IntoView {
         }
     };
 
-    let reload_notes = move || {
+    // Notes loading guards (avoid duplicate loads + ignore stale responses).
+    let notes_request_id: RwSignal<u64> = RwSignal::new(0);
+    let notes_last_loaded_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let load_notes = move |force: bool| {
         let id = db_id();
         if id.trim().is_empty() {
             return;
         }
+
+        if !force {
+            let already_loaded =
+                notes_last_loaded_db_id.get_untracked().as_deref() == Some(id.as_str());
+            let has_error = app_state.0.notes_error.get_untracked().is_some();
+            let is_loading = app_state.0.notes_loading.get_untracked();
+
+            // If we already loaded this DB and there is no error, don't refetch.
+            if already_loaded && !has_error && !is_loading {
+                return;
+            }
+        }
+
+        notes_last_loaded_db_id.set(Some(id.clone()));
+
+        let req_id = notes_request_id.get_untracked().saturating_add(1);
+        notes_request_id.set(req_id);
+
         app_state.0.notes_loading.set(true);
         app_state.0.notes_error.set(None);
 
         let api_client = app_state.0.api_client.get_untracked();
         spawn_local(async move {
-            match api_client.get_all_note_list(&id).await {
+            let result = api_client.get_all_note_list(&id).await;
+
+            // Ignore stale responses.
+            if notes_request_id.get_untracked() != req_id {
+                return;
+            }
+
+            match result {
                 Ok(notes) => {
                     app_state.0.notes.set(notes);
                 }
@@ -1769,6 +1798,8 @@ pub fn DbHomePage() -> impl IntoView {
         });
     };
 
+    let reload_notes = move || load_notes(true);
+
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
         let id = db_id();
@@ -1780,7 +1811,7 @@ pub fn DbHomePage() -> impl IntoView {
 
     // Phase 5 (non-paginated): load notes for current database.
     Effect::new(move |_| {
-        reload_notes();
+        load_notes(false);
     });
 
     let db = move || {
@@ -1789,33 +1820,23 @@ pub fn DbHomePage() -> impl IntoView {
     };
 
     let refresh_databases = move || {
-        let id = db_id();
-        if id.trim().is_empty() {
-            return;
-        }
-        app_state.0.notes_loading.set(true);
-        app_state.0.notes_error.set(None);
-
-        let api_client = app_state.0.api_client.get_untracked();
+        let mut c = app_state.0.api_client.get_untracked();
         spawn_local(async move {
-            match api_client.get_all_note_list(&id).await {
-                Ok(notes) => {
-                    app_state.0.notes.set(notes);
+            match c.get_database_list().await {
+                Ok(dbs) => {
+                    app_state.0.databases.set(dbs);
                 }
                 Err(e) => {
                     if e == "Unauthorized" {
-                        let mut c = app_state.0.api_client.get_untracked();
                         c.logout();
                         app_state.0.api_client.set(c);
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
-                    } else {
-                        app_state.0.notes_error.set(Some(e));
-                        app_state.0.notes.set(vec![]);
+                        return;
                     }
                 }
             }
-            app_state.0.notes_loading.set(false);
+            app_state.0.api_client.set(c);
         });
     };
 
