@@ -1205,8 +1205,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </Card>
                             }
                         >
-                            <Card class="py-4">
-                                <CardContent>
+                            <Card>
+                                <CardContent class="p-3">
                                     <div class="flex items-center gap-2">
                                         <span class="sr-only">"Search"</span>
                                         <svg
@@ -1253,11 +1253,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card class="py-4">
-                                <CardHeader>
-                                    <div class="flex w-full items-center justify-end">
-                                        <span class="sr-only">"Databases"</span>
-                                        <div class="flex items-center gap-2">
+                            <Card>
+                                <CardHeader class="flex flex-row items-center justify-end p-3">
+                                    <span class="sr-only">"Databases"</span>
+                                    <div class="flex items-center gap-2">
                                         <Button
                                             variant=ButtonVariant::Ghost
                                             size=ButtonSize::Icon
@@ -1276,12 +1275,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                         >
                                             <span class="text-xs text-muted-foreground">"↻"</span>
                                         </Button>
-                                    </div>
-                                </div>
+                                        </div>
                                 </CardHeader>
-                                <CardContent>
-
-                                <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
+                                <CardContent class="p-3 pt-0">
+                                    <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
                                     {move || db_error.get().map(|e| view! {
                                         <div class="mt-2 text-[11px] text-destructive">{e}</div>
                                     })}
@@ -1329,11 +1326,11 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card class="py-4">
-                                <CardContent>
+                            <Card>
+                                <CardContent class="p-3">
                                     <span class="sr-only">"Navigation"</span>
                                     <div class="space-y-1">
-                                    <Button
+                                        <Button
                                         variant=ButtonVariant::Ghost
                                         size=ButtonSize::Sm
                                         class="w-full justify-start"
@@ -1343,12 +1340,12 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                     >
                                         "Settings"
                                     </Button>
-                                </div>
+                                    </div>
                                 </CardContent>
                             </Card>
 
-                            <Card class="py-4">
-                                <CardContent>
+                            <Card>
+                                <CardContent class="p-3">
                                     <span class="sr-only">"Account"</span>
                                     <Button
                                         variant=ButtonVariant::Outline

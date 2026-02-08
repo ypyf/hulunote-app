@@ -3,15 +3,18 @@ use leptos_ui::clx;
 
 mod components {
     use super::*;
-    clx! {Card, div, "bg-card text-card-foreground flex flex-col gap-4 rounded-xl border border-border py-6 shadow-sm"}
-    // TODO. Change data-slot=card-action by data-name="CardAction".
-    clx! {CardHeader, div, "@container/card-header flex flex-col items-start gap-1.5 px-6 [.border-b]:pb-6 sm:grid sm:auto-rows-min sm:grid-rows-[auto_auto] has-data-[slot=card-action]:sm:grid-cols-[1fr_auto]"}
-    clx! {CardTitle, h2, "leading-none font-semibold"}
-    clx! {CardContent, div, "px-6"}
-    clx! {CardDescription, p, "text-muted-foreground text-sm"}
-    clx! {CardFooter, footer, "flex items-center px-6 [.border-t]:pt-6", "gap-2"}
 
-    clx! {CardAction, div, "self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end"}
+    // shadcn/ui-like Card primitives
+    // https://ui.shadcn.com/docs/components/card
+    clx! {Card, div, "rounded-xl border border-border bg-card text-card-foreground shadow-sm"}
+    clx! {CardHeader, div, "flex flex-col space-y-1.5 p-6"}
+    clx! {CardTitle, h2, "text-lg font-semibold leading-none tracking-tight"}
+    clx! {CardDescription, p, "text-sm text-muted-foreground"}
+    clx! {CardContent, div, "p-6 pt-0"}
+    clx! {CardFooter, footer, "flex items-center p-6 pt-0", "gap-2"}
+
+    // Extra helpers (not in shadcn core, but kept for compatibility)
+    clx! {CardAction, div, "self-start sm:justify-self-end"}
     clx! {CardList, ul, "flex flex-col gap-4"}
     clx! {CardItem, li, "flex items-center [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0"}
 }
