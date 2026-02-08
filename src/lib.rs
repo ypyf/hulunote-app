@@ -121,8 +121,38 @@ pub struct LoginRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CreateDatabaseRequest {
-    pub name: String,
+    // hulunote-rust expects kebab-case keys.
+    #[serde(rename = "database-name")]
+    pub database_name: String,
     pub description: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UpdateDatabaseRequest {
+    // Backend accepts `database_id` or `id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    // Backend uses `db_name` for rename.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_public: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_default: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_delete: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeleteDatabaseRequest {
+    #[serde(rename = "database-id", skip_serializing_if = "Option::is_none")]
+    pub database_id: Option<String>,
+    #[serde(rename = "database-name", skip_serializing_if = "Option::is_none")]
+    pub database_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -246,17 +276,26 @@ impl ApiClient {
         }
     }
 
+    fn with_auth_headers(
+        mut req: reqwest::RequestBuilder,
+        token: Option<String>,
+    ) -> reqwest::RequestBuilder {
+        if let Some(token) = token {
+            // Legacy client contract.
+            req = req.header("X-FUNCTOR-API-TOKEN", token.clone());
+            // hulunote-rust documented contract.
+            req = req.header("Authorization", format!("Bearer {}", token));
+        }
+        req
+    }
+
     async fn request_database_list(
         base_url: &str,
         token: Option<String>,
     ) -> Result<reqwest::Response, String> {
         let client = reqwest::Client::new();
-        let mut req = client.post(format!("{}/hulunote/get-database-list", base_url));
-
-        // Match the legacy client contract.
-        if let Some(token) = token {
-            req = req.header("X-FUNCTOR-API-TOKEN", token);
-        }
+        let req = client.post(format!("{}/hulunote/get-database-list", base_url));
+        let req = Self::with_auth_headers(req, token);
 
         req.json(&serde_json::json!({}))
             .send()
@@ -341,6 +380,83 @@ impl ApiClient {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             Err(format!("Failed to get databases ({status}): {body}"))
+        }
+    }
+
+    pub async fn create_database(
+        &self,
+        database_name: &str,
+        description: &str,
+    ) -> Result<serde_json::Value, String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/new-database", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req
+            .json(&CreateDatabaseRequest {
+                database_name: database_name.to_string(),
+                description: description.to_string(),
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            res.json().await.map_err(|e| e.to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Create database failed ({status}): {body}"))
+        }
+    }
+
+    pub async fn rename_database(&self, database_id: &str, new_name: &str) -> Result<(), String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/update-database", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req
+            .json(&UpdateDatabaseRequest {
+                database_id: Some(database_id.to_string()),
+                id: None,
+                db_name: Some(new_name.to_string()),
+                is_public: None,
+                is_default: None,
+                is_delete: None,
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            Ok(())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Rename database failed ({status}): {body}"))
+        }
+    }
+
+    pub async fn delete_database_by_id(&self, database_id: &str) -> Result<(), String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/delete-database", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req
+            .json(&DeleteDatabaseRequest {
+                database_id: Some(database_id.to_string()),
+                database_name: None,
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            Ok(())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Delete database failed ({status}): {body}"))
         }
     }
 
@@ -818,8 +934,17 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let db_loading: RwSignal<bool> = RwSignal::new(false);
     let db_error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Phase 4: database create dialog state
+    let create_open: RwSignal<bool> = RwSignal::new(false);
+    let create_name: RwSignal<String> = RwSignal::new(String::new());
+    let create_desc: RwSignal<String> = RwSignal::new(String::new());
+    let create_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let create_loading: RwSignal<bool> = RwSignal::new(false);
+
     let search_query = app_state.0.search_query;
     let search_ref: NodeRef<html::Input> = NodeRef::new();
+
+    let navigate = StoredValue::new(use_navigate());
 
     let sidebar_width_class = move || {
         if sidebar_collapsed.get() {
@@ -844,6 +969,75 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             let v = id.unwrap_or_default();
             let _ = storage.set_item(CURRENT_DB_KEY, &v);
         }
+    };
+
+    let open_create_dialog = move || {
+        create_name.set(String::new());
+        create_desc.set(String::new());
+        create_error.set(None);
+        create_open.set(true);
+    };
+
+    let submit_create_database = move || {
+        if create_loading.get_untracked() {
+            return;
+        }
+
+        let name = create_name.get_untracked();
+        if name.trim().is_empty() {
+            create_error.set(Some("Database name is required".to_string()));
+            return;
+        }
+
+        let desc = create_desc.get_untracked();
+        let api_client = app_state.0.api_client.get_untracked();
+
+        create_loading.set(true);
+        create_error.set(None);
+
+        spawn_local(async move {
+            match api_client.create_database(&name, &desc).await {
+                Ok(v) => {
+                    // Try to extract the created database id from the response.
+                    let new_id = v
+                        .get("database")
+                        .and_then(|d| {
+                            d.get("hulunote-databases/id")
+                                .or_else(|| d.get("id"))
+                                .and_then(|x| x.as_str())
+                        })
+                        .map(|s| s.to_string());
+
+                    // Refresh DB list from backend.
+                    let mut c = app_state.0.api_client.get_untracked();
+                    match c.get_database_list().await {
+                        Ok(dbs) => {
+                            app_state.0.databases.set(dbs);
+                            app_state.0.api_client.set(c);
+                        }
+                        Err(_) => {
+                            app_state.0.api_client.set(c);
+                        }
+                    }
+
+                    if let Some(id) = new_id {
+                        set_current_db(Some(id.clone()));
+                        // Navigate to the new database home.
+                        // We cannot call navigate directly here; store selection and rely on caller UI.
+                        // (navigation is triggered below on the main thread)
+                        navigate.with_value(|nav| {
+                            nav(&format!("/db/{}", id), Default::default());
+                        });
+                    }
+
+                    create_open.set(false);
+                }
+                Err(e) => {
+                    create_error.set(Some(e));
+                }
+            }
+            create_loading.set(false);
+        });
     };
 
     let load_databases = move || {
@@ -905,8 +1099,6 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         sidebar_collapsed.update(|v| *v = !*v);
         persist_sidebar();
     };
-
-    let navigate = StoredValue::new(use_navigate());
 
     // Keyboard shortcuts (Phase 3):
     // - Cmd/Ctrl+B: toggle sidebar
@@ -1025,13 +1217,22 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             <div class="rounded-md border border-border bg-muted p-3">
                                 <div class="flex items-center justify-between">
                                     <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
-                                    <button
-                                        class="text-[11px] text-muted-foreground hover:text-foreground"
-                                        on:click=move |_| load_databases()
-                                        title="Refresh"
-                                    >
-                                        "↻"
-                                    </button>
+                                    <div class="flex items-center gap-2">
+                                        <button
+                                            class="text-[11px] text-muted-foreground hover:text-foreground"
+                                            on:click=move |_| open_create_dialog()
+                                            title="New database"
+                                        >
+                                            "+"
+                                        </button>
+                                        <button
+                                            class="text-[11px] text-muted-foreground hover:text-foreground"
+                                            on:click=move |_| load_databases()
+                                            title="Refresh"
+                                        >
+                                            "↻"
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
@@ -1146,6 +1347,61 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                     </div>
                     {children()}
                 </main>
+
+                <Show when=move || create_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium">"New database"</div>
+                                <div class="text-xs text-muted-foreground">
+                                    "Create a new database (max 5)."
+                                </div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Name"</Label>
+                                    <Input bind_value=create_name class="h-8 text-sm" placeholder="My Notebook" />
+                                </div>
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Description"</Label>
+                                    <Input bind_value=create_desc class="h-8 text-sm" placeholder="Optional" />
+                                </div>
+
+                                <Show when=move || create_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || create_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || create_loading.get()
+                                        on:click=move |_| create_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || create_loading.get()
+                                        on:click=move |_| submit_create_database()
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || create_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if create_loading.get() { "Creating..." } else { "Create" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
             </div>
         </div>
     }
@@ -1201,42 +1457,263 @@ pub struct DbRouteParams {
 pub fn DbHomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<DbRouteParams>();
+    let navigate = StoredValue::new(use_navigate());
+
+    let rename_open: RwSignal<bool> = RwSignal::new(false);
+    let rename_value: RwSignal<String> = RwSignal::new(String::new());
+    let rename_loading: RwSignal<bool> = RwSignal::new(false);
+    let rename_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let delete_open: RwSignal<bool> = RwSignal::new(false);
+    let delete_confirm: RwSignal<String> = RwSignal::new(String::new());
+    let delete_loading: RwSignal<bool> = RwSignal::new(false);
+    let delete_error: RwSignal<Option<String>> = RwSignal::new(None);
 
     let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+
+    let persist_current_db = move |id: &str| {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item(CURRENT_DB_KEY, id);
+        }
+    };
 
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
         let id = db_id();
         if !id.trim().is_empty() && app_state.0.current_database_id.get() != Some(id.clone()) {
-            app_state.0.current_database_id.set(Some(id));
+            app_state.0.current_database_id.set(Some(id.clone()));
+            persist_current_db(&id);
         }
     });
 
-    let db_name = move || {
+    let db = move || {
         let id = db_id();
-        app_state
-            .0
-            .databases
-            .get()
-            .into_iter()
-            .find(|d| d.id == id)
-            .map(|d| d.name)
+        app_state.0.databases.get().into_iter().find(|d| d.id == id)
+    };
+
+    let refresh_databases = move || {
+        let mut c = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            if let Ok(dbs) = c.get_database_list().await {
+                app_state.0.databases.set(dbs);
+            }
+            app_state.0.api_client.set(c);
+        });
+    };
+
+    let on_open_rename = move |_| {
+        rename_error.set(None);
+        if let Some(d) = db() {
+            rename_value.set(d.name);
+        }
+        rename_open.set(true);
+    };
+
+    let on_submit_rename = move |_| {
+        if rename_loading.get_untracked() {
+            return;
+        }
+        let id = db_id();
+        let new_name = rename_value.get_untracked();
+        if new_name.trim().is_empty() {
+            rename_error.set(Some("Name cannot be empty".to_string()));
+            return;
+        }
+        let api_client = app_state.0.api_client.get_untracked();
+
+        rename_loading.set(true);
+        rename_error.set(None);
+
+        spawn_local(async move {
+            match api_client.rename_database(&id, &new_name).await {
+                Ok(_) => {
+                    refresh_databases();
+                    rename_open.set(false);
+                }
+                Err(e) => rename_error.set(Some(e)),
+            }
+            rename_loading.set(false);
+        });
+    };
+
+    let on_open_delete = move |_| {
+        delete_confirm.set(String::new());
+        delete_error.set(None);
+        delete_open.set(true);
+    };
+
+    let on_submit_delete = move |_| {
+        if delete_loading.get_untracked() {
+            return;
+        }
+
+        let id = db_id();
+        let name = db().map(|d| d.name).unwrap_or_default();
+        let confirm = delete_confirm.get_untracked();
+        if confirm.trim() != name.trim() {
+            delete_error.set(Some(
+                "Type the database name to confirm deletion".to_string(),
+            ));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        delete_loading.set(true);
+        delete_error.set(None);
+
+        spawn_local(async move {
+            match api_client.delete_database_by_id(&id).await {
+                Ok(_) => {
+                    // Reload DBs and navigate to the first remaining DB (or /).
+                    let mut c = app_state.0.api_client.get_untracked();
+                    if let Ok(dbs) = c.get_database_list().await {
+                        app_state.0.databases.set(dbs.clone());
+                        if let Some(first) = dbs.first() {
+                            app_state.0.current_database_id.set(Some(first.id.clone()));
+                            persist_current_db(&first.id);
+                            navigate.with_value(|nav| {
+                                nav(&format!("/db/{}", first.id), Default::default());
+                            });
+                        } else {
+                            app_state.0.current_database_id.set(None);
+                            persist_current_db("");
+                            navigate.with_value(|nav| {
+                                nav("/", Default::default());
+                            });
+                        }
+                    }
+                    app_state.0.api_client.set(c);
+                    delete_open.set(false);
+                }
+                Err(e) => delete_error.set(Some(e)),
+            }
+            delete_loading.set(false);
+        });
     };
 
     view! {
         <div class="space-y-3">
-            <div class="space-y-1">
-                <h1 class="text-xl font-semibold">
-                    {move || db_name().unwrap_or_else(|| "Database".to_string())}
-                </h1>
-                <p class="text-xs text-muted-foreground">
-                    {move || format!("db_id: {}", db_id())}
-                </p>
+            <div class="flex items-start justify-between gap-3">
+                <div class="space-y-1">
+                    <h1 class="text-xl font-semibold">
+                        {move || db().map(|d| d.name).unwrap_or_else(|| "Database".to_string())}
+                    </h1>
+                    <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <Button variant=ButtonVariant::Outline size=ButtonSize::Sm on:click=on_open_rename>
+                        "Rename"
+                    </Button>
+                    <Button variant=ButtonVariant::Outline size=ButtonSize::Sm on:click=on_open_delete>
+                        "Delete"
+                    </Button>
+                </div>
             </div>
 
             <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                "Phase 3: This is the database home page. Note list and editor will be added in later phases."
+                "Phase 4: Database management. Notes will be added in later phases."
             </div>
+
+            <Show when=move || rename_open.get() fallback=|| ().into_view()>
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                    <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                        <div class="mb-3 space-y-1">
+                            <div class="text-sm font-medium">"Rename database"</div>
+                            <div class="text-xs text-muted-foreground">"Only the name can be updated (backend limitation)."</div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="space-y-1">
+                                <Label class="text-xs">"New name"</Label>
+                                <Input bind_value=rename_value class="h-8 text-sm" />
+                            </div>
+
+                            <Show when=move || rename_error.get().is_some() fallback=|| ().into_view()>
+                                {move || rename_error.get().map(|e| view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                    </Alert>
+                                })}
+                            </Show>
+
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || rename_loading.get()
+                                    on:click=move |_| rename_open.set(false)
+                                >
+                                    "Cancel"
+                                </Button>
+                                <Button
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || rename_loading.get()
+                                    on:click=on_submit_rename
+                                >
+                                    <span class="inline-flex items-center gap-2">
+                                        <Show when=move || rename_loading.get() fallback=|| ().into_view()>
+                                            <Spinner />
+                                        </Show>
+                                        {move || if rename_loading.get() { "Saving..." } else { "Save" }}
+                                    </span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+
+            <Show when=move || delete_open.get() fallback=|| ().into_view()>
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                    <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                        <div class="mb-3 space-y-1">
+                            <div class="text-sm font-medium">"Delete database"</div>
+                            <div class="text-xs text-muted-foreground">
+                                {move || {
+                                    let name = db().map(|d| d.name).unwrap_or_default();
+                                    format!("Type '{}' to confirm.", name)
+                                }}
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <Input bind_value=delete_confirm class="h-8 text-sm" />
+
+                            <Show when=move || delete_error.get().is_some() fallback=|| ().into_view()>
+                                {move || delete_error.get().map(|e| view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                    </Alert>
+                                })}
+                            </Show>
+
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || delete_loading.get()
+                                    on:click=move |_| delete_open.set(false)
+                                >
+                                    "Cancel"
+                                </Button>
+                                <Button
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || delete_loading.get()
+                                    on:click=on_submit_delete
+                                >
+                                    <span class="inline-flex items-center gap-2">
+                                        <Show when=move || delete_loading.get() fallback=|| ().into_view()>
+                                            <Spinner />
+                                        </Show>
+                                        {move || if delete_loading.get() { "Deleting..." } else { "Delete" }}
+                                    </span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Show>
         </div>
     }
 }
