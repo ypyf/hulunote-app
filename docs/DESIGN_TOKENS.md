@@ -7,8 +7,10 @@ All UI work must use values defined here.
 If a needed value does not exist, propose a token change explicitly.
 Do NOT invent ad-hoc styles.
 
-The design system is inspired by Linear (linear.app):
-clean, restrained, dense, and consistent.
+The design system is **Linear-inspired** (linear.app): clean, restrained, dense, and consistent.
+
+Implementation note:
+- These tokens are materialized as CSS variables in `style/tailwind.css` and wired into Tailwind in `tailwind.config.js`.
 
 ---
 
@@ -34,6 +36,10 @@ Rules:
 ---
 
 ## Typography Scale
+
+### Font Family
+
+- UI font: **Inter Variable** (with system fallbacks)
 
 ### Font Sizes
 
@@ -68,13 +74,13 @@ Rules:
 
 ### Neutral Colors
 
-| Token | Usage |
-|------|------|
-| color-bg | Primary background |
-| color-bg-subtle | Secondary background |
-| color-border | Dividers, outlines |
-| color-text | Primary text |
-| color-text-muted | Secondary text |
+| Token | Usage | Default (dark) |
+|------|------|-----------------|
+| color-bg | Primary background | `#08090A` |
+| color-bg-subtle | Secondary background | `#0C0D0E` |
+| color-border | Dividers, outlines | `#1E2023` |
+| color-text | Primary text | `#F7F8F8` |
+| color-text-muted | Secondary text | `#8A8F98` |
 
 Rules:
 - Neutral colors are the default.
@@ -82,10 +88,10 @@ Rules:
 
 ### Accent Colors
 
-| Token | Usage |
-|------|------|
-| color-accent | Primary actions, focus states |
-| color-accent-muted | Hover or subtle emphasis |
+| Token | Usage | Default |
+|------|------|---------|
+| color-accent | Primary actions, focus states | `#7170FF` |
+| color-accent-muted | Hover or subtle emphasis | *(tbd; use opacity-based variants)* |
 
 Rules:
 - Accent color is used sparingly.
