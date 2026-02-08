@@ -3,7 +3,9 @@
 ## 1. Product Overview
 
 ### 1.1 Introduction
-Hulunote is an open-source outliner note-taking application inspired by Roam Research, designed for Networked Thought. Users can organize information through hierarchical bullet note structures and connect different notes using bidirectional links.
+Hulunote is a new client for the hulunote service - an open-source outliner note-taking application inspired by Roam Research, designed for Networked Thought. Users can organize information through hierarchical bullet note structures and connect different notes using bidirectional links.
+
+This project (hulunote-app) is a fresh implementation of the hulunote client.
 
 ### 1.2 Core Value
 - **Structured Thinking**: Organize information with infinitely nested hierarchical structures
@@ -47,7 +49,7 @@ Hulunote is an open-source outliner note-taking application inspired by Roam Res
 - **Database Management**: Create, delete, rename databases
 - **Database Sharing**: Support export and import
 
-#### 2.1.5 MCP Client
+#### 2.1.5 MCP Client (Optional)
 - **Model Context Protocol**: Experimental MCP integration
 - **AI Chat Interface**: Built-in AI conversation
 - **Tool Configuration**: Configurable MCP tools
@@ -203,225 +205,20 @@ Page A ──[[Page B]]────> Page B
 
 ---
 
-## 5. API Endpoints
+## 5. API Integration
 
-### 5.1 Authentication
+This client communicates with the hulunote backend API. See [API_REFERENCE.md](./API_REFERENCE.md) for detailed endpoint documentation.
 
-#### 5.1.1 Login
-```
-POST /login/web-login
-Content-Type: application/json
+### 5.1 Backend Service
+- **URL**: Configurable (default: http://localhost:6689)
+- **Auth**: JWT Bearer Token
+- **Content-Type**: application/json
 
-Request:
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-
-Response (success):
-{
-  "token": "jwt_token",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "username": "username"
-  }
-}
-```
-
-#### 5.1.2 Register
-```
-POST /login/web-signup
-Content-Type: application/json
-
-Request:
-{
-  "email": "user@example.com",
-  "password": "password123",
-  "username": "username",
-  "registration_code": "FA8E-AF6E-4578-9347"
-}
-
-Response (success):
-{
-  "token": "jwt_token",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "username": "username"
-  }
-}
-```
-
-### 5.2 Database Endpoints
-
-#### 5.2.1 Create Database
-```
-POST /hulunote/new-database
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "name": "My Notebook",
-  "description": "My personal notes"
-}
-
-Response:
-{
-  "database": {
-    "id": "uuid",
-    "name": "My Notebook",
-    "description": "My personal notes"
-  }
-}
-```
-
-#### 5.2.2 Get Database List
-```
-POST /hulunote/get-database-list
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Response:
-{
-  "databases": [
-    {
-      "id": "uuid",
-      "name": "My Notebook",
-      "description": "My personal notes",
-      "created_at": "timestamp"
-    }
-  ]
-}
-```
-
-### 5.3 Note Endpoints
-
-#### 5.3.1 Create Note
-```
-POST /hulunote/new-note
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "database_id": "uuid",
-  "title": "My Note"
-}
-
-Response:
-{
-  "note": {
-    "id": "uuid",
-    "database_id": "uuid",
-    "title": "My Note",
-    "content": ""
-  }
-}
-```
-
-#### 5.3.2 Update Note
-```
-POST /hulunote/update-hulunote-note
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "note_id": "uuid",
-  "title": "Updated Title",
-  "content": "Updated content"
-}
-
-Response:
-{
-  "success": true
-}
-```
-
-#### 5.3.3 Get Note List (Paginated)
-```
-POST /hulunote/get-note-list
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "database_id": "uuid",
-  "page": 1,
-  "page_size": 20
-}
-
-Response:
-{
-  "notes": [
-    {
-      "id": "uuid",
-      "title": "Note Title",
-      "content": "...",
-      "created_at": "timestamp",
-      "updated_at": "timestamp"
-    }
-  ],
-  "total": 100,
-  "page": 1,
-  "page_size": 20
-}
-```
-
-### 5.4 Outline Node Endpoints
-
-#### 5.4.1 Create/Update Node
-```
-POST /hulunote/create-or-update-nav
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "note_id": "uuid",
-  "nav_id": "uuid (optional, omit for create)",
-  "content": "Node content",
-  "parent_id": "parent_uuid_or_null"
-}
-
-Response:
-{
-  "nav": {
-    "id": "uuid",
-    "note_id": "uuid",
-    "parent_id": "uuid_or_null",
-    "content": "Node content",
-    "position": 0
-  }
-}
-```
-
-#### 5.4.2 Get All Nodes
-```
-POST /hulunote/get-all-navs
-Authorization: Bearer <token>
-Content-Type: application/json
-
-Request:
-{
-  "database_id": "uuid"
-}
-
-Response:
-{
-  "navs": [
-    {
-      "id": "uuid",
-      "note_id": "uuid",
-      "parent_id": "uuid_or_null",
-      "content": "Node content",
-      "position": 0
-    }
-  ]
-}
-```
+### 5.2 Key Integration Points
+- Authentication (login/register)
+- Database CRUD operations
+- Note CRUD operations
+- Outline node operations
 
 ---
 
@@ -515,134 +312,20 @@ Response:
 
 ---
 
-## 7. Technical Architecture
+## 7. Development Guide
 
-### 7.1 Frontend Architecture
-
-#### 7.1.1 Tech Stack
-- **ClojureScript**: Functional programming language
-- **Reagent**: React wrapper for ClojureScript
-- **Datascript**: In-memory database
-- **Shadow-cljs**: Build tool
-- **Electron**: Desktop application framework
-
-#### 7.1.2 Frontend Structure
-```
-src/
-├── cljs/
-│   ├── main/
-│   │   ├── core/          # Core functionality
-│   │   ├── ui/            # UI components
-│   │   ├── db/            # State management
-│   │   ├── router/        # Routing
-│   │   └── util/          # Utility functions
-│   └── ...
-├── resources/
-│   └── public/            # Static assets
-└── electron/              # Electron main process
-```
-
-#### 7.1.3 Data Flow
-```
-User Action -> Event Dispatcher -> State Update -> Re-render UI
-```
-
-### 7.2 Backend Architecture
-
-#### 7.2.1 Tech Stack
-- **Rust**: Programming language
-- **Axum**: Web framework
-- **SQLx**: SQL toolkit
-- **PostgreSQL**: Database
-- **JWT**: Authentication
-
-#### 7.2.2 Backend Structure
-```
-src/
-├── main.rs                # Entry point
-├── config.rs              # Configuration
-├── db.rs                  # Database
-├── models.rs              # Data models
-├── handlers/              # Handlers
-│   ├── auth.rs            # Authentication
-│   ├── database.rs        # Database operations
-│   ├── note.rs            # Note operations
-│   └── nav.rs             # Outline node operations
-└── middleware.rs          # Middleware
-```
-
-### 7.3 Deployment Architecture
-
-```
-+---------------------------------------------------------------+
-|                         Nginx                                 |
-|                      (Reverse Proxy)                         |
-+----------------------------+----------------------------------+
-                           |
-           +---------------+---------------+---------------+
-           |               |               |               |
-           v               v               v               v
-     +---------+      +-----------+      +-----------+
-     |  Rust   |      |PostgreSQL |      |  Static   |
-     | Backend |      | Database  |      |   Files   |
-     +---------+      +-----------+      +-----------+
-```
-
----
-
-## 8. Development Guide
-
-### 8.1 Environment Setup
-
-#### 8.1.1 Frontend Development
-```bash
-# Install dependencies
-npm install
-
-# Start dev server
-npx shadow-cljs watch hulunote
-
-# Build production
-npx shadow-cljs release hulunote
-```
-
-#### 8.1.2 Backend Development
-```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Create database
-createdb -U postgres hulunote_open
-psql -U postgres -d hulunote_open -f init.sql
-
-# Run backend
-cargo run
-```
-
-### 8.2 Test Account
+### 7.1 Test Account
 - **Email**: chanshunli@gmail.com
 - **Password**: 123456
 
-### 8.3 Configuration
-
-#### 8.3.1 Backend API URL
-Configure in `shadow-cljs.edn`:
-```clojure
-:hulunote.http/API_BASE_URL "http://localhost:6689"
-```
-
-#### 8.3.2 Environment Variables
-```env
-DATABASE_URL=postgres://postgres:password@localhost:5432/hulunote_open
-JWT_SECRET=your-secret-key
-PORT=6689
-```
+### 7.2 Configuration
+Configure the backend API URL in your client settings.
 
 ---
 
-## 9. Appendix
+## 8. Appendix
 
-### 9.1 Glossary
+### 8.1 Glossary
 
 | Term | Description |
 |------|-------------|
@@ -655,11 +338,11 @@ PORT=6689
 | Registration Code | Code for account registration |
 | JWT | JSON Web Token |
 
-### 9.2 References
+### 8.2 References
 - [Original Frontend](https://github.com/hulunote/hulunote)
 - [Backend](https://github.com/hulunote/hulunote-rust)
 - [Roam Research](https://roamresearch.com/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 
-### 9.3 Changelog
+### 8.3 Changelog
 - v0.1.0: First release (2026-02-07)
