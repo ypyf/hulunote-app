@@ -13,9 +13,9 @@
 :root {
   --background: 8 9 10;           /* #08090A */
   --foreground: 247 248 248;      /* #F7F8F8 */
-  --muted: 12 13 14;              /* subtle surfaces */
+  --muted: 18 20 24;              /* subtle surfaces (raised for dark-mode contrast) */
   --muted-foreground: 138 143 152;/* #8A8F98 */
-  --border: 30 32 35;             /* subtle border */
+  --border: 44 47 52;             /* subtle border (raised for dark-mode contrast) */
   --accent: 113 112 255;          /* #7170FF */
   --accent-foreground: 8 9 10;
 
