@@ -1,0 +1,19 @@
+[build]
+target = "wasm32-unknown-unknown"
+
+[serve]
+port = 8080
+open = true
+
+[watch]
+features = []
+
+[tools.tailwind]
+# Path to tailwind config file
+config = "tailwind.config.js"
+# Path to CSS file to watch for changes
+css_file = "public/style.css"
+# Path to input CSS file for tailwind compilation
+input = "public/style.css"
+# Path to output CSS file
+output = "dist/style.css"

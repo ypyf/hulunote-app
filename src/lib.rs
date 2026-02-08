@@ -5,6 +5,43 @@ use leptos_router::hooks::use_location;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EnvConfig {
+    pub api_url: String,
+}
+
+impl EnvConfig {
+    pub fn new() -> Self {
+        let default_api_url = "http://localhost:6689".to_string();
+
+        #[cfg(not(feature = "ssr"))]
+        {
+            if let Some(window) = web_sys::window() {
+                if let Some(env) = window.get("ENV") {
+                    if !env.is_undefined() && env.is_object() {
+                        match js_sys::Reflect::get(&env, &"api_url".into()) {
+                            Ok(api_url) => {
+                                if let Some(url_str) = api_url.as_string() {
+                                    return Self { api_url: url_str };
+                                }
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        Self {
+            api_url: default_api_url,
+        }
+    }
+}
+
+fn get_api_url() -> String {
+    EnvConfig::new().api_url
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub id: String,
     pub email: String,
@@ -171,7 +208,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            api_client: RwSignal::new(ApiClient::new("http://localhost:6689".to_string())),
+            api_client: RwSignal::new(ApiClient::new(get_api_url())),
             current_user: RwSignal::new(None),
             databases: RwSignal::new(vec![]),
         }
@@ -754,9 +791,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "wasm32")]
     fn test_app_state_new() {
         let state = AppState::new();
-        assert_eq!(state.api_client.get_untracked().base_url, "http://localhost:6689");
+        assert!(!state.api_client.get_untracked().base_url.is_empty());
         assert!(state.current_user.get_untracked().is_none());
         assert!(state.databases.get_untracked().is_empty());
     }

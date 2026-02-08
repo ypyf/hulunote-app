@@ -44,15 +44,34 @@ cargo install trunk
 ### Development
 
 ```bash
-# Start dev server at http://localhost:8080
+# Start dev server at http://localhost:8080 (with auto-rebuild)
 trunk serve
+
+# Or use cargo leptos if preferred
+cargo leptos watch
 ```
 
 ### Production Build
 
 ```bash
-trunk build
+trunk build --release
 ```
+
+### Environment Configuration
+
+The app reads configuration from `window.ENV` in the browser. To customize the API URL:
+
+```html
+<script>
+  window.ENV = {
+    API_URL: "http://your-backend-url:6689"
+  };
+</script>
+```
+
+Or set the default in `src/lib.rs` via the `get_api_url()` function.
+
+For local development, copy `.env.example` to `.env` and configure as needed.
 
 ## Project Structure
 
@@ -61,6 +80,10 @@ hulunote-app/
 ├── src/
 │   └── lib.rs         # Main app (components, API client, state)
 ├── index.html          # Entry HTML with Tailwind
+├── trunk.toml         # Trunk build configuration
+├── tailwind.config.js # Tailwind CSS configuration
+├── public/
+│   └── style.css      # Global styles with Tailwind directives
 ├── Cargo.toml         # Dependencies and WASM config
 └── docs/              # Documentation
     ├── PRODUCT.md     # Product overview
@@ -77,6 +100,28 @@ hulunote-app/
 ## Backend Connection
 
 Default backend URL: `http://localhost:6689`
+
+## Desktop Build
+
+To build for desktop, you have several options:
+
+### Option 1: Tauri (Recommended)
+
+Tauri can wrap the WASM application for native desktop deployment.
+
+```bash
+# Install Tauri CLI
+cargo install tauri-cli
+
+# Build for desktop
+cargo tauri build
+```
+
+### Option 2: Web Desktop Wrappers
+
+For a more lightweight desktop experience, consider:
+- [nativefier](https://github.com/nativefier/nativefier) - Wrap the web app as a desktop app
+- [Electron](https://www.electronjs.org/) - Create a desktop wrapper
 
 ## License
 

@@ -6,25 +6,25 @@
 
 ## Phase 1: Project Setup
 
-- [ ] Initialize Rust/UI project with Leptos
+- [x] Initialize Rust/UI project with Leptos
 - [ ] Configure Tailwind CSS
-- [ ] Set up project structure following Leptos patterns
+- [x] Set up project structure following Leptos patterns
 - [ ] Configure environment variables (API URL, etc.)
-- [ ] Set up routing (Leptos Router)
-- [ ] Implement state management (Leptos signals/store)
-- [ ] Set up HTTP client for API calls
+- [x] Set up routing (Leptos Router)
+- [x] Implement state management (Leptos signals/store)
+- [x] Set up HTTP client for API calls
 - [ ] Configure development workflow (cargo leptos watch)
 - [ ] Set up build targets (Web, Desktop via Tauri/trunk)
 
 ## Phase 2: Authentication
 
-- [ ] Design login page UI
-- [ ] Design registration page UI
-- [ ] Implement login API integration (`POST /login/web-login`)
-- [ ] Implement registration API integration (`POST /login/web-signup`)
-- [ ] Implement JWT token storage (localStorage)
+- [x] Design login page UI
+- [x] Design registration page UI
+- [x] Implement login API integration (`POST /login/web-login`)
+- [x] Implement registration API integration (`POST /login/web-signup`)
+- [x] Implement JWT token storage (localStorage)
 - [ ] Implement token refresh mechanism
-- [ ] Implement logout functionality
+- [x] Implement logout functionality
 - [ ] Handle session persistence on reload
 - [ ] Create auth middleware (protected routes)
 
