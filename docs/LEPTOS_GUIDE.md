@@ -6,7 +6,9 @@
 use wasm_bindgen::prelude::*;        // For #[wasm_bindgen(start)]
 use leptos::prelude::*;              // Core: signal, RwSignal, view!, etc.
 use leptos::task::spawn_local;       // Async tasks in WASM
-use leptos_router::hooks::use_location; // Routing
+use leptos_router::components::*;       // <Router/>, <Routes/>, <Route/>
+use leptos_router::path;                // path!(...) macro
+use leptos_router::hooks::use_location; // Location hooks (requires <Router>)
 ```
 
 ## Signals: Creation and Usage
@@ -24,10 +26,10 @@ use leptos_router::hooks::use_location; // Routing
 ```rust
 let count: RwSignal<i32> = RwSignal::new(0);
 count.set(1);
-count.get(); // Returns 0, but .read() gives actual value
+assert_eq!(count.get(), 1);
 ```
 
-Use when you need to pass a single signal value around.
+Use `RwSignal` when you want a single handle that supports both `.get()` and `.set()`.
 
 ## Async Tasks
 
@@ -93,11 +95,11 @@ Always match the web-sys feature to the type you need:
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
-    leptos::mount_to_body(App);
+    mount_to_body(App);
 }
 ```
 
-Note: `mount_to_body` not `leptos::mount_to_body` when imported via `use leptos::prelude::*`.
+(Requires `use leptos::prelude::*;` to bring `mount_to_body` into scope.)
 
 ## Context Pattern
 
@@ -112,13 +114,37 @@ provide_context(AppContext(AppState::new()));
 let app_state = expect_context::<AppContext>();
 ```
 
-## Leptos Router
+## Leptos Router (CSR)
+
+Key points:
+- Router hooks like `use_location()` **must** be called under a `<Router>`.
+- Prefer defining routes via `<Routes>` + `<Route>` and `path!(...)`.
+
+Minimal example:
 
 ```rust
+use leptos::prelude::*;
+use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_location;
+use leptos_router::path;
 
-let location = use_location();
-let pathname = move || location.pathname.get();
+#[component]
+pub fn App() -> impl IntoView {
+    view! {
+        <Router>
+            <Routes fallback=|| "Not found">
+                <Route path=path!("login") view=|| view! { "Login" } />
+                <Route path=path!("") view=|| view! { "Home" } />
+            </Routes>
+        </Router>
+    }
+}
+
+#[component]
+pub fn SomeChild() -> impl IntoView {
+    let location = use_location();
+    let pathname = move || location.pathname.get();
+
+    view! { <div>{pathname}</div> }
+}
 ```
-
-Routes are checked via string matching, not components.

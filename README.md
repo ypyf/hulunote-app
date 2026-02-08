@@ -39,6 +39,9 @@ rustup target add wasm32-unknown-unknown
 
 # Install Trunk
 cargo install trunk
+
+# Install Tailwind CSS CLI (Trunk will invoke this to compile Tailwind)
+brew install tailwindcss
 ```
 
 ### Development
@@ -69,7 +72,9 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
 Notes:
 - On macOS, the runner may default to Safari. You may need to enable safaridriver:
   `safaridriver --enable`
-- Alternatively, configure Chrome/Firefox via `webdriver.json` (see wasm-bindgen-test docs).
+- If you use Chrome, **ChromeDriver major version must match your Chrome major version**.
+  If you cannot upgrade Chrome, download a matching ChromeDriver and set `CHROMEDRIVER=/path/to/chromedriver`.
+- See wasm-bindgen-test docs for WebDriver configuration details.
 
 ### Production Build
 
@@ -99,7 +104,7 @@ For local development, copy `.env.example` to `.env` and configure as needed.
 hulunote-app/
 ├── src/
 │   └── lib.rs         # Main app (components, API client, state)
-├── index.html          # Entry HTML with Tailwind
+├── index.html          # Entry HTML (Trunk + Tailwind pipeline)
 ├── trunk.toml         # Trunk build configuration
 ├── tailwind.config.js # Tailwind CSS configuration
 ├── public/
