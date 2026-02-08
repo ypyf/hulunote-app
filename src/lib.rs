@@ -1,16 +1,17 @@
 mod components;
 
 use crate::components::ui::{
-    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
-    CardHeader, CardItem, CardList, CardTitle, Input, Label, Spinner,
+    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Input, Label, Spinner,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_navigate;
-use leptos_router::path;
 use leptos_router::params::Params;
+use leptos_router::path;
 use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
+use std::sync::Arc;
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -799,7 +800,7 @@ pub fn HomePage() -> impl IntoView {
 }
 
 #[component]
-pub fn AppLayout(children: Children) -> impl IntoView {
+pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
 
     let databases = app_state.0.databases;
@@ -809,7 +810,13 @@ pub fn AppLayout(children: Children) -> impl IntoView {
     let db_loading: RwSignal<bool> = RwSignal::new(false);
     let db_error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    let sidebar_width_class = move || if sidebar_collapsed.get() { "w-14" } else { "w-64" };
+    let sidebar_width_class = move || {
+        if sidebar_collapsed.get() {
+            "w-14"
+        } else {
+            "w-64"
+        }
+    };
 
     let persist_sidebar = move || {
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
@@ -888,13 +895,7 @@ pub fn AppLayout(children: Children) -> impl IntoView {
         persist_sidebar();
     };
 
-    let navigate = use_navigate();
-
-    let on_select_db = move |id: String| {
-        current_db_id.set(Some(id.clone()));
-        persist_current_db();
-        navigate(&format!("/db/{}", id), Default::default());
-    };
+    let navigate = StoredValue::new(use_navigate());
 
     let on_logout = move |_| {
         let mut api_client = app_state.0.api_client.get_untracked();
@@ -977,7 +978,20 @@ pub fn AppLayout(children: Children) -> impl IntoView {
 
                                                     let id = db.id.clone();
                                                     view! {
-                                                        <button class=class on:click=move |_| on_select_db(id.clone())>
+                                                        <button
+                                                            class=class
+                                                            on:click=move |_| {
+                                                                current_db_id.set(Some(id.clone()));
+                                                                if let Some(storage) = web_sys::window()
+                                                                    .and_then(|w| w.local_storage().ok().flatten())
+                                                                {
+                                                                    let _ = storage.set_item(CURRENT_DB_KEY, &id);
+                                                                }
+                                                                navigate.with_value(|nav| {
+                                                                    nav(&format!("/db/{}", id), Default::default());
+                                                                });
+                                                            }
+                                                        >
                                                             {db.name}
                                                         </button>
                                                     }
@@ -1012,14 +1026,17 @@ pub fn AppLayout(children: Children) -> impl IntoView {
 }
 
 #[component]
-pub fn RootAuthed(children: Children) -> impl IntoView {
+pub fn RootAuthed(children: ChildrenFn) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
+
+    // Store children so the view macro sees an `Fn` (not an `FnOnce`).
+    let children = StoredValue::new(children);
 
     view! {
         <Show when=is_authenticated fallback=move || view! { <LoginPage /> }>
             <AppLayout>
-                {children()}
+                {move || children.with_value(|c| c())}
             </AppLayout>
         </Show>
     }
@@ -1051,7 +1068,7 @@ pub fn RootPage() -> impl IntoView {
 
 #[derive(Params, PartialEq, Clone, Debug)]
 pub struct DbRouteParams {
-    pub db_id: String,
+    pub db_id: Option<String>,
 }
 
 #[component]
@@ -1059,7 +1076,7 @@ pub fn DbHomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<DbRouteParams>();
 
-    let db_id = move || params.get().ok().map(|p| p.db_id).unwrap_or_default();
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
 
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
