@@ -178,6 +178,40 @@ fn today_yyyymmdd_local() -> String {
     format!("{:04}{:02}{:02}", y, m, day)
 }
 
+fn next_available_daily_note_title_for_date(base: &str, existing_notes: &[Note]) -> String {
+    let base = base.trim();
+
+    let mut has_base = false;
+    let mut max_suffix: u32 = 1;
+
+    for n in existing_notes {
+        let t = n.title.trim();
+        if t == base {
+            has_base = true;
+            continue;
+        }
+
+        // Match patterns like: YYYYMMDD-2, YYYYMMDD-3, ...
+        if let Some(rest) = t.strip_prefix(&format!("{}-", base)) {
+            if let Ok(k) = rest.parse::<u32>() {
+                if k >= max_suffix {
+                    max_suffix = k;
+                }
+            }
+        }
+    }
+
+    if !has_base {
+        return base.to_string();
+    }
+
+    format!("{}-{}", base, max_suffix.saturating_add(1))
+}
+
+fn next_available_daily_note_title(existing_notes: &[Note]) -> String {
+    next_available_daily_note_title_for_date(&today_yyyymmdd_local(), existing_notes)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
@@ -1992,7 +2026,7 @@ pub fn DbHomePage() -> impl IntoView {
                                 create_note_error.set(None);
 
                                 let id = db_id();
-                                let title = today_yyyymmdd_local();
+                                let title = next_available_daily_note_title(&app_state.0.notes.get_untracked());
                                 let api_client = app_state.0.api_client.get_untracked();
 
                                 spawn_local(async move {
@@ -2499,5 +2533,32 @@ mod tests {
         assert_eq!(out[0].database_id, "db2");
         assert_eq!(out[0].title, "Legacy");
         assert_eq!(out[0].updated_at, "t2");
+    }
+
+    #[test]
+    fn test_next_available_daily_note_title_adds_suffix() {
+        let base = "20260209";
+
+        let notes = vec![
+            Note {
+                id: "n1".to_string(),
+                database_id: "db".to_string(),
+                title: base.to_string(),
+                content: "".to_string(),
+                created_at: "t1".to_string(),
+                updated_at: "t2".to_string(),
+            },
+            Note {
+                id: "n2".to_string(),
+                database_id: "db".to_string(),
+                title: format!("{}-2", base),
+                content: "".to_string(),
+                created_at: "t1".to_string(),
+                updated_at: "t2".to_string(),
+            },
+        ];
+
+        let next = next_available_daily_note_title_for_date(base, &notes);
+        assert_eq!(next, format!("{}-3", base));
     }
 }
