@@ -1,0 +1,255 @@
+# Hulunote-app Complete TODO List
+
+**Tech Stack**: Rust/UI (Leptos-based) + hulunote-rust backend (Axum + PostgreSQL)
+
+---
+
+## Phase 1: Project Setup
+
+- [ ] Initialize Rust/UI project with Leptos
+- [ ] Configure Tailwind CSS
+- [ ] Set up project structure following Leptos patterns
+- [ ] Configure environment variables (API URL, etc.)
+- [ ] Set up routing (Leptos Router)
+- [ ] Implement state management (Leptos signals/store)
+- [ ] Set up HTTP client for API calls
+- [ ] Configure development workflow (cargo leptos watch)
+- [ ] Set up build targets (Web, Desktop via Tauri/trunk)
+
+## Phase 2: Authentication
+
+- [ ] Design login page UI
+- [ ] Design registration page UI
+- [ ] Implement login API integration (`POST /login/web-login`)
+- [ ] Implement registration API integration (`POST /login/web-signup`)
+- [ ] Implement JWT token storage (localStorage)
+- [ ] Implement token refresh mechanism
+- [ ] Implement logout functionality
+- [ ] Handle session persistence on reload
+- [ ] Create auth middleware (protected routes)
+
+## Phase 3: Layout & Navigation
+
+- [ ] Implement main app layout (sidebar + content area)
+- [ ] Implement collapsible sidebar
+- [ ] Create database list in sidebar
+- [ ] Create page tree navigation
+- [ ] Implement global search in sidebar
+- [ ] Implement settings entry
+- [ ] Add keyboard navigation support
+- [ ] Implement breadcrumb navigation
+
+## Phase 4: Database Management
+
+- [ ] Implement database list view
+- [ ] Implement database selection
+- [ ] Implement database creation dialog
+- [ ] Implement database rename dialog
+- [ ] Implement database deletion
+- [ ] Connect to `POST /hulunote/get-database-list`
+- [ ] Connect to `POST /hulunote/new-database`
+- [ ] Connect to `POST /hulunote/update-database`
+
+## Phase 5: Note Management (List View)
+
+- [ ] Implement note list view
+- [ ] Implement note creation dialog
+- [ ] Implement note detail view
+- [ ] Implement note editing
+- [ ] Implement note deletion
+- [ ] Connect to `POST /hulunote/new-note`
+- [ ] Connect to `POST /hulunote/get-note-list`
+- [ ] Connect to `POST /hulunote/get-all-note-list`
+- [ ] Connect to `POST /hulunote/update-hulunote-note`
+
+## Phase 6: Outline Editor (Core Feature)
+
+- [ ] Design outline data structure
+- [ ] Implement outline tree component
+- [ ] Implement recursive node rendering
+- [ ] Implement node selection
+- [ ] Implement node editing (inline)
+- [ ] Implement node creation (Enter key)
+- [ ] Implement node deletion (Cmd+Backspace)
+- [ ] Implement drag-and-drop reordering
+- [ ] Implement indentation (Tab/Shift+Tab)
+- [ ] Implement collapse/expand
+- [ ] Implement node moving (Alt+Up/Down)
+- [ ] Connect to `POST /hulunote/create-or-update-nav`
+- [ ] Connect to `POST /hulunote/get-note-navs`
+- [ ] Connect to `POST /hulunote/get-all-navs`
+- [ ] Connect to `POST /hulunote/get-all-nav-by-page`
+
+## Phase 7: Bidirectional Links
+
+- [ ] Implement `[[wiki-style]]` link parsing
+- [ ] Implement link detection in text
+- [ ] Implement link rendering (clickable)
+- [ ] Implement link navigation
+- [ ] Implement backlink panel
+- [ ] Implement link preview (hover/tooltip)
+- [ ] Implement "Unreferenced Pages" view
+- [ ] Handle link creation (type `[[`)
+- [ ] Handle link autocomplete
+
+## Phase 8: Daily Notes
+
+- [ ] Implement daily notes quick access
+- [ ] Implement date-based page creation
+- [ ] Implement date picker
+- [ ] Implement journal templates
+- [ ] Implement historical notes navigation
+- [ ] Create "Today's Note" button
+
+## Phase 9: Rich Text Content
+
+- [ ] Implement block-based content
+- [ ] Implement text formatting (bold, italic, etc.)
+- [ ] Implement code blocks
+- [ ] Implement image blocks
+- [ ] Implement block type switching
+- [ ] Implement block properties panel
+- [ ] Connect note content to backend
+
+## Phase 10: Search
+
+- [ ] Implement global search UI
+- [ ] Implement search input
+- [ ] Implement full-text search
+- [ ] Implement title-only search
+- [ ] Implement advanced search with filters
+- [ ] Add search keyboard shortcut (Cmd/Ctrl+K)
+- [ ] Implement search results display
+- [ ] Implement search highlighting
+
+## Phase 11: User Interface Polish
+
+- [ ] Implement light theme
+- [ ] Implement dark theme
+- [ ] Implement high contrast theme
+- [ ] Implement spacing options (compact/comfortable/loose)
+- [ ] Add loading states (spinners)
+- [ ] Add error handling UI (toasts/notifications)
+- [ ] Implement responsive design
+- [ ] Add empty states
+- [ ] Implement transitions/animations
+
+## Phase 12: Keyboard Shortcuts
+
+- [ ] Implement navigation shortcuts
+- [ ] Implement edit shortcuts
+- [ ] Implement formatting shortcuts
+- [ ] Implement global shortcuts
+- [ ] Implement shortcut customization
+- [ ] Add shortcut cheat sheet
+
+## Phase 13: Import/Export
+
+- [ ] Implement Markdown import
+- [ ] Implement Markdown export
+- [ ] Implement HTML import
+- [ ] Implement HTML export
+- [ ] Implement PDF export
+- [ ] Implement OPML import
+- [ ] Implement bulk export
+- [ ] Implement incremental import
+
+## Phase 14: Settings
+
+- [ ] Implement appearance settings
+- [ ] Implement editor settings
+- [ ] Implement keyboard shortcuts settings
+- [ ] Implement account settings
+- [ ] Implement export/import settings
+- [ ] Implement about page
+
+## Phase 15: MCP Client (Experimental)
+
+- [ ] Design MCP integration UI
+- [ ] Implement MCP settings panel
+- [ ] Implement MCP server configuration
+- [ ] Implement AI chat interface
+- [ ] Implement tool list display
+- [ ] Connect MCP tools to note context
+- [ ] Implement chat history
+
+## Phase 16: Performance Optimization
+
+- [ ] Implement lazy loading
+- [ ] Implement virtualization for large lists
+- [ ] Optimize outline rendering
+- [ ] Implement optimistic updates
+- [ ] Add debouncing for auto-save
+- [ ] Implement caching
+
+## Phase 17: Testing
+
+- [ ] Write unit tests (Rust)
+- [ ] Write integration tests
+- [ ] Set up CI/CD pipeline
+- [ ] Perform end-to-end testing
+- [ ] Test cross-platform builds
+
+## Phase 18: Desktop Build (Optional)
+
+- [ ] Configure Tauri or trunk for desktop
+- [ ] Implement native window controls
+- [ ] Implement system shortcuts
+- [ ] Implement file system access
+- [ ] Package application
+
+---
+
+## Core Feature Mapping (Original hulunote → hulunote-app)
+
+| Original Feature | Implementation |
+|-----------------|----------------|
+| Outliner Structure | Leptos recursive component |
+| Bidirectional Links | Link parser + backlink panel |
+| Daily Notes | Date-based note creation |
+| Multiple Databases | Database selector + CRUD |
+| MCP Client | Chat interface + tools panel |
+| Datascript | Leptos signals/store + local state |
+| Electron | Leptos web + Tauri/desktop |
+| Reagent components | Rust/UI components |
+
+---
+
+## API Endpoints Integration
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/login/web-login` | POST | Authentication |
+| `/login/web-signup` | POST | Registration |
+| `/hulunote/get-database-list` | POST | List databases |
+| `/hulunote/new-database` | POST | Create database |
+| `/hulunote/update-database` | POST | Update database |
+| `/hulunote/new-note` | POST | Create note |
+| `/hulunote/get-note-list` | POST | List notes |
+| `/hulunote/get-all-note-list` | POST | Get all notes |
+| `/hulunote/update-hulunote-note` | POST | Update note |
+| `/hulunote/create-or-update-nav` | POST | Create/update node |
+| `/hulunote/get-note-navs` | POST | Get note nodes |
+| `/hulunote/get-all-navs` | POST | Get all nodes |
+
+---
+
+## Recommended Execution Order
+
+1. **Phase 1 → 2**: Setup + Auth (foundation)
+2. **Phase 3 → 4**: Layout + Database management
+3. **Phase 5 → 6**: Notes + Outline (core editor)
+4. **Phase 7 → 8**: Links + Daily Notes
+5. **Phase 9 → 11**: Rich text + Search + UI polish
+6. **Phase 12 → 15**: Shortcuts + Import/Export + Settings + MCP
+7. **Phase 16 → 18**: Optimization + Testing + Desktop
+
+---
+
+## References
+
+- [Original Frontend](https://github.com/hulunote/hulunote)
+- [Backend](https://github.com/hulunote/hulunote-rust)
+- [Rust/UI](https://www.rust-ui.com/)
+- [Roam Research](https://roamresearch.com/)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
