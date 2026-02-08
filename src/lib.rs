@@ -1,8 +1,8 @@
-use wasm_bindgen::prelude::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_location;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EnvConfig {
@@ -38,6 +38,12 @@ impl EnvConfig {
         Self {
             api_url: default_api_url,
         }
+    }
+}
+
+impl Default for EnvConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -155,8 +161,8 @@ impl ApiClient {
     }
 
     pub fn save_to_storage(&self) {
-        if let Some(storage) = leptos::web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
+        if let Some(storage) =
+            leptos::web_sys::window().and_then(|w| w.local_storage().ok().flatten())
         {
             if let Some(token) = &self.token {
                 let _ = storage.set_item(TOKEN_KEY, token);
@@ -165,8 +171,8 @@ impl ApiClient {
     }
 
     pub fn clear_storage() {
-        if let Some(storage) = leptos::web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
+        if let Some(storage) =
+            leptos::web_sys::window().and_then(|w| w.local_storage().ok().flatten())
         {
             let _ = storage.remove_item(TOKEN_KEY);
             let _ = storage.remove_item(USER_KEY);
@@ -188,7 +194,7 @@ impl ApiClient {
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
         let client = reqwest::Client::new();
         let res = client
-            .post(&format!("{}/login/web-login", self.base_url))
+            .post(format!("{}/login/web-login", self.base_url))
             .json(&LoginRequest {
                 email: email.to_string(),
                 password: password.to_string(),
@@ -200,7 +206,7 @@ impl ApiClient {
         if res.status().is_success() {
             res.json().await.map_err(|e| e.to_string())
         } else {
-            Err(format!("Login failed"))
+            Err("Login failed".to_string())
         }
     }
 
@@ -209,7 +215,7 @@ impl ApiClient {
         auth_header: Option<String>,
     ) -> Result<reqwest::Response, String> {
         let client = reqwest::Client::new();
-        let mut req = client.post(&format!("{}/hulunote/get-database-list", base_url));
+        let mut req = client.post(format!("{}/hulunote/get-database-list", base_url));
         if let Some(header) = auth_header {
             req = req.header("Authorization", header);
         }
@@ -245,7 +251,7 @@ impl ApiClient {
     ) -> Result<SignupResponse, String> {
         let client = reqwest::Client::new();
         let res = client
-            .post(&format!("{}/login/web-signup", self.base_url))
+            .post(format!("{}/login/web-signup", self.base_url))
             .json(&SignupRequest {
                 email: email.to_string(),
                 username: if username.trim().is_empty() {
@@ -289,18 +295,14 @@ const USER_KEY: &str = "hulunote_user";
 
 fn save_user_to_storage(user: &AccountInfo) {
     if let Ok(json) = serde_json::to_string(user) {
-        if let Some(storage) = web_sys::window()
-            .and_then(|w| w.local_storage().ok().flatten())
-        {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
             let _ = storage.set_item(USER_KEY, &json);
         }
     }
 }
 
 fn load_user_from_storage() -> Option<AccountInfo> {
-    if let Some(storage) = web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-    {
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
         if let Ok(Some(json)) = storage.get_item(USER_KEY) {
             return serde_json::from_str(&json).ok();
         }
@@ -317,6 +319,12 @@ impl AppState {
             current_user: RwSignal::new(stored_user),
             databases: RwSignal::new(vec![]),
         }
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -851,7 +859,8 @@ mod tests {
             "hulunote": {"id": 1, "username": "u", "mail": "u@example.com"},
             "region": null
         }"#;
-        let parsed: LoginResponse = serde_json::from_str(json).expect("login response should parse");
+        let parsed: LoginResponse =
+            serde_json::from_str(json).expect("login response should parse");
         assert_eq!(parsed.token, "jwt-token");
         // hulunote is opaque; just ensure it's an object
         assert!(parsed.hulunote.extra.is_object());
@@ -867,7 +876,8 @@ mod tests {
             "database": "u-1234",
             "region": null
         }"#;
-        let parsed: SignupResponse = serde_json::from_str(json).expect("signup response should parse");
+        let parsed: SignupResponse =
+            serde_json::from_str(json).expect("signup response should parse");
         assert_eq!(parsed.token, "jwt-token");
         assert_eq!(parsed.database.as_deref(), Some("u-1234"));
         assert!(parsed.hulunote.extra.is_object());
