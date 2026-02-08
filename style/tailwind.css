@@ -11,17 +11,28 @@
   via tailwind.config.js.
 */
 :root {
-  --background: 8 9 10;           /* #08090A */
-  --foreground: 247 248 248;      /* #F7F8F8 */
-  --muted: 18 20 24;              /* subtle surfaces (raised for dark-mode contrast) */
-  --muted-foreground: 138 143 152;/* #8A8F98 */
-  --border: 44 47 52;             /* subtle border (raised for dark-mode contrast) */
-  --accent: 113 112 255;          /* #7170FF */
-  --accent-foreground: 8 9 10;
+  /* Neutral tokens (DESIGN_TOKENS.md) */
+  --background: 8 9 10;             /* color-bg: #08090A */
+  --foreground: 247 248 248;        /* color-text: #F7F8F8 */
+  --muted: 14 15 17;                /* color-surface: #0E0F11 */
+  --surface-hover: 18 19 22;        /* color-surface-hover: #121316 */
+  --surface-active: 22 24 27;       /* color-surface-active: #16181B */
+  --muted-foreground: 162 167 176;  /* color-text-muted: #A2A7B0 */
+  --text-disabled: 108 113 122;     /* color-text-disabled: #6C717A */
+  --border: 30 32 35;               /* color-border: #1E2023 */
+  --border-strong: 42 45 51;        /* color-border-strong: #2A2D33 */
+
+  /* Accent tokens */
+  --accent: 113 112 255;            /* color-accent: #7170FF */
+  --accent-hover: 126 125 255;      /* color-accent-hover: #7E7DFF */
+  --accent-active: 102 101 255;     /* color-accent-active: #6665FF */
+  --accent-foreground: 11 12 14;    /* color-on-accent: #0B0C0E */
+  --accent-soft: rgba(113, 112, 255, 0.12); /* color-accent-soft */
+  --ring: rgba(113, 112, 255, 0.45);        /* color-ring */
 
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-lg: 12px;
 }
 
 /* App-level defaults */

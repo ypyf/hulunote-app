@@ -5,15 +5,15 @@ use leptos_ui::variants;
 
 variants! {
     Button {
-        base: "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive  w-fit  hover:cursor-pointer active:scale-[0.98] active:opacity-100 touch-manipulation [-webkit-tap-highlight-color:transparent] select-none [-webkit-touch-callout:none]", // Using hover:cursor-pointer as workaround for href_support.
+        base: "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-border-strong focus-visible:ring-ring focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive  w-fit  hover:cursor-pointer active:scale-[0.98] active:opacity-100 touch-manipulation [-webkit-tap-highlight-color:transparent] select-none [-webkit-touch-callout:none]", // Using hover:cursor-pointer as workaround for href_support.
         variants: {
             variant: {
-                Default: "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
+                Default: "bg-primary text-primary-foreground shadow-xs hover:bg-accent-hover",
                 Destructive: "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
-                Outline: "border bg-border/30 shadow-xs hover:bg-border/50 hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/5",
+                Outline: "border border-border bg-surface shadow-xs hover:bg-surface-hover hover:text-foreground",
                 Secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
-                Ghost: "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-                Accent: "bg-accent text-accent-foreground hover:bg-accent/80",
+                Ghost: "hover:bg-surface-hover hover:text-foreground",
+                Accent: "bg-accent text-accent-foreground hover:bg-accent-hover",
                 Link: "text-primary underline-offset-4 hover:underline",
                 //
                 Warning: "bg-warning text-warning-foreground hover:bg-warning/90",
