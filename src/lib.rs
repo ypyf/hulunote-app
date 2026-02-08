@@ -1,0 +1,543 @@
+use wasm_bindgen::prelude::*;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use leptos_router::hooks::use_location;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct User {
+    pub id: String,
+    pub email: String,
+    pub username: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LoginResponse {
+    pub token: String,
+    pub user: User,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Database {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Note {
+    pub id: String,
+    pub database_id: String,
+    pub title: String,
+    pub content: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Nav {
+    pub id: String,
+    pub note_id: String,
+    pub parent_id: Option<String>,
+    pub content: String,
+    pub position: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LoginRequest {
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreateDatabaseRequest {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreateNoteRequest {
+    pub database_id: String,
+    pub title: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GetNoteListRequest {
+    pub database_id: String,
+    pub page: i32,
+    pub page_size: i32,
+}
+
+#[derive(Clone)]
+pub struct ApiClient {
+    base_url: String,
+    token: Option<String>,
+}
+
+impl ApiClient {
+    pub fn new(base_url: String) -> Self {
+        Self { base_url, token: None }
+    }
+
+    pub fn set_token(&mut self, token: String) {
+        self.token = Some(token);
+    }
+
+    fn get_auth_header(&self) -> Option<String> {
+        self.token.as_ref().map(|t| format!("Bearer {}", t))
+    }
+
+    pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&format!("{}/login/web-login", self.base_url))
+            .json(&LoginRequest {
+                email: email.to_string(),
+                password: password.to_string(),
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            res.json().await.map_err(|e| e.to_string())
+        } else {
+            Err(format!("Login failed"))
+        }
+    }
+
+    pub async fn get_database_list(&self) -> Result<Vec<Database>, String> {
+        let client = reqwest::Client::new();
+        let mut req = client.post(&format!("{}/hulunote/get-database-list", self.base_url));
+        if let Some(header) = self.get_auth_header() {
+            req = req.header("Authorization", header);
+        }
+        let res = req.json(&serde_json::json!({})).send().await.map_err(|e| e.to_string())?;
+        if res.status().is_success() {
+            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            Ok(serde_json::from_value(data["databases"].clone()).map_err(|e| e.to_string())?)
+        } else {
+            Err(format!("Failed to get databases"))
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub api_client: RwSignal<ApiClient>,
+    pub current_user: RwSignal<Option<User>>,
+    pub databases: RwSignal<Vec<Database>>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            api_client: RwSignal::new(ApiClient::new("http://localhost:6689".to_string())),
+            current_user: RwSignal::new(None),
+            databases: RwSignal::new(vec![]),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AppContext(pub AppState);
+
+#[component]
+pub fn LoginPage() -> impl IntoView {
+    let email: RwSignal<String> = RwSignal::new(String::new());
+    let password: RwSignal<String> = RwSignal::new(String::new());
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let loading: RwSignal<bool> = RwSignal::new(false);
+
+    let app_state = expect_context::<AppContext>();
+
+    let on_submit = move |_| {
+        let email_val = email.get();
+        let password_val = password.get();
+        let mut api_client = app_state.0.api_client.get_untracked();
+
+        loading.set(true);
+        error.set(None);
+
+        spawn_local(async move {
+            match api_client.login(&email_val, &password_val).await {
+                Ok(response) => {
+                    api_client.set_token(response.token);
+                    app_state.0.api_client.set(api_client);
+                    app_state.0.current_user.set(Some(response.user));
+                    let _ = window().location().set_href("/");
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    let email_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                email.set(input.value());
+            }
+        }
+    };
+
+    let password_input = move |e: web_sys::Event| {
+        if let Some(target) = e.target() {
+            if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
+                password.set(input.value());
+            }
+        }
+    };
+
+    view! {
+        <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
+            <div class="max-w-md w-full space-y-8">
+                <div>
+                    <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                        "Sign in to Hulunote"
+                    </h2>
+                </div>
+                <form class="mt-8 space-y-6" on:submit=on_submit>
+                    <div class="rounded-md shadow-sm -space-y-px">
+                        <div>
+                            <input
+                                type="email"
+                                required
+                                placeholder="Email address"
+                                class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                on:input=email_input
+                            />
+                        </div>
+                        <div>
+                            <input
+                                type="password"
+                                required
+                                placeholder="Password"
+                                class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                on:input=password_input
+                            />
+                        </div>
+                    </div>
+
+                    {move || error.get().map(|e| view! { <div class="text-red-500 text-sm text-center">{e}</div> })}
+
+                    <div>
+                        <button
+                            type="submit"
+                            disabled=loading.get()
+                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                        >
+                            {move || if loading.get() { "Signing in..." } else { "Sign in" }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn HomePage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let databases = app_state.0.databases;
+
+    view! {
+        <div class="min-h-screen bg-gray-50">
+            <nav class="bg-white shadow-sm">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between h-16">
+                        <div class="flex">
+                            <div class="flex-shrink-0 flex items-center">
+                                <h1 class="text-xl font-bold text-gray-900">"Hulunote"</h1>
+                            </div>
+                        </div>
+                        <div class="flex items-center">
+                            <button class="text-gray-500 hover:text-gray-700">"Settings"</button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+                <div class="px-4 py-6 sm:px-0">
+                    <div class="border-4 border-dashed border-gray-200 rounded-lg h-96 flex items-center justify-center">
+                        <p class="text-gray-500">
+                            {move || if databases.get().is_empty() {
+                                "No databases yet. Create your first database to get started."
+                            } else {
+                                "Select a database to view notes."
+                            }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn App() -> impl IntoView {
+    provide_context(AppContext(AppState::new()));
+
+    let location = use_location();
+    let pathname = move || location.pathname.get();
+
+    view! {
+        <Show when=move || pathname() == "/login" fallback=move || view! { <HomePage /> }>
+            <LoginPage />
+        </Show>
+    }
+}
+
+#[wasm_bindgen(start)]
+pub fn main() {
+    console_error_panic_hook::set_once();
+    mount_to_body(App);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_user_serialization() {
+        let user = User {
+            id: "test-id-123".to_string(),
+            email: "test@example.com".to_string(),
+            username: "testuser".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&user).expect("Failed to serialize User");
+        assert!(serialized.contains("test@example.com"));
+        assert!(serialized.contains("testuser"));
+
+        let deserialized: User = serde_json::from_str(&serialized).expect("Failed to deserialize User");
+        assert_eq!(user.id, deserialized.id);
+        assert_eq!(user.email, deserialized.email);
+        assert_eq!(user.username, deserialized.username);
+    }
+
+    #[test]
+    fn test_login_request_serialization() {
+        let req = LoginRequest {
+            email: "user@example.com".to_string(),
+            password: "password123".to_string(),
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["email"], "user@example.com");
+        assert_eq!(json["password"], "password123");
+    }
+
+    #[test]
+    fn test_login_response_serialization() {
+        let response = LoginResponse {
+            token: "jwt-token-abc123".to_string(),
+            user: User {
+                id: "user-1".to_string(),
+                email: "test@example.com".to_string(),
+                username: "testuser".to_string(),
+            },
+        };
+
+        let serialized = serde_json::to_string(&response).expect("Failed to serialize");
+        let deserialized: LoginResponse = serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert_eq!(response.token, deserialized.token);
+        assert_eq!(response.user.id, deserialized.user.id);
+        assert_eq!(response.user.email, deserialized.user.email);
+    }
+
+    #[test]
+    fn test_database_serialization() {
+        let db = Database {
+            id: "db-1".to_string(),
+            name: "My Notes".to_string(),
+            description: "Personal notes database".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&db).expect("Failed to serialize Database");
+        let deserialized: Database = serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert_eq!(db.id, deserialized.id);
+        assert_eq!(db.name, deserialized.name);
+        assert_eq!(db.description, deserialized.description);
+    }
+
+    #[test]
+    fn test_note_serialization() {
+        let note = Note {
+            id: "note-1".to_string(),
+            database_id: "db-1".to_string(),
+            title: "Test Note".to_string(),
+            content: "This is test content".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&note).expect("Failed to serialize Note");
+        let deserialized: Note = serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert_eq!(note.id, deserialized.id);
+        assert_eq!(note.database_id, deserialized.database_id);
+        assert_eq!(note.title, deserialized.title);
+        assert_eq!(note.content, deserialized.content);
+    }
+
+    #[test]
+    fn test_nav_serialization() {
+        let nav = Nav {
+            id: "nav-1".to_string(),
+            note_id: "note-1".to_string(),
+            parent_id: Some("parent-nav".to_string()),
+            content: "Navigation item".to_string(),
+            position: 0,
+        };
+
+        let serialized = serde_json::to_string(&nav).expect("Failed to serialize Nav");
+        let deserialized: Nav = serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert_eq!(nav.id, deserialized.id);
+        assert_eq!(nav.note_id, deserialized.note_id);
+        assert_eq!(nav.parent_id, deserialized.parent_id);
+        assert_eq!(nav.content, deserialized.content);
+        assert_eq!(nav.position, deserialized.position);
+    }
+
+    #[test]
+    fn test_nav_without_parent() {
+        let nav = Nav {
+            id: "nav-1".to_string(),
+            note_id: "note-1".to_string(),
+            parent_id: None,
+            content: "Root navigation".to_string(),
+            position: 0,
+        };
+
+        let serialized = serde_json::to_string(&nav).expect("Failed to serialize");
+        let deserialized: Nav = serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        assert!(deserialized.parent_id.is_none());
+    }
+
+    #[test]
+    fn test_create_database_request() {
+        let req = CreateDatabaseRequest {
+            name: "New Database".to_string(),
+            description: "A new database for notes".to_string(),
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["name"], "New Database");
+        assert_eq!(json["description"], "A new database for notes");
+    }
+
+    #[test]
+    fn test_create_note_request() {
+        let req = CreateNoteRequest {
+            database_id: "db-1".to_string(),
+            title: "New Note".to_string(),
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["database_id"], "db-1");
+        assert_eq!(json["title"], "New Note");
+    }
+
+    #[test]
+    fn test_get_note_list_request() {
+        let req = GetNoteListRequest {
+            database_id: "db-1".to_string(),
+            page: 1,
+            page_size: 20,
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["database_id"], "db-1");
+        assert_eq!(json["page"], 1);
+        assert_eq!(json["page_size"], 20);
+    }
+
+    #[test]
+    fn test_api_client_new() {
+        let client = ApiClient::new("http://localhost:6689".to_string());
+        assert_eq!(client.base_url, "http://localhost:6689");
+        assert!(client.token.is_none());
+    }
+
+    #[test]
+    fn test_api_client_set_token() {
+        let mut client = ApiClient::new("http://localhost:6689".to_string());
+        client.set_token("test-token".to_string());
+        assert_eq!(client.token, Some("test-token".to_string()));
+    }
+
+    #[test]
+    fn test_api_client_get_auth_header_without_token() {
+        let client = ApiClient::new("http://localhost:6689".to_string());
+        assert!(client.get_auth_header().is_none());
+    }
+
+    #[test]
+    fn test_api_client_get_auth_header_with_token() {
+        let mut client = ApiClient::new("http://localhost:6689".to_string());
+        client.set_token("my-jwt-token".to_string());
+        let header = client.get_auth_header().expect("Should have auth header");
+        assert_eq!(header, "Bearer my-jwt-token");
+    }
+
+    #[test]
+    fn test_app_state_new() {
+        let state = AppState::new();
+        assert_eq!(state.api_client.get_untracked().base_url, "http://localhost:6689");
+        assert!(state.current_user.get_untracked().is_none());
+        assert!(state.databases.get_untracked().is_empty());
+    }
+
+    #[test]
+    fn test_multiple_databases_deserialization() {
+        let json_data = json!({
+            "databases": [
+                {
+                    "id": "db-1",
+                    "name": "Personal",
+                    "description": "Personal notes",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-02T00:00:00Z"
+                },
+                {
+                    "id": "db-2",
+                    "name": "Work",
+                    "description": "Work notes",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-02T00:00:00Z"
+                }
+            ]
+        });
+
+        let databases: Vec<Database> = serde_json::from_value(json_data["databases"].clone())
+            .expect("Failed to deserialize databases");
+
+        assert_eq!(databases.len(), 2);
+        assert_eq!(databases[0].name, "Personal");
+        assert_eq!(databases[1].name, "Work");
+    }
+
+    #[test]
+    fn test_response_error_handling_format() {
+        let error_response = json!({
+            "error": "Invalid credentials",
+            "code": 401
+        });
+
+        assert!(error_response["error"].is_string());
+        assert_eq!(error_response["error"], "Invalid credentials");
+    }
+}
