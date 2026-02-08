@@ -365,6 +365,50 @@ impl ApiClient {
         out
     }
 
+    fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
+        // Expected shape (hulunote-rust): { "notes": [ { id, database_id, title, content, created_at, updated_at } ] }
+        // Be tolerant: if the payload is already an array, accept it.
+        let list_value = if let Some(v) = data.get("notes") {
+            v.clone()
+        } else {
+            data.clone()
+        };
+
+        let list = match list_value {
+            serde_json::Value::Array(v) => v,
+            _ => vec![],
+        };
+
+        let mut out: Vec<Note> = Vec::with_capacity(list.len());
+        for item in list {
+            if let Ok(note) = serde_json::from_value::<Note>(item) {
+                out.push(note);
+            }
+        }
+        out
+    }
+
+    pub async fn get_all_note_list(&self, database_id: &str) -> Result<Vec<Note>, String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/get-all-note-list", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req
+            .json(&serde_json::json!({ "database_id": database_id }))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            Ok(Self::parse_note_list_response(data))
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Failed to get notes ({status}): {body}"))
+        }
+    }
+
     pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
         // First try with current token
         let res = Self::request_database_list(&self.base_url, self.get_auth_token()).await?;
@@ -2024,5 +2068,27 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].name, "ypyf-9361");
         assert!(out[0].id.starts_with("0a1dd8e1"));
+    }
+
+    #[test]
+    fn test_parse_note_list_response_expected_shape() {
+        let v = serde_json::json!({
+            "notes": [
+                {
+                    "id": "n1",
+                    "database_id": "db1",
+                    "title": "Hello",
+                    "content": "",
+                    "created_at": "t1",
+                    "updated_at": "t2"
+                }
+            ]
+        });
+
+        let out = ApiClient::parse_note_list_response(v);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "n1");
+        assert_eq!(out[0].database_id, "db1");
+        assert_eq!(out[0].title, "Hello");
     }
 }
