@@ -1,8 +1,9 @@
 @config "../tailwind.config.js";
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4 source globs (CSS-first). */
+@source "../index.html";
+@source "../src/**/*.{rs,html,js}";
 
 /*
   App theme tokens (Linear-inspired).
