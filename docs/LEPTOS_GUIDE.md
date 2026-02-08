@@ -1,4 +1,7 @@
-# Leptos 0.7.x Development Guide
+# Leptos 0.8.x Development Guide
+
+This project currently targets Leptos 0.8.x (see `Cargo.toml`).
+
 
 ## Essential Imports
 
@@ -13,13 +16,21 @@ use leptos_router::hooks::use_location; // Location hooks (requires <Router>)
 
 ## Signals: Creation and Usage
 
-**Wrong**: `let count = signal(0);`
-**Correct**: `let (count, set_count) = signal(0);`
+**Correct (Leptos 0.8)**:
 
-- `signal()` returns a tuple: `(ReadSignal<T>, WriteSignal<T>)`
-- Use `.get()` to read: `count.get()`
-- Use `.set(value)` to write: `set_count.set(5)`
-- For closures, use the setter directly in event handlers
+```rust
+let (count, set_count) = signal(0);
+
+// Read
+let _ = count.get();
+
+// Write
+set_count.set(5);
+```
+
+Notes:
+- `signal()` returns `(ReadSignal<T>, WriteSignal<T>)`.
+- In `view!` closures, prefer `move || count.get()` for reactive reads.
 
 ## RwSignal for Unified Get/Set
 
@@ -73,10 +84,10 @@ crate-type = ["cdylib", "rlib"]  # cdylib is REQUIRED
 
 [dependencies]
 # Enable client-side rendering
-leptos = { version = "0.7.x", features = ["csr"] }
+leptos = { version = "0.8.x", features = ["csr"] }
 
 # Router does not have a `csr` feature; use the default crate features
-leptos_router = "0.7.x"
+leptos_router = "0.8.x"
 
 [dependencies.web-sys]
 version = "0.3"
