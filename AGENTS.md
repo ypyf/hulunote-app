@@ -44,8 +44,6 @@ Agents must respect the following high-level constraints:
 - Architectural boundaries must not be crossed casually
 - Refactors, optimizations, or stylistic changes require explicit intent
 - Do not expand scope beyond the current task
-- All UI work must strictly follow `docs/DESIGN_TOKENS.md` and `docs/UI_GUIDELINES.md`
-- Any deviation from the Linear-inspired style is considered a bug, not a stylistic difference
 
 If a task requires changing the design itself:
 
@@ -68,6 +66,19 @@ If TDD is not feasible:
 - Never skip tests silently
 
 Tests are treated as executable design constraints.
+
+---
+
+## UI Rule (Rust/UI)
+
+We use Rust/UI (rust-ui.com) for a Tailwind component-library style.
+
+Rules:
+
+- Compose pages using Rust/UI components only (copy/paste registry components). Do not reinvent styling per page.
+- Theme must come from Rust/UI CSS variables (`--background`, `--foreground`, `--primary`, etc.) and `.dark` overrides.
+- Do NOT hardcode colors (no hex) or introduce a separate token system that conflicts with Rust/UI theme variables.
+- If the UI looks wrong, fix it by adjusting the Rust/UI theme variables, not by adding page-level CSS.
 
 ---
 
