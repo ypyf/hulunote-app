@@ -13,19 +13,16 @@ impl EnvConfig {
     pub fn new() -> Self {
         let default_api_url = "http://localhost:6689".to_string();
 
-        #[cfg(not(feature = "ssr"))]
-        {
-            if let Some(window) = web_sys::window() {
-                if let Some(env) = window.get("ENV") {
-                    if !env.is_undefined() && env.is_object() {
-                        match js_sys::Reflect::get(&env, &"api_url".into()) {
-                            Ok(api_url) => {
-                                if let Some(url_str) = api_url.as_string() {
-                                    return Self { api_url: url_str };
-                                }
+        if let Some(window) = web_sys::window() {
+            if let Some(env) = window.get("ENV") {
+                if !env.is_undefined() && env.is_object() {
+                    match js_sys::Reflect::get(&env, &"api_url".into()) {
+                        Ok(api_url) => {
+                            if let Some(url_str) = api_url.as_string() {
+                                return Self { api_url: url_str };
                             }
-                            Err(_) => {}
                         }
+                        Err(_) => {}
                     }
                 }
             }
@@ -337,7 +334,7 @@ pub fn RegistrationPage() -> impl IntoView {
         let username_val = username.get();
         let password_val = password.get();
         let confirm_password_val = confirm_password.get();
-        let mut api_client = app_state.0.api_client.get_untracked();
+        let api_client = app_state.0.api_client.get_untracked();
 
         if password_val != confirm_password_val {
             error.set(Some("Passwords do not match".to_string()));
