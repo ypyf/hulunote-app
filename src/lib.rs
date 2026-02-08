@@ -48,7 +48,19 @@ pub struct User {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginResponse {
     pub token: String,
+    pub refresh_token: Option<String>,
     pub user: User,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RefreshTokenResponse {
+    pub token: String,
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -121,19 +133,99 @@ pub struct SignupResponse {
 pub struct ApiClient {
     base_url: String,
     token: Option<String>,
+    refresh_token: Option<String>,
 }
 
 impl ApiClient {
     pub fn new(base_url: String) -> Self {
-        Self { base_url, token: None }
+        Self {
+            base_url,
+            token: None,
+            refresh_token: None,
+        }
+    }
+
+    pub fn load_from_storage() -> Self {
+        let base_url = get_api_url();
+        let token = leptos::web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(TOKEN_KEY).ok().flatten());
+
+        let refresh_token = leptos::web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(REFRESH_TOKEN_KEY).ok().flatten());
+
+        Self {
+            base_url,
+            token,
+            refresh_token,
+        }
+    }
+
+    pub fn save_to_storage(&self) {
+        if let Some(storage) = leptos::web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+        {
+            if let Some(token) = &self.token {
+                let _ = storage.set_item(TOKEN_KEY, token);
+            }
+            if let Some(refresh_token) = &self.refresh_token {
+                let _ = storage.set_item(REFRESH_TOKEN_KEY, refresh_token);
+            }
+        }
+    }
+
+    pub fn clear_storage() {
+        if let Some(storage) = leptos::web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+        {
+            let _ = storage.remove_item(TOKEN_KEY);
+            let _ = storage.remove_item(REFRESH_TOKEN_KEY);
+            let _ = storage.remove_item(USER_KEY);
+        }
     }
 
     pub fn set_token(&mut self, token: String) {
         self.token = Some(token);
     }
 
+    pub fn set_refresh_token(&mut self, refresh_token: Option<String>) {
+        self.refresh_token = refresh_token;
+    }
+
+    pub fn get_token(&self) -> Option<&String> {
+        self.token.as_ref()
+    }
+
     fn get_auth_header(&self) -> Option<String> {
         self.token.as_ref().map(|t| format!("Bearer {}", t))
+    }
+
+    pub async fn refresh_token(&mut self) -> Result<bool, String> {
+        let refresh_token = match &self.refresh_token {
+            Some(token) => token.clone(),
+            None => return Err("No refresh token available".to_string()),
+        };
+
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&format!("{}/login/refresh", self.base_url))
+            .json(&RefreshTokenRequest {
+                refresh_token,
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            let response: RefreshTokenResponse = res.json().await.map_err(|e| e.to_string())?;
+            self.token = Some(response.token);
+            self.refresh_token = response.refresh_token;
+            self.save_to_storage();
+            Ok(true)
+        } else {
+            Err("Token refresh failed".to_string())
+        }
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
@@ -192,6 +284,12 @@ impl ApiClient {
 
     pub fn logout(&mut self) {
         self.token = None;
+        self.refresh_token = None;
+        Self::clear_storage();
+    }
+
+    pub fn is_authenticated(&self) -> bool {
+        self.token.is_some()
     }
 }
 
@@ -202,11 +300,38 @@ pub struct AppState {
     pub databases: RwSignal<Vec<Database>>,
 }
 
+const TOKEN_KEY: &str = "hulunote_token";
+const REFRESH_TOKEN_KEY: &str = "hulunote_refresh_token";
+const USER_KEY: &str = "hulunote_user";
+
+fn save_user_to_storage(user: &User) {
+    if let Ok(json) = serde_json::to_string(user) {
+        if let Some(storage) = web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+        {
+            let _ = storage.set_item(USER_KEY, &json);
+        }
+    }
+}
+
+fn load_user_from_storage() -> Option<User> {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+    {
+        if let Ok(Some(json)) = storage.get_item(USER_KEY) {
+            return serde_json::from_str(&json).ok();
+        }
+    }
+    None
+}
+
 impl AppState {
     pub fn new() -> Self {
+        let stored_client = ApiClient::load_from_storage();
+        let stored_user = load_user_from_storage();
         Self {
-            api_client: RwSignal::new(ApiClient::new(get_api_url())),
-            current_user: RwSignal::new(None),
+            api_client: RwSignal::new(stored_client),
+            current_user: RwSignal::new(stored_user),
             databases: RwSignal::new(vec![]),
         }
     }
@@ -236,6 +361,9 @@ pub fn LoginPage() -> impl IntoView {
             match api_client.login(&email_val, &password_val).await {
                 Ok(response) => {
                     api_client.set_token(response.token);
+                    api_client.set_refresh_token(response.refresh_token);
+                    api_client.save_to_storage();
+                    save_user_to_storage(&response.user);
                     app_state.0.api_client.set(api_client);
                     app_state.0.current_user.set(Some(response.user));
                     let _ = window().location().set_href("/");
@@ -532,10 +660,18 @@ pub fn App() -> impl IntoView {
 
     let location = use_location();
     let pathname = move || location.pathname.get();
+    let app_state = expect_context::<AppContext>();
+    let is_authenticated = move || app_state.0.api_client.get_untracked().is_authenticated();
 
     view! {
         <Show when=move || pathname() == "/login" fallback=move || view! {
-            <Show when=move || pathname() == "/signup" fallback=move || view! { <HomePage /> }>
+            <Show when=move || pathname() == "/signup" fallback=move || view! {
+                <Show when=is_authenticated fallback=move || view! {
+                    <HomePage />
+                }>
+                    <HomePage />
+                </Show>
+            }>
                 <RegistrationPage />
             </Show>
         }>
@@ -589,6 +725,7 @@ mod tests {
     fn test_login_response_serialization() {
         let response = LoginResponse {
             token: "jwt-token-abc123".to_string(),
+            refresh_token: Some("refresh-token-xyz789".to_string()),
             user: User {
                 id: "user-1".to_string(),
                 email: "test@example.com".to_string(),
@@ -760,6 +897,75 @@ mod tests {
     }
 
     #[test]
+    fn test_refresh_token_request_serialization() {
+        let req = RefreshTokenRequest {
+            refresh_token: "refresh-token-abc123".to_string(),
+        };
+
+        let json = serde_json::to_value(&req).expect("Failed to serialize");
+        assert_eq!(json["refresh_token"], "refresh-token-abc123");
+    }
+
+    #[test]
+    fn test_refresh_token_response_deserialization() {
+        let json_data = json!({
+            "token": "new-jwt-token",
+            "refresh_token": "new-refresh-token"
+        });
+
+        let response: RefreshTokenResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.token, "new-jwt-token");
+        assert_eq!(response.refresh_token, Some("new-refresh-token".to_string()));
+    }
+
+    #[test]
+    fn test_refresh_token_response_without_refresh_token() {
+        let json_data = json!({
+            "token": "new-jwt-token",
+            "refresh_token": null
+        });
+
+        let response: RefreshTokenResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.token, "new-jwt-token");
+        assert!(response.refresh_token.is_none());
+    }
+
+    #[test]
+    fn test_login_response_with_refresh_token() {
+        let json_data = json!({
+            "token": "jwt-token",
+            "refresh_token": "refresh-token",
+            "user": {
+                "id": "user-1",
+                "email": "test@example.com",
+                "username": "testuser"
+            }
+        });
+
+        let response: LoginResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.token, "jwt-token");
+        assert_eq!(response.refresh_token, Some("refresh-token".to_string()));
+        assert_eq!(response.user.username, "testuser");
+    }
+
+    #[test]
+    fn test_login_response_without_refresh_token() {
+        let json_data = json!({
+            "token": "jwt-token",
+            "refresh_token": null,
+            "user": {
+                "id": "user-1",
+                "email": "test@example.com",
+                "username": "testuser"
+            }
+        });
+
+        let response: LoginResponse = serde_json::from_value(json_data).expect("Failed to deserialize");
+        assert_eq!(response.token, "jwt-token");
+        assert!(response.refresh_token.is_none());
+    }
+
+    #[test]
     fn test_api_client_new() {
         let client = ApiClient::new("http://localhost:6689".to_string());
         assert_eq!(client.base_url, "http://localhost:6689");
@@ -785,6 +991,26 @@ mod tests {
         client.set_token("my-jwt-token".to_string());
         let header = client.get_auth_header().expect("Should have auth header");
         assert_eq!(header, "Bearer my-jwt-token");
+    }
+
+    #[test]
+    fn test_api_client_set_refresh_token() {
+        let mut client = ApiClient::new("http://localhost:6689".to_string());
+        client.set_refresh_token(Some("my-refresh-token".to_string()));
+        assert_eq!(client.refresh_token, Some("my-refresh-token".to_string()));
+    }
+
+    #[test]
+    fn test_api_client_is_authenticated_false() {
+        let client = ApiClient::new("http://localhost:6689".to_string());
+        assert!(!client.is_authenticated());
+    }
+
+    #[test]
+    fn test_api_client_is_authenticated_true() {
+        let mut client = ApiClient::new("http://localhost:6689".to_string());
+        client.set_token("my-jwt-token".to_string());
+        assert!(client.is_authenticated());
     }
 
     #[test]
