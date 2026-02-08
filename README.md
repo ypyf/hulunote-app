@@ -58,23 +58,8 @@ trunk serve
 cargo test
 ```
 
-WASM/localStorage tests (requires wasm target + wasm-bindgen-test-runner + a WebDriver):
-
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.108
-
-# Run wasm-bindgen-test (needs a working WebDriver; Safari/Chrome/Firefox)
-CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
-  cargo test --target wasm32-unknown-unknown
-```
-
-Notes:
-- On macOS, the runner may default to Safari. You may need to enable safaridriver:
-  `safaridriver --enable`
-- If you use Chrome, **ChromeDriver major version must match your Chrome major version**.
-  If you cannot upgrade Chrome, download a matching ChromeDriver and set `CHROMEDRIVER=/path/to/chromedriver`.
-- See wasm-bindgen-test docs for WebDriver configuration details.
+See the full test instructions (including WASM/WebDriver setup) in:
+- [docs/TEST_GUIDE.md](./docs/TEST_GUIDE.md)
 
 ### Production Build
 
@@ -121,6 +106,7 @@ hulunote-app/
 - [Product Overview](./docs/PRODUCT.md)
 - [API Reference](./docs/API_REFERENCE.md)
 - [Leptos Development Guide](./docs/LEPTOS_GUIDE.md)
+- [Test Guide](./docs/TEST_GUIDE.md)
 
 ## Backend Connection
 
