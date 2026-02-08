@@ -33,7 +33,6 @@
 - [x] Implement main app layout (sidebar + content area)
 - [x] Implement collapsible sidebar
 - [x] Create database list in sidebar
-- [ ] Create page tree navigation
 - [x] Implement global search in sidebar (UI + routing scaffold)
 - [x] Implement settings entry (route + sidebar link)
 - [x] Add keyboard navigation support (Cmd/Ctrl+B, Cmd/Ctrl+K, Esc)
@@ -57,6 +56,7 @@
 - [ ] Implement note detail view
 - [ ] Implement note editing
 - [ ] Implement note deletion
+- [ ] Create page tree navigation (based on notes)
 - [ ] Connect to `POST /hulunote/new-note`
 - [ ] Connect to `POST /hulunote/get-note-list`
 - [ ] Connect to `POST /hulunote/get-all-note-list`
