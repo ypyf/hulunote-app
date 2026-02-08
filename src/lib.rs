@@ -402,6 +402,8 @@ impl ApiClient {
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
             Ok(Self::parse_note_list_response(data))
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
@@ -565,6 +567,11 @@ pub struct AppState {
     /// Loaded from backend.
     pub databases: RwSignal<Vec<Database>>,
 
+    /// Notes for the currently selected database (Phase 5, non-paginated).
+    pub notes: RwSignal<Vec<Note>>,
+    pub notes_loading: RwSignal<bool>,
+    pub notes_error: RwSignal<Option<String>>,
+
     /// Current database selection (drives routing in later phases).
     pub current_database_id: RwSignal<Option<String>>,
 
@@ -623,6 +630,9 @@ impl AppState {
             api_client: RwSignal::new(stored_client),
             current_user: RwSignal::new(stored_user),
             databases: RwSignal::new(vec![]),
+            notes: RwSignal::new(vec![]),
+            notes_loading: RwSignal::new(false),
+            notes_error: RwSignal::new(None),
             current_database_id: RwSignal::new(current_database_id),
             sidebar_collapsed: RwSignal::new(sidebar_collapsed),
             search_query: RwSignal::new(String::new()),
@@ -1573,6 +1583,41 @@ pub fn DbHomePage() -> impl IntoView {
             app_state.0.current_database_id.set(Some(id.clone()));
             persist_current_db(&id);
         }
+    });
+
+    // Phase 5 (non-paginated): load notes for current database.
+    Effect::new(move |_| {
+        let id = db_id();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        // Avoid reloading if we already have notes for the same DB.
+        // (Later we'll track per-db cache; for now keep it simple.)
+        app_state.0.notes_loading.set(true);
+        app_state.0.notes_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.get_all_note_list(&id).await {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        app_state.0.notes_error.set(Some(e));
+                        app_state.0.notes.set(vec![]);
+                    }
+                }
+            }
+            app_state.0.notes_loading.set(false);
+        });
     });
 
     let db = move || {
