@@ -1,8 +1,8 @@
 mod components;
 
 use crate::components::ui::{
-    Alert, AlertDescription, Button, Card, CardContent, CardDescription, CardFooter, CardHeader,
-    CardItem, CardList, CardTitle, Input, Label, Spinner,
+    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
+    CardFooter, CardHeader, CardItem, CardList, CardTitle, Input, Label, Spinner,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -703,7 +703,11 @@ pub fn HomePage() -> impl IntoView {
                             </span>
                         </Button>
 
-                        <Button on:click=on_logout class="bg-transparent border border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            size=ButtonSize::Sm
+                            on:click=on_logout
+                        >
                             "Sign out"
                         </Button>
                     </div>
