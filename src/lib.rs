@@ -1256,8 +1256,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             <Card>
                                 <CardHeader>
                                     <div class="flex items-center justify-between">
-                                    <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
-                                    <div class="flex items-center gap-2">
+                                        <span class="sr-only">"Databases"</span>
+                                        <div class="flex items-center gap-2">
                                         <Button
                                             variant=ButtonVariant::Ghost
                                             size=ButtonSize::Icon
@@ -1330,10 +1330,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </Card>
 
                             <Card>
-                                <CardHeader>
-                                    <CardTitle class="text-xs text-muted-foreground">"Navigation"</CardTitle>
-                                </CardHeader>
                                 <CardContent>
+                                    <span class="sr-only">"Navigation"</span>
                                     <div class="space-y-1">
                                     <Button
                                         variant=ButtonVariant::Ghost
@@ -1350,10 +1348,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </Card>
 
                             <Card>
-                                <CardHeader>
-                                    <CardTitle class="text-xs text-muted-foreground">"Account"</CardTitle>
-                                </CardHeader>
                                 <CardContent>
+                                    <span class="sr-only">"Account"</span>
                                     <Button
                                         variant=ButtonVariant::Outline
                                         size=ButtonSize::Sm
@@ -1371,7 +1367,6 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                 <main class="min-w-0 flex-1">
                     <div class="mb-4 flex items-center justify-between">
                         <div class="space-y-0.5">
-                            <div class="text-xs text-muted-foreground">"Breadcrumb"</div>
                             <div class="text-sm font-medium">
                                 {move || {
                                     current_db_name()
