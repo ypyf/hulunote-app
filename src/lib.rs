@@ -221,7 +221,7 @@ impl ApiClient {
 
     pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
         // First try with current token
-        let mut res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
+        let res = Self::request_database_list(&self.base_url, self.get_auth_header()).await?;
 
         // Backend (hulunote-rust) does not provide a refresh-token endpoint.
         // If token is invalid/expired, caller should force re-login.
