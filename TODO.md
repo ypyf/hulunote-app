@@ -7,14 +7,14 @@
 ## Phase 1: Project Setup
 
 - [x] Initialize Rust/UI project with Leptos
-- [ ] Configure Tailwind CSS
+- [x] Configure Tailwind CSS
 - [x] Set up project structure following Leptos patterns
-- [ ] Configure environment variables (API URL, etc.)
+- [x] Configure environment variables (API URL, etc.)
 - [x] Set up routing (Leptos Router)
 - [x] Implement state management (Leptos signals/store)
 - [x] Set up HTTP client for API calls
-- [ ] Configure development workflow (cargo leptos watch)
-- [ ] Set up build targets (Web, Desktop via Tauri/trunk)
+- [x] Configure development workflow (cargo leptos watch)
+- [x] Set up build targets (Web, Desktop via Tauri/trunk)
 
 ## Phase 2: Authentication
 
