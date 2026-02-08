@@ -794,7 +794,46 @@ pub fn App() -> impl IntoView {
     }
 }
 
-#[wasm_bindgen(start)]
+// WASM-only tests (run with `cargo test --target wasm32-unknown-unknown` + wasm-bindgen-test-runner)
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn test_api_client_storage_roundtrip_token() {
+        ApiClient::clear_storage();
+
+        let mut c = ApiClient::load_from_storage();
+        assert!(!c.is_authenticated());
+
+        c.set_token("t1".to_string());
+        c.save_to_storage();
+
+        let c2 = ApiClient::load_from_storage();
+        assert_eq!(c2.get_token().map(|s| s.as_str()), Some("t1"));
+
+        ApiClient::clear_storage();
+        let c3 = ApiClient::load_from_storage();
+        assert!(c3.get_token().is_none());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_user_storage_roundtrip() {
+        let user = AccountInfo {
+            extra: serde_json::json!({"id": 1, "username": "u"}),
+        };
+        save_user_to_storage(&user);
+        let loaded = load_user_from_storage().expect("should load user from localStorage");
+        assert_eq!(loaded.extra["username"], "u");
+    }
+}
+
+// Only register the WASM start function for normal builds (not for tests),
+// otherwise wasm-bindgen-test will end up with multiple entry symbols.
+#[cfg_attr(all(target_arch = "wasm32", not(test)), wasm_bindgen(start))]
 pub fn main() {
     console_error_panic_hook::set_once();
     mount_to_body(App);
@@ -803,6 +842,49 @@ pub fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_login_response_contract_deserialize() {
+        // Contract based on hulunote-rust: handlers/auth.rs
+        let json = r#"{
+            "token": "jwt-token",
+            "hulunote": {"id": 1, "username": "u", "mail": "u@example.com"},
+            "region": null
+        }"#;
+        let parsed: LoginResponse = serde_json::from_str(json).expect("login response should parse");
+        assert_eq!(parsed.token, "jwt-token");
+        // hulunote is opaque; just ensure it's an object
+        assert!(parsed.hulunote.extra.is_object());
+        assert!(parsed.region.is_none());
+    }
+
+    #[test]
+    fn test_signup_response_contract_deserialize() {
+        // Contract based on hulunote-rust: handlers/auth.rs
+        let json = r#"{
+            "token": "jwt-token",
+            "hulunote": {"id": 1, "username": "u"},
+            "database": "u-1234",
+            "region": null
+        }"#;
+        let parsed: SignupResponse = serde_json::from_str(json).expect("signup response should parse");
+        assert_eq!(parsed.token, "jwt-token");
+        assert_eq!(parsed.database.as_deref(), Some("u-1234"));
+        assert!(parsed.hulunote.extra.is_object());
+    }
+
+    #[test]
+    fn test_signup_request_serialization_includes_registration_code() {
+        let req = SignupRequest {
+            email: "u@example.com".to_string(),
+            username: None,
+            password: "pass".to_string(),
+            registration_code: "FA8E-AF6E-4578-9347".to_string(),
+        };
+        let v = serde_json::to_value(req).expect("should serialize");
+        assert_eq!(v["email"], "u@example.com");
+        assert_eq!(v["registration_code"], "FA8E-AF6E-4578-9347");
+    }
 
     #[test]
     fn test_api_client_new() {

@@ -46,10 +46,30 @@ cargo install trunk
 ```bash
 # Start dev server at http://localhost:8080 (with auto-rebuild)
 trunk serve
-
-# Or use cargo leptos if preferred
-cargo leptos watch
 ```
+
+### Tests
+
+```bash
+# Unit tests (host)
+cargo test
+```
+
+WASM/localStorage tests (requires wasm target + wasm-bindgen-test-runner + a WebDriver):
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.108
+
+# Run wasm-bindgen-test (needs a working WebDriver; Safari/Chrome/Firefox)
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+  cargo test --target wasm32-unknown-unknown
+```
+
+Notes:
+- On macOS, the runner may default to Safari. You may need to enable safaridriver:
+  `safaridriver --enable`
+- Alternatively, configure Chrome/Firefox via `webdriver.json` (see wasm-bindgen-test docs).
 
 ### Production Build
 
