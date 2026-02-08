@@ -1191,7 +1191,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             }
                         >
                             <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Search"</div>
+                                <div class="text-[11px] font-semibold text-foreground/70">"Search"</div>
                                 <div class="mt-2">
                                     <Input
                                         node_ref=search_ref
@@ -1216,7 +1216,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
                             <div class="rounded-md border border-border bg-muted p-3">
                                 <div class="flex items-center justify-between">
-                                    <div class="text-[11px] font-medium text-muted-foreground">"Databases"</div>
+                                    <div class="text-[11px] font-semibold text-foreground/70">"Databases"</div>
                                     <div class="flex items-center gap-2">
                                         <button
                                             class="text-[11px] text-muted-foreground hover:text-foreground"
@@ -1258,9 +1258,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 .map(|db| {
                                                     let is_selected = selected.as_deref() == Some(db.id.as_str());
                                                     let class = if is_selected {
-                                                        "w-full rounded-md bg-accent px-2 py-1 text-left text-sm text-accent-foreground"
+                                                        "w-full rounded-md bg-primary/20 px-2 py-1 text-left text-sm font-medium text-foreground ring-1 ring-primary/30"
                                                     } else {
-                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                                                        "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted/60 hover:text-foreground"
                                                     };
 
                                                     let id = db.id.clone();
@@ -1285,7 +1285,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </div>
 
                             <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Navigation"</div>
+                                <div class="text-[11px] font-semibold text-foreground/70">"Navigation"</div>
                                 <div class="mt-2 space-y-1">
                                     <button
                                         class="w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground"
@@ -1299,7 +1299,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </div>
 
                             <div class="rounded-md border border-border bg-muted p-3">
-                                <div class="text-[11px] font-medium text-muted-foreground">"Account"</div>
+                                <div class="text-[11px] font-semibold text-foreground/70">"Account"</div>
                                 <div class="mt-2">
                                     <Button
                                         variant=ButtonVariant::Outline
@@ -1605,7 +1605,12 @@ pub fn DbHomePage() -> impl IntoView {
                     <Button variant=ButtonVariant::Outline size=ButtonSize::Sm on:click=on_open_rename>
                         "Rename"
                     </Button>
-                    <Button variant=ButtonVariant::Outline size=ButtonSize::Sm on:click=on_open_delete>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        class="border-destructive/40 text-destructive hover:bg-destructive/10"
+                        on:click=on_open_delete
+                    >
                         "Delete"
                     </Button>
                 </div>
