@@ -2898,16 +2898,24 @@ pub fn OutlineNode(
                                     if !is_editing {
                                         let content_now = n.content.clone();
                                         let content_for_click = content_now.clone();
+
+                                        // Ensure empty nodes still have a clickable area.
+                                        let content_display = if content_now.trim().is_empty() {
+                                            "\u{00A0}".to_string()
+                                        } else {
+                                            content_now
+                                        };
+
                                         return view! {
                                             <div
-                                                class="cursor-text whitespace-pre-wrap"
+                                                class="cursor-text whitespace-pre-wrap min-h-[20px]"
                                                 on:click=move |_| {
                                                     let id = nav_id_sv.get_value();
                                                     editing_id.set(Some(id));
                                                     editing_value.set(content_for_click.clone());
                                                 }
                                             >
-                                                {content_now}
+                                                {content_display}
                                             </div>
                                         }
                                         .into_any();
