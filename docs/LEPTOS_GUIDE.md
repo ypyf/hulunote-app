@@ -16,6 +16,42 @@ use leptos_router::hooks::use_location; // Location hooks (requires <Router>)
 
 ## Signals: Creation and Usage
 
+## Rendering Signals in `view!` (WASM/CSR)
+
+In Leptos 0.8, **do not render a signal handle directly** inside `view!`.
+
+Bad (may compile in some host test builds, but fails in `wasm32-unknown-unknown` / Trunk CI):
+
+```rust
+let name: RwSignal<String> = RwSignal::new("abc".to_string());
+
+view! {
+  <div>{name}</div> // ❌ error[E0277]: RwSignal<String>: IntoRender is not satisfied
+}
+```
+
+Good (render the signal *value* reactively via a closure):
+
+```rust
+let name: RwSignal<String> = RwSignal::new("abc".to_string());
+
+view! {
+  <div>{move || name.get()}</div> // ✅
+}
+```
+
+Notes:
+- Use `{move || signal.get()}` (or `{move || signal()}` for `ReadSignal`) to make it reactive.
+- This avoids CI-only failures like:
+  - `error[E0277]: the trait bound RwSignal<String>: IntoRender is not satisfied`
+  - `error[E0599]: method 'class' ... trait bounds were not satisfied` (often a follow-on error)
+
+If you see this in CI but not locally, ensure you're testing the same target:
+
+```bash
+trunk build  # builds wasm32-unknown-unknown
+```
+
 **Correct (Leptos 0.8)**:
 
 ```rust
