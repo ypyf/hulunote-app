@@ -106,10 +106,23 @@ pub struct Note {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Nav {
     pub id: String,
+
+    #[serde(rename = "note-id")]
     pub note_id: String,
-    pub parent_id: Option<String>,
+
+    /// Parent nav id. Root uses all-zero UUID.
+    pub parid: String,
+
+    #[serde(rename = "same-deep-order")]
+    pub same_deep_order: f32,
+
     pub content: String,
-    pub position: i32,
+
+    #[serde(rename = "is-display")]
+    pub is_display: bool,
+
+    #[serde(rename = "is-delete")]
+    pub is_delete: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -165,6 +178,37 @@ pub struct GetNoteListRequest {
     pub database_id: String,
     pub page: i32,
     pub page_size: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GetNoteNavsRequest {
+    #[serde(rename = "note-id")]
+    pub note_id: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreateOrUpdateNavRequest {
+    #[serde(rename = "note-id")]
+    pub note_id: String,
+
+    /// Nav id (omit to create).
+    pub id: Option<String>,
+
+    /// Parent nav id.
+    pub parid: Option<String>,
+
+    pub content: Option<String>,
+
+    /// Sort key within siblings (midpoint order).
+    pub order: Option<f32>,
+
+    #[serde(rename = "is-display")]
+    pub is_display: Option<bool>,
+
+    #[serde(rename = "is-delete")]
+    pub is_delete: Option<bool>,
+
+    pub properties: Option<String>,
 }
 
 fn today_yyyymmdd_local() -> String {
@@ -611,6 +655,65 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             Err(format!("Update note failed ({status}): {body}"))
+        }
+    }
+
+    fn parse_nav_list_response(data: serde_json::Value) -> Vec<Nav> {
+        let list = data
+            .get("nav-list")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut out: Vec<Nav> = Vec::with_capacity(list.len());
+        for item in list {
+            if let Ok(nav) = serde_json::from_value::<Nav>(item) {
+                out.push(nav);
+            }
+        }
+        out
+    }
+
+    pub async fn get_note_navs(&self, note_id: &str) -> Result<Vec<Nav>, String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/get-note-navs", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req
+            .json(&GetNoteNavsRequest {
+                note_id: note_id.to_string(),
+            })
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            Ok(Self::parse_nav_list_response(data))
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Failed to get navs ({status}): {body}"))
+        }
+    }
+
+    pub async fn upsert_nav(&self, req_body: CreateOrUpdateNavRequest) -> Result<(), String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/create-or-update-nav", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let res = req.json(&req_body).send().await.map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            Ok(())
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Upsert nav failed ({status}): {body}"))
         }
     }
 
@@ -2534,10 +2637,204 @@ pub fn NotePage() -> impl IntoView {
                     })}
                 </Show>
 
-                <div class="text-sm text-muted-foreground">
-                    "Outline editor will be implemented in Phase 6 (navs)."
-                </div>
+                <OutlineEditor note_id=note_id />
             </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'static) -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+
+    let navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Load navs when note_id changes.
+    let note_id_for_effect = note_id.clone();
+    Effect::new(move |_| {
+        let id = note_id_for_effect();
+        if id.trim().is_empty() {
+            navs.set(vec![]);
+            return;
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.get_note_navs(&id).await {
+                Ok(list) => navs.set(list),
+                Err(e) => error.set(Some(e)),
+            }
+            loading.set(false);
+        });
+    });
+
+    view! {
+        <div class="rounded-md border bg-card p-3">
+            <div class="text-xs text-muted-foreground">"Outline"</div>
+
+            <Show when=move || loading.get() fallback=|| ().into_view()>
+                <div class="mt-2"><Spinner /></div>
+            </Show>
+
+            <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                {move || error.get().map(|e| view! {
+                    <div class="mt-2 text-xs text-destructive">{e}</div>
+                })}
+            </Show>
+
+            <div class="mt-2">
+                {move || {
+                    let all = navs.get();
+                    let root = "00000000-0000-0000-0000-000000000000";
+
+                    let mut roots = all
+                        .iter()
+                        .filter(|n| n.parid == root)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    roots.sort_by(|a, b| a
+                        .same_deep_order
+                        .partial_cmp(&b.same_deep_order)
+                        .unwrap_or(std::cmp::Ordering::Equal));
+
+                    if roots.is_empty() {
+                        view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
+                            .into_any()
+                    } else {
+                        let nid = note_id();
+                        view! {
+                            <div class="space-y-0.5">
+                                {roots
+                                    .into_iter()
+                                    .map(|n| view! {
+                                        <OutlineNode nav_id=n.id depth=0 navs=navs note_id=nid.clone() />
+                                    })
+                                    .collect_view()}
+                            </div>
+                        }
+                        .into_any()
+                    }
+                }}
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn OutlineNode(
+    nav_id: String,
+    depth: usize,
+    navs: RwSignal<Vec<Nav>>,
+    note_id: String,
+) -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+
+    let nav_id_for_nav = nav_id.clone();
+    let nav_id_for_toggle = nav_id.clone();
+    let nav_id_for_render = nav_id.clone();
+    let note_id_for_toggle = note_id.clone();
+
+    let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
+
+    let on_toggle = Callback::new(move |_| {
+        let Some(n) = navs
+            .get_untracked()
+            .into_iter()
+            .find(|n| n.id == nav_id_for_toggle) else {
+            return;
+        };
+
+        let new_display = !n.is_display;
+        navs.update(|xs| {
+            if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_for_toggle) {
+                x.is_display = new_display;
+            }
+        });
+
+        let api_client = app_state.0.api_client.get_untracked();
+        let req = CreateOrUpdateNavRequest {
+            note_id: note_id_for_toggle.clone(),
+            id: Some(nav_id_for_toggle.clone()),
+            parid: None,
+            content: None,
+            order: None,
+            is_display: Some(new_display),
+            is_delete: None,
+            properties: None,
+        };
+        spawn_local(async move {
+            let _ = api_client.upsert_nav(req).await;
+        });
+    });
+
+    let indent_px = (depth * 18) as i32;
+
+    view! {
+        <div>
+            {move || {
+                let Some(n) = nav() else {
+                    return ().into_view().into_any();
+                };
+
+                // Compute children for this render.
+                let mut kids = navs
+                    .get()
+                    .into_iter()
+                    .filter(|x| x.parid == nav_id_for_render)
+                    .collect::<Vec<_>>();
+                kids.sort_by(|a, b| {
+                    a.same_deep_order
+                        .partial_cmp(&b.same_deep_order)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+                let has_kids = !kids.is_empty();
+                let bullet = if has_kids {
+                    if n.is_display { "▾" } else { "▸" }
+                } else {
+                    "·"
+                };
+
+                let on_toggle_cb = on_toggle.clone();
+
+                let children_view = if n.is_display && has_kids {
+                    kids.into_iter()
+                        .map(|c| view! {
+                            <OutlineNode nav_id=c.id depth=depth+1 navs=navs note_id=note_id.clone() />
+                        })
+                        .collect_view()
+                        .into_any()
+                } else {
+                    ().into_view().into_any()
+                };
+
+                view! {
+                    <div>
+                        <div
+                            class="flex items-start gap-2 py-1"
+                            style=move || format!("padding-left: {}px", indent_px)
+                        >
+                            <button
+                                class="mt-1 h-4 w-4 text-xs text-muted-foreground"
+                                on:click=move |ev| on_toggle_cb.run(ev)
+                                disabled=!has_kids
+                            >
+                                {bullet}
+                            </button>
+
+                            <div class="min-w-0 flex-1 text-sm">{n.content}</div>
+                        </div>
+
+                        {children_view}
+                    </div>
+                }
+                .into_any()
+            }}
         </div>
     }
 }
