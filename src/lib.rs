@@ -15,6 +15,7 @@ use leptos_router::params::Params;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -2803,6 +2804,8 @@ pub fn OutlineNode(
     let nav_id_for_render = nav_id.clone();
     let note_id_for_toggle = note_id.clone();
 
+    // (handler ids are captured per-render; avoid moving values out of the render closure)
+
     let nav_id_sv = StoredValue::new(nav_id.clone());
     let note_id_sv = StoredValue::new(note_id.clone());
 
@@ -2946,17 +2949,29 @@ pub fn OutlineNode(
                                             content_now
                                         };
 
+                                        let id_for_click = nav_id_sv.get_value();
+
                                         return view! {
                                             <div
                                                 class="cursor-text whitespace-pre-wrap min-h-[20px]"
-                                                on:mousedown=move |ev: web_sys::MouseEvent| {
-                                                    // Use mousedown (not click) so we can switch editing *before* the
-                                                    // currently-focused input fires blur. Otherwise the blur re-render can
-                                                    // swallow the click and force a second click.
-                                                    ev.prevent_default();
-                                                    let id = nav_id_sv.get_value();
-                                                    editing_id.set(Some(id));
-                                                    editing_value.set(content_for_click.clone());
+                                                on:mousedown=move |_ev: web_sys::MouseEvent| {
+                                                    // Use mousedown (not click) for single-click switching, but defer the
+                                                    // actual state switch so the currently-focused input can blur and save.
+                                                    let id = id_for_click.clone();
+                                                    let next_value = content_for_click.clone();
+                                                    let editing_id = editing_id;
+                                                    let editing_value = editing_value;
+
+                                                    let cb = Closure::<dyn FnMut()>::new(move || {
+                                                        editing_id.set(Some(id.clone()));
+                                                        editing_value.set(next_value.clone());
+                                                    });
+                                                    let _ = window()
+                                                        .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                                            cb.as_ref().unchecked_ref(),
+                                                            0,
+                                                        );
+                                                    cb.forget();
                                                 }
                                             >
                                                 {content_display}
@@ -2973,14 +2988,16 @@ pub fn OutlineNode(
                                             on:input=move |ev| {
                                                 editing_value.set(event_target_value(&ev));
                                             }
-                                            on:blur=move |_| {
-                                                let new_content = editing_value.get_untracked();
+                                            on:blur=move |ev| {
+                                                // IMPORTANT: read the value from the input element.
+                                                let new_content = event_target_value(&ev);
+
+                                                // Capture ids for this handler. These are plain strings so we don't
+                                                // access reactive values after re-render/unmount.
                                                 let nav_id_now = nav_id_sv.get_value();
                                                 let note_id_now = note_id_sv.get_value();
 
-                                                // Only clear editing if we are still editing this node.
-                                                // When the user clicks another node, its `on:mousedown` switches editing
-                                                // before this blur runs; clearing here would force a second click.
+                                                // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
                                                     editing_id.set(None);
                                                 }
