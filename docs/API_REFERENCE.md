@@ -182,14 +182,17 @@ Request:
 
 Response:
 {
-  "note": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "database-id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "My Note",
-    "content": "",
-    "created-at": "2026-02-08T10:00:00Z",
-    "updated-at": "2026-02-08T10:00:00Z"
-  }
+  "hulunote-notes/account-id": 3,
+  "hulunote-notes/created-at": "2026-02-09T16:56:41.064636+00:00",
+  "hulunote-notes/database-id": "550e8400-e29b-41d4-a716-446655440000",
+  "hulunote-notes/id": "550e8400-e29b-41d4-a716-446655440000",
+  "hulunote-notes/is-delete": false,
+  "hulunote-notes/is-public": false,
+  "hulunote-notes/is-shortcut": false,
+  "hulunote-notes/pv": 0,
+  "hulunote-notes/root-nav-id": "00000000-0000-0000-0000-000000000000",
+  "hulunote-notes/title": "My Note",
+  "hulunote-notes/updated-at": "2026-02-09T16:56:41.064636+00:00"
 }
 ```
 

@@ -213,24 +213,12 @@ fn next_available_daily_note_title(existing_notes: &[Note]) -> String {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
-
-    /// Some hulunote backends expect a `username` string; older clients sometimes pass email here.
-    pub username: Option<String>,
-
+    pub username: String,
     pub password: String,
 
     /// Registration/invite code.
+    #[serde(rename = "registration-code")]
     pub registration_code: String,
-
-    /// Optional fields used by some deployed backends (see legacy client).
-    #[serde(rename = "ack-number", skip_serializing_if = "Option::is_none")]
-    pub ack_number: Option<String>,
-
-    #[serde(rename = "binding-code", skip_serializing_if = "Option::is_none")]
-    pub binding_code: Option<String>,
-
-    #[serde(rename = "binding-platform", skip_serializing_if = "Option::is_none")]
-    pub binding_platform: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -291,8 +279,6 @@ impl ApiClient {
         self.token.as_ref()
     }
 
-    /// The legacy Hulunote clients use `X-FUNCTOR-API-TOKEN` as the auth header.
-    /// Prefer that to avoid backend/header mismatches.
     fn get_auth_token(&self) -> Option<String> {
         self.token.clone()
     }
@@ -323,9 +309,6 @@ impl ApiClient {
         token: Option<String>,
     ) -> reqwest::RequestBuilder {
         if let Some(token) = token {
-            // Legacy client contract.
-            req = req.header("X-FUNCTOR-API-TOKEN", token.clone());
-            // hulunote-rust documented contract.
             req = req.header("Authorization", format!("Bearer {}", token));
         }
         req
@@ -345,53 +328,24 @@ impl ApiClient {
             .map_err(|e| e.to_string())
     }
 
-    fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
-        // hulunote backends have (at least) two shapes:
-        // 1) { "databases": [ { id, name, description, created_at, updated_at } ] }
-        // 2) { "database-list": [ { "hulunote-databases/id": ..., ... } ], "settings": {} }
-        let list_value = if let Some(v) = data.get("databases") {
-            v.clone()
-        } else if let Some(v) = data.get("database-list") {
-            v.clone()
-        } else {
-            serde_json::Value::Null
-        };
-
-        // Normalize null/invalid to empty list for a stable UI.
-        let list = match list_value {
-            serde_json::Value::Array(v) => v,
-            _ => vec![],
-        };
+fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
+        // Canonical contract: `get-database-list` returns `database-list` with namespaced keys.
+        let list = data
+            .get("database-list")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
 
         let mut out: Vec<Database> = Vec::with_capacity(list.len());
         for item in list {
-            // Preferred (new) format.
-            if item.get("id").and_then(|v| v.as_str()).is_some() {
-                if let Ok(db) = serde_json::from_value::<Database>(item.clone()) {
-                    out.push(db);
-                    continue;
-                }
-            }
-
-            // Legacy/namespaced format.
             let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let id = get_s("hulunote-databases/id")
-                .or_else(|| get_s("id"))
-                .unwrap_or_default();
-            let name = get_s("hulunote-databases/name")
-                .or_else(|| get_s("name"))
-                .unwrap_or_default();
-            let description = get_s("hulunote-databases/description")
-                .or_else(|| get_s("description"))
-                .unwrap_or_default();
-            let created_at = get_s("hulunote-databases/created-at")
-                .or_else(|| get_s("created_at"))
-                .unwrap_or_default();
-            let updated_at = get_s("hulunote-databases/updated-at")
-                .or_else(|| get_s("updated_at"))
-                .unwrap_or_default();
 
-            // Only push if it looks like a real database record.
+            let id = get_s("hulunote-databases/id").unwrap_or_default();
+            let name = get_s("hulunote-databases/name").unwrap_or_default();
+            let description = get_s("hulunote-databases/description").unwrap_or_default();
+            let created_at = get_s("hulunote-databases/created-at").unwrap_or_default();
+            let updated_at = get_s("hulunote-databases/updated-at").unwrap_or_default();
+
             if !id.trim().is_empty() && !name.trim().is_empty() {
                 out.push(Database {
                     id,
@@ -406,52 +360,25 @@ impl ApiClient {
         out
     }
 
-    fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
-        // hulunote backends have multiple shapes:
-        // 1) { "notes": [ { id, database_id, title, content, created_at, updated_at } ] }
-        // 2) { "note-list": [ { "hulunote-notes/id": ..., "hulunote-notes/title": ..., ... } ] }
-        // 3) raw array
-        let list_value = if let Some(v) = data.get("notes") {
-            v.clone()
-        } else if let Some(v) = data.get("note-list") {
-            v.clone()
-        } else {
-            data.clone()
-        };
 
-        let list = match list_value {
-            serde_json::Value::Array(v) => v,
-            _ => vec![],
-        };
+
+fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
+        // Canonical contract: `get-all-note-list` returns `note-list` with namespaced keys.
+        let list = data
+            .get("note-list")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
 
         let mut out: Vec<Note> = Vec::with_capacity(list.len());
         for item in list {
-            // Preferred (new) format.
-            if item.get("id").and_then(|v| v.as_str()).is_some() {
-                if let Ok(note) = serde_json::from_value::<Note>(item.clone()) {
-                    out.push(note);
-                    continue;
-                }
-            }
-
-            // Legacy/namespaced format.
             let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
-            let id = get_s("hulunote-notes/id")
-                .or_else(|| get_s("id"))
-                .unwrap_or_default();
-            let database_id = get_s("hulunote-notes/database-id")
-                .or_else(|| get_s("database_id"))
-                .or_else(|| get_s("database-id"))
-                .unwrap_or_default();
-            let title = get_s("hulunote-notes/title")
-                .or_else(|| get_s("title"))
-                .unwrap_or_default();
-            let created_at = get_s("hulunote-notes/created-at")
-                .or_else(|| get_s("created_at"))
-                .unwrap_or_default();
-            let updated_at = get_s("hulunote-notes/updated-at")
-                .or_else(|| get_s("updated_at"))
-                .unwrap_or_default();
+
+            let id = get_s("hulunote-notes/id").unwrap_or_default();
+            let database_id = get_s("hulunote-notes/database-id").unwrap_or_default();
+            let title = get_s("hulunote-notes/title").unwrap_or_default();
+            let created_at = get_s("hulunote-notes/created-at").unwrap_or_default();
+            let updated_at = get_s("hulunote-notes/updated-at").unwrap_or_default();
 
             if !id.trim().is_empty() && !database_id.trim().is_empty() {
                 out.push(Note {
@@ -467,6 +394,8 @@ impl ApiClient {
 
         out
     }
+
+
 
     pub async fn get_all_note_list(&self, database_id: &str) -> Result<Vec<Note>, String> {
         let client = reqwest::Client::new();
@@ -588,41 +517,40 @@ impl ApiClient {
         }
     }
 
-    fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
-        let note_value = data.get("note").cloned().unwrap_or(data);
+fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
+        // Canonical contract: create-note returns a note object.
+        // Some deployments wrap it as {"note": {...}}, others return the note object directly.
+        let v = data.get("note").cloned().unwrap_or(data);
 
-        // Preferred (new) format.
-        if note_value.get("id").and_then(|v| v.as_str()).is_some() {
-            if let Ok(note) = serde_json::from_value::<Note>(note_value.clone()) {
-                return Some(note);
-            }
+        let get_s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string());
+
+        // Prefer non-namespaced keys if present.
+        let id = get_s("id").unwrap_or_default();
+        let database_id = get_s("database-id").unwrap_or_default();
+        let title = get_s("title").unwrap_or_default();
+        let content = get_s("content").unwrap_or_default();
+        let created_at = get_s("created-at").unwrap_or_default();
+        let updated_at = get_s("updated-at").unwrap_or_default();
+
+        if !id.trim().is_empty() && !database_id.trim().is_empty() {
+            return Some(Note {
+                id,
+                database_id,
+                title,
+                content,
+                created_at,
+                updated_at,
+            });
         }
 
-        // Legacy/namespaced format.
-        let get_s = |k: &str| {
-            note_value
-                .get(k)
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        };
-        let id = get_s("hulunote-notes/id")
-            .or_else(|| get_s("id"))
-            .unwrap_or_default();
-        let database_id = get_s("hulunote-notes/database-id")
-            .or_else(|| get_s("database_id"))
-            .or_else(|| get_s("database-id"))
-            .unwrap_or_default();
-        let title = get_s("hulunote-notes/title")
-            .or_else(|| get_s("title"))
-            .unwrap_or_default();
-        let created_at = get_s("hulunote-notes/created-at")
-            .or_else(|| get_s("created_at"))
-            .unwrap_or_default();
-        let updated_at = get_s("hulunote-notes/updated-at")
-            .or_else(|| get_s("updated_at"))
-            .unwrap_or_default();
+        // Namespaced note shape (as observed in hulunote deployments).
+        let id = get_s("hulunote-notes/id").unwrap_or_default();
+        let database_id = get_s("hulunote-notes/database-id").unwrap_or_default();
+        let title = get_s("hulunote-notes/title").unwrap_or_default();
+        let created_at = get_s("hulunote-notes/created-at").unwrap_or_default();
+        let updated_at = get_s("hulunote-notes/updated-at").unwrap_or_default();
 
-        if id.trim().is_empty() {
+        if id.trim().is_empty() || database_id.trim().is_empty() {
             return None;
         }
 
@@ -636,14 +564,14 @@ impl ApiClient {
         })
     }
 
+
+
     pub async fn create_note(&self, database_id: &str, title: &str) -> Result<Note, String> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/new-note", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
 
-        // Be liberal: some deployments accept snake_case, some kebab-case.
         let payload = serde_json::json!({
-            "database_id": database_id,
             "database-id": database_id,
             "title": title,
         });
@@ -668,9 +596,7 @@ impl ApiClient {
         let req = client.post(format!("{}/hulunote/update-hulunote-note", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
 
-        // Deployed backends vary (snake_case vs kebab-case).
         let payload = serde_json::json!({
-            "note_id": note_id,
             "note-id": note_id,
             "title": title,
         });
@@ -697,25 +623,13 @@ impl ApiClient {
     ) -> Result<SignupResponse, String> {
         let client = reqwest::Client::new();
 
-        // Try to be compatible with the legacy client contract used in some deployments.
-        let username = if username.trim().is_empty() {
-            None
-        } else {
-            Some(username.to_string())
-        };
-
         let res = client
             .post(format!("{}/login/web-signup", self.base_url))
             .json(&SignupRequest {
                 email: email.to_string(),
-                username,
+                username: username.to_string(),
                 password: password.to_string(),
                 registration_code: registration_code.to_string(),
-                // Leave ack/binding codes empty unless the backend requires them.
-                // But provide a default binding-platform matching the legacy client.
-                ack_number: None,
-                binding_code: None,
-                binding_platform: Some("whatsapp".to_string()),
             })
             .send()
             .await
@@ -3479,17 +3393,14 @@ mod tests {
     fn test_signup_request_serialization_includes_registration_code() {
         let req = SignupRequest {
             email: "u@example.com".to_string(),
-            username: None,
+            username: "u".to_string(),
             password: "pass".to_string(),
             registration_code: "FA8E-AF6E-4578-9347".to_string(),
-            ack_number: None,
-            binding_code: None,
-            binding_platform: Some("whatsapp".to_string()),
         };
         let v = serde_json::to_value(req).expect("should serialize");
         assert_eq!(v["email"], "u@example.com");
-        assert_eq!(v["registration_code"], "FA8E-AF6E-4578-9347");
-        assert_eq!(v["binding-platform"], "whatsapp");
+        assert_eq!(v["username"], "u");
+        assert_eq!(v["registration-code"], "FA8E-AF6E-4578-9347");
     }
 
     #[test]
@@ -3540,25 +3451,8 @@ mod tests {
         assert!(client.is_authenticated());
     }
 
-    #[test]
-    fn test_parse_database_list_response_new_shape() {
-        let v = serde_json::json!({
-            "databases": [
-                {
-                    "id": "db1",
-                    "name": "My DB",
-                    "description": "desc",
-                    "created_at": "t1",
-                    "updated_at": "t2"
-                }
-            ]
-        });
-
-        let out = ApiClient::parse_database_list_response(v);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].id, "db1");
-        assert_eq!(out[0].name, "My DB");
-    }
+    // NOTE: database list parsing is intentionally strict to the canonical contract.
+    // The canonical database list shape is covered by `test_parse_database_list_response_legacy_shape`.
 
     #[test]
     fn test_parse_database_list_response_legacy_shape() {
@@ -3581,27 +3475,8 @@ mod tests {
         assert!(out[0].id.starts_with("0a1dd8e1"));
     }
 
-    #[test]
-    fn test_parse_note_list_response_expected_shape() {
-        let v = serde_json::json!({
-            "notes": [
-                {
-                    "id": "n1",
-                    "database_id": "db1",
-                    "title": "Hello",
-                    "content": "",
-                    "created_at": "t1",
-                    "updated_at": "t2"
-                }
-            ]
-        });
-
-        let out = ApiClient::parse_note_list_response(v);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].id, "n1");
-        assert_eq!(out[0].database_id, "db1");
-        assert_eq!(out[0].title, "Hello");
-    }
+    // NOTE: note list parsing is intentionally strict to the canonical contract.
+    // The canonical note list shape is covered by `test_parse_note_list_response_legacy_shape_note_list`.
 
     #[test]
     fn test_parse_note_list_response_legacy_shape_note_list() {
