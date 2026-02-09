@@ -2885,7 +2885,7 @@ pub fn OutlineNode(
                 view! {
                     <div>
                         <div
-                            class="flex items-center gap-2 py-1"
+                            class="outline-row flex items-center gap-2 py-1"
                             style=move || format!("padding-left: {}px", indent_px)
                         >
                             <button
