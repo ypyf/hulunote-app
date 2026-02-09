@@ -2713,6 +2713,26 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
         }
     });
 
+    // Stable derived state for rendering.
+    let note_id_memo = Memo::new(move |_| note_id());
+    let root_ids = Memo::new(move |_| {
+        let all = navs.get();
+        let root = "00000000-0000-0000-0000-000000000000";
+
+        let mut roots = all
+            .iter()
+            .filter(|n| n.parid == root)
+            .cloned()
+            .collect::<Vec<_>>();
+        roots.sort_by(|a, b| {
+            a.same_deep_order
+                .partial_cmp(&b.same_deep_order)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        roots.into_iter().map(|n| n.id).collect::<Vec<String>>()
+    });
+
     view! {
         <div class="rounded-md border bg-card p-3">
             <div class="text-xs text-muted-foreground">"Outline"</div>
@@ -2733,35 +2753,19 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                 }
             }>
                 {move || {
-                    let all = navs.get();
-                    let root = "00000000-0000-0000-0000-000000000000";
+                    let ids = root_ids.get();
 
-                    let mut roots = all
-                        .iter()
-                        .filter(|n| n.parid == root)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    roots.sort_by(|a, b| a
-                        .same_deep_order
-                        .partial_cmp(&b.same_deep_order)
-                        .unwrap_or(std::cmp::Ordering::Equal));
-
-                    if roots.is_empty() {
+                    if ids.is_empty() {
                         view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
                             .into_any()
                     } else {
-                        let nid_sv = StoredValue::new(note_id());
-                        let root_ids_sv = StoredValue::new(
-                            roots.into_iter().map(|n| n.id).collect::<Vec<String>>(),
-                        );
-
                         view! {
                             <div class="space-y-0.5">
                                 <For
-                                    each=move || root_ids_sv.get_value()
+                                    each=move || root_ids.get()
                                     key=|id| id.clone()
                                     children=move |id| {
-                                        let nid = nid_sv.get_value();
+                                        let nid = note_id_memo.get();
                                         view! {
                                             <OutlineNode
                                                 nav_id=id
@@ -2801,7 +2805,7 @@ pub fn OutlineNode(
 
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
-    let nav_id_for_render = nav_id.clone();
+    let _nav_id_for_render = nav_id.clone();
     let note_id_for_toggle = note_id.clone();
 
     // (handler ids are captured per-render; avoid moving values out of the render closure)
@@ -2810,6 +2814,23 @@ pub fn OutlineNode(
     let note_id_sv = StoredValue::new(note_id.clone());
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
+
+    // Stable derived child id list. Keeps <For/> diffing stable across unrelated re-renders
+    // (e.g. moving the editor focus).
+    let nav_id_for_kids = nav_id.clone();
+    let kid_ids = Memo::new(move |_| {
+        let mut kids = navs
+            .get()
+            .into_iter()
+            .filter(|x| x.parid == nav_id_for_kids)
+            .collect::<Vec<_>>();
+        kids.sort_by(|a, b| {
+            a.same_deep_order
+                .partial_cmp(&b.same_deep_order)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        kids.into_iter().map(|c| c.id).collect::<Vec<String>>()
+    });
 
     let on_toggle = Callback::new(move |_| {
         let Some(n) = navs
@@ -2851,19 +2872,8 @@ pub fn OutlineNode(
                     return ().into_view().into_any();
                 };
 
-                // Compute children for this render.
-                let mut kids = navs
-                    .get()
-                    .into_iter()
-                    .filter(|x| x.parid == nav_id_for_render)
-                    .collect::<Vec<_>>();
-                kids.sort_by(|a, b| {
-                    a.same_deep_order
-                        .partial_cmp(&b.same_deep_order)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-                let has_kids = !kids.is_empty();
+                let kids_now = kid_ids.get();
+                let has_kids = !kids_now.is_empty();
                 let (bullet, bullet_class) = if has_kids {
                     (
                         if n.is_display { "▾" } else { "▸" },
@@ -2878,13 +2888,9 @@ pub fn OutlineNode(
                 let on_toggle_cb = on_toggle.clone();
 
                 let children_view = if n.is_display && has_kids {
-                    let kid_ids_sv = StoredValue::new(
-                        kids.into_iter().map(|c| c.id).collect::<Vec<String>>(),
-                    );
-
                     view! {
                         <For
-                            each=move || kid_ids_sv.get_value()
+                            each=move || kid_ids.get()
                             key=|id| id.clone()
                             children=move |id| {
                                 let nid = note_id_sv.get_value();
