@@ -3086,17 +3086,68 @@ pub fn OutlineNode(
                                                         save_current(&nav_id_now, &note_id_now);
 
                                                         let all = navs.get_untracked();
-                                                        let visible = visible_preorder(&all);
-                                                        let idx = visible.iter().position(|id| id == &nav_id_now);
-                                                        let Some(idx) = idx else { return; };
-                                                        if idx == 0 { return; }
+                                                        let Some(me) = all.iter().find(|n| n.id == nav_id_now) else {
+                                                            return;
+                                                        };
 
-                                                        let prev_id = visible[idx - 1].clone();
-                                                        if let Some(prev) = all.iter().find(|n| n.id == prev_id) {
-                                                            editing_id.set(Some(prev_id));
-                                                            editing_value.set(prev.content.clone());
-                                                            target_cursor_col.set(Some(prev.content.encode_utf16().count() as u32));
+                                                        let root = "00000000-0000-0000-0000-000000000000";
+
+                                                        // A) Prefer going to parent (if not root)
+                                                        if me.parid != root {
+                                                            if let Some(parent) = all.iter().find(|n| n.id == me.parid) {
+                                                                editing_id.set(Some(parent.id.clone()));
+                                                                editing_value.set(parent.content.clone());
+                                                                target_cursor_col.set(Some(parent.content.encode_utf16().count() as u32));
+                                                                return;
+                                                            }
                                                         }
+
+                                                        // B) Otherwise go to previous sibling, and descend to its last visible descendant.
+                                                        let parid = me.parid.clone();
+                                                        let mut sibs = all
+                                                            .iter()
+                                                            .filter(|n| n.parid == parid)
+                                                            .cloned()
+                                                            .collect::<Vec<_>>();
+                                                        sibs.sort_by(|a, b| a
+                                                            .same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                        let prev = sibs
+                                                            .iter()
+                                                            .rev()
+                                                            .find(|s| s.same_deep_order < me.same_deep_order)
+                                                            .cloned();
+
+                                                        let Some(prev) = prev else {
+                                                            return;
+                                                        };
+
+                                                        // Descend to last visible node in prev's subtree.
+                                                        fn last_visible_descendant(all: &[Nav], start: &Nav) -> Nav {
+                                                            if !start.is_display {
+                                                                return start.clone();
+                                                            }
+                                                            let mut children = all
+                                                                .iter()
+                                                                .filter(|n| n.parid == start.id)
+                                                                .cloned()
+                                                                .collect::<Vec<_>>();
+                                                            children.sort_by(|a, b| a
+                                                                .same_deep_order
+                                                                .partial_cmp(&b.same_deep_order)
+                                                                .unwrap_or(std::cmp::Ordering::Equal));
+                                                            if let Some(last) = children.last() {
+                                                                return last_visible_descendant(all, last);
+                                                            }
+                                                            start.clone()
+                                                        }
+
+                                                        let target = last_visible_descendant(&all, &prev);
+                                                        editing_id.set(Some(target.id.clone()));
+                                                        editing_value.set(target.content.clone());
+                                                        target_cursor_col.set(Some(target.content.encode_utf16().count() as u32));
                                                         return;
                                                     }
 
