@@ -1,6 +1,6 @@
 # Hulunote-app Complete TODO List
 
-**Tech Stack**: Rust/UI (Leptos-based) + hulunote-rust backend (Axum + PostgreSQL)
+**Tech Stack**: Rust/UI (Leptos-based) + Hulunote backend API
 
 ---
 
@@ -85,21 +85,54 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 
 ## Phase 6: Outline Editor (Core Feature)
 
-- [ ] Design outline data structure
-- [ ] Implement outline tree component
-- [ ] Implement recursive node rendering
-- [ ] Implement node selection
-- [ ] Implement node editing (inline)
-- [ ] Implement node creation (Enter key)
-- [ ] Implement node deletion (Cmd+Backspace)
-- [ ] Implement drag-and-drop reordering
-- [ ] Implement indentation (Tab/Shift+Tab)
-- [ ] Implement collapse/expand
-- [ ] Implement node moving (Alt+Up/Down)
+> Outline nav ordering uses `same-deep-order` (float), not `position`.
+> The write API supports `order` (→ `same-deep-order`) + `parid` + `is-display` + `is-delete`.
+>
+### 6.1 Data model alignment (must-do)
+
+- [ ] Update hulunote-app `Nav` model to match the canonical Nav fields:
+  - `id`
+  - `parid`
+  - `same-deep-order` (f32)
+  - `content`
+  - `is-display` (collapse/expand)
+  - `is-delete` (soft delete)
+  - `note-id` / `database-id` + timestamps
+- [ ] Add helpers:
+  - Build parent→children index (tree)
+  - Collect “visible navs” in display order (for keyboard navigation)
+
+### 6.2 API integration
+
+- [ ] Connect to `POST /hulunote/get-note-navs` (response key: `nav-list`)
 - [ ] Connect to `POST /hulunote/create-or-update-nav`
-- [ ] Connect to `POST /hulunote/get-note-navs`
-- [ ] Connect to `POST /hulunote/get-all-navs`
-- [ ] Connect to `POST /hulunote/get-all-nav-by-page`
+  - Update fields supported: `content`, `parid`, `order`, `is-display`, `is-delete`, `properties`
+
+### 6.3 Rendering (read-only first)
+
+- [ ] Implement outline tree component (recursive rendering)
+- [ ] Implement collapse/expand UI
+  - Persist collapse state via `is-display` (write-back to backend)
+- [ ] Implement node selection (focus/active row)
+
+### 6.4 Editing MVP (write)
+
+- [ ] Implement inline node editing (single-line input)
+  - Save on blur / Ctrl+Enter (choose one consistent rule)
+- [ ] Implement node creation (Enter)
+  - Create next sibling
+  - Order strategy: **midpoint order** between current and next sibling (`same_deep_order`)
+- [ ] Implement indentation (Tab/Shift+Tab)
+  - Tab: become child of previous sibling (update `parid`, recompute `order`)
+  - Shift+Tab: become sibling of parent (update `parid`, recompute `order`)
+
+### 6.5 Advanced editor behavior (post-MVP)
+
+- [ ] Keyboard navigation (Up/Down/Left/Right) based on “visible navs”
+- [ ] Node deletion (Backspace/Delete on empty)
+  - Use soft delete: set `is-delete: true`
+- [ ] Drag-and-drop reordering (requires stable order + drop targets)
+- [ ] Node moving (Alt+Up/Down) (order adjust only)
 
 ## Phase 7: Bidirectional Links
 
@@ -269,8 +302,7 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 
 ## References
 
-- [Original Frontend](https://github.com/hulunote/hulunote)
-- [Backend](https://github.com/hulunote/hulunote-rust)
+- [Original Hulunote Frontend](https://github.com/hulunote/hulunote)
 - [Rust/UI](https://www.rust-ui.com/)
 - [Roam Research](https://roamresearch.com/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)

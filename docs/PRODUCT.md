@@ -137,7 +137,7 @@ This project (hulunote-app) is a fresh implementation of the hulunote client.
 #### 4.1.1 Account
 | Field | Type | Description |
 |-------|------|-------------|
-| id | i64 | Unique identifier (hulunote-rust account id) |
+| id | i64 | Unique account identifier |
 | email | String | Email address |
 | username | String | Username |
 | password_hash | String | Hashed password |
@@ -169,9 +169,12 @@ This project (hulunote-app) is a fresh implementation of the hulunote client.
 |-------|------|-------------|
 | id | UUID | Unique identifier |
 | note_id | UUID | Parent note |
-| parent_id | UUID | Parent node |
+| parid | UUID/String | Parent nav id. Backend uses field name `parid`. Root uses all-zero UUID. |
+| same_deep_order | Float | Sort key within siblings (supports midpoint / fractional ordering). Backend exposes as `same-deep-order`. |
 | content | String | Node content |
-| position | Int | Sort order |
+| is_display | Bool | Whether children are expanded/visible (collapse/expand). Backend exposes as `is-display`. |
+| is_delete | Bool | Soft delete flag. Backend filters deleted nodes. Backend exposes as `is-delete`. |
+| properties | String/JSON | Extra per-node properties (backend stores as string). |
 | created_at | Timestamp | Creation time |
 | updated_at | Timestamp | Update time |
 
@@ -238,7 +241,7 @@ This client communicates with the hulunote backend API. See [API_REFERENCE.md](.
    v
 4. System validates registration code
    |
-   +-- success --> Create account (no email verification in hulunote-rust)
+   +-- success --> Create account (no email verification)
    |
    +-- failure --> Return error message
    |
@@ -337,7 +340,7 @@ Configure the backend API URL in your client settings.
 
 ### 8.2 References
 - [Original Frontend](https://github.com/hulunote/hulunote)
-- [Backend](https://github.com/hulunote/hulunote-rust)
+- Backend API (implementation is out of scope for this repo)
 - [Roam Research](https://roamresearch.com/)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 

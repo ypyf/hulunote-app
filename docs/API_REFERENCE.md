@@ -1,9 +1,22 @@
-# Hulunote API Quick Reference
+# Hulunote API Contract (Authoritative)
+
+This document is the **single source of truth** for the API contract used by **hulunote-app**.
+It is derived from the behavior and payload conventions of the running Hulunote client (the `hulunote` repo)
+(and validated against the current backend implementation).
+
+## Conventions
+
+- **Wire format**: JSON with **kebab-case** keys (e.g. `note-id`, `database-id`, `same-deep-order`).
+- **List keys**: prefer `*-list` (e.g. `nav-list`, `database-list`, `note-list`).
+- **Ordering**: outline node sibling ordering is controlled by `same-deep-order`.
+  - Clients write using request field `order`.
+  - Clients insert/move using **midpoint order** (fractional indexing) to avoid reindexing.
+- **Soft delete**: use `is-delete: true` (backend filters deleted rows out of list endpoints).
 
 ## Base Information
 
 - **Base URL**: `http://localhost:6689`
-- **Authentication**: JWT Bearer Token
+- **Authentication**: `Authorization: Bearer <token>`
 - **Content-Type**: `application/json`
 
 ## Authentication Endpoints
@@ -19,7 +32,7 @@ Request:
   "password": "password123"
 }
 
-Response (success) (hulunote-rust):
+Response (success):
 {
   "token": "<jwt>",
   "hulunote": { /* account info object (backend-defined fields) */ },
@@ -37,10 +50,10 @@ Request:
   "email": "user@example.com",
   "password": "password123",
   "username": "username",
-  "registration_code": "FA8E-AF6E-4578-9347"
+  "registration-code": "FA8E-AF6E-4578-9347"
 }
 
-Response (success) (hulunote-rust):
+Response (success):
 {
   "token": "<jwt>",
   "hulunote": { /* account info object (backend-defined fields) */ },
@@ -51,12 +64,8 @@ Response (success) (hulunote-rust):
 
 ## Database Endpoints
 
-> Note: hulunote-rust responses/requests are **kebab-case** / legacy-compatible.
-> In the wild you may see both the “new” (`databases`) and “legacy” (`database-list`) response shapes.
->
-> Auth header may be either:
-> - `Authorization: Bearer <jwt>` (hulunote-rust documented)
-> - `X-FUNCTOR-API-TOKEN: <jwt>` (legacy client)
+> All authenticated endpoints require:
+> `Authorization: Bearer <token>`
 
 ### Get Database List
 ```http
@@ -67,7 +76,7 @@ Content-Type: application/json
 Request:
 {}
 
-Response (hulunote-rust):
+Response:
 {
   "database-list": [
     {
@@ -92,13 +101,12 @@ POST /hulunote/new-database
 Authorization: Bearer <token>
 Content-Type: application/json
 
-Request (hulunote-rust handler expects these keys):
+Request:
 {
   "database-name": "New Database",
   "description": "Description here"
 }
 
-(Backend struct uses `database_name` internally, but it is deserialized from kebab-case.)
 
 Response:
 {
@@ -121,14 +129,13 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "<uuid>",
-  "db_name": "Updated Name"
+  "database-id": "<uuid>",
+  "db-name": "Updated Name"
 }
 
 Notes:
-- The backend accepts `database_id` **or** `id`.
-- Currently supports updating: `db_name` (name), `is_public`, `is_default`, `is_delete`.
-- **Does not update description** (as of current hulunote-rust handler).
+- Updating: `db-name` (name), `is-public`, `is-default`, `is-delete`.
+- Description update support is backend-dependent.
 
 Response:
 {
@@ -169,7 +176,7 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "550e8400-e29b-41d4-a716-446655440000",
+  "database-id": "550e8400-e29b-41d4-a716-446655440000",
   "title": "My Note"
 }
 
@@ -177,11 +184,11 @@ Response:
 {
   "note": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "database_id": "550e8400-e29b-41d4-a716-446655440000",
+    "database-id": "550e8400-e29b-41d4-a716-446655440000",
     "title": "My Note",
     "content": "",
-    "created_at": "2026-02-08T10:00:00Z",
-    "updated_at": "2026-02-08T10:00:00Z"
+    "created-at": "2026-02-08T10:00:00Z",
+    "updated-at": "2026-02-08T10:00:00Z"
   }
 }
 ```
@@ -194,9 +201,9 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "550e8400-e29b-41d4-a716-446655440000",
+  "database-id": "550e8400-e29b-41d4-a716-446655440000",
   "page": 1,
-  "page_size": 20
+  "page-size": 20
 }
 
 Response:
@@ -206,13 +213,13 @@ Response:
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "title": "Note Title",
       "content": "Content here",
-      "created_at": "2026-02-08T10:00:00Z",
-      "updated_at": "2026-02-08T10:00:00Z"
+      "created-at": "2026-02-08T10:00:00Z",
+      "updated-at": "2026-02-08T10:00:00Z"
     }
   ],
   "total": 100,
   "page": 1,
-  "page_size": 20
+  "page-size": 20
 }
 ```
 
@@ -227,7 +234,7 @@ Request (backend expects kebab-case `database-id`):
   "database-id": "550e8400-e29b-41d4-a716-446655440000"
 }
 
-Response (observed hulunote-rust legacy shape):
+Response:
 {
   "note-list": [
     {
@@ -236,20 +243,6 @@ Response (observed hulunote-rust legacy shape):
       "hulunote-notes/title": "Note Title",
       "hulunote-notes/created-at": "...",
       "hulunote-notes/updated-at": "..."
-    }
-  ]
-}
-
-Response (newer shape):
-{
-  "notes": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "database_id": "...",
-      "title": "Note Title",
-      "content": "Content here",
-      "created_at": "2026-02-08T10:00:00Z",
-      "updated_at": "2026-02-08T10:00:00Z"
     }
   ]
 }
@@ -263,7 +256,7 @@ Content-Type: application/json
 
 Request:
 {
-  "note_id": "550e8400-e29b-41d4-a716-446655440000",
+  "note-id": "550e8400-e29b-41d4-a716-446655440000",
   "title": "Updated Title",
   "content": "Updated content"
 }
@@ -276,6 +269,9 @@ Response:
 
 ## Outline Node Endpoints
 
+> **Contract note:** keys shown below are canonical for hulunote-app.
+> Ordering is controlled by `same-deep-order` and written via request field `order`.
+
 ### Create/Update Node
 ```http
 POST /hulunote/create-or-update-nav
@@ -284,27 +280,54 @@ Content-Type: application/json
 
 Request (create):
 {
-  "note_id": "550e8400-e29b-41d4-a716-446655440000",
-  "content": "Node content"
+  "note-id": "550e8400-e29b-41d4-a716-446655440000",
+  "parid": "00000000-0000-0000-0000-000000000000",
+  "content": "Node content",
+  "order": 100.0,
+  "is-display": true,
+  "properties": ""
 }
 
 Request (update):
 {
-  "note_id": "550e8400-e29b-41d4-a716-446655440000",
-  "nav_id": "660e8400-e29b-41d4-a716-446655440000",
+  "note-id": "550e8400-e29b-41d4-a716-446655440000",
+  "id": "660e8400-e29b-41d4-a716-446655440000",
   "content": "Updated content",
-  "parent_id": "660e8400-e29b-41d4-a716-446655440001"
+  "parid": "660e8400-e29b-41d4-a716-446655440001",
+  "order": 120.0,
+  "is-display": true,
+  "is-delete": false
 }
 
-Response:
+Response (create):
 {
+  "success": true,
+  "id": "660e8400-e29b-41d4-a716-446655440000",
   "nav": {
     "id": "660e8400-e29b-41d4-a716-446655440000",
-    "note_id": "550e8400-e29b-41d4-a716-446655440000",
-    "parent_id": null,
+    "parid": "00000000-0000-0000-0000-000000000000",
+    "same-deep-order": 100.0,
     "content": "Node content",
-    "position": 0
-  }
+    "account-id": 3,
+    "last-account-id": 3,
+    "note-id": "550e8400-e29b-41d4-a716-446655440000",
+    "hulunote-note": "550e8400-e29b-41d4-a716-446655440000",
+    "database-id": "...",
+    "is-display": true,
+    "is-public": false,
+    "is-delete": false,
+    "properties": "",
+    "created-at": "2026-02-10T00:00:00Z",
+    "updated-at": "2026-02-10T00:00:00Z"
+  },
+  "backend-ts": 1730000000000
+}
+
+Response (update existing):
+{
+  "success": true,
+  "id": "660e8400-e29b-41d4-a716-446655440000",
+  "backend-ts": 1730000000000
 }
 ```
 
@@ -316,18 +339,21 @@ Content-Type: application/json
 
 Request:
 {
-  "note_id": "550e8400-e29b-41d4-a716-446655440000"
+  "note-id": "550e8400-e29b-41d4-a716-446655440000"
 }
 
 Response:
 {
-  "navs": [
+  "nav-list": [
     {
       "id": "660e8400-e29b-41d4-a716-446655440000",
-      "note_id": "550e8400-e29b-41d4-a716-446655440000",
-      "parent_id": null,
+      "parid": "00000000-0000-0000-0000-000000000000",
+      "same-deep-order": 0.0,
       "content": "Root node",
-      "position": 0
+      "note-id": "550e8400-e29b-41d4-a716-446655440000",
+      "database-id": "...",
+      "is-display": true,
+      "is-delete": false
     }
   ]
 }
@@ -341,29 +367,21 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "550e8400-e29b-41d4-a716-446655440000",
+  "database-id": "550e8400-e29b-41d4-a716-446655440000",
+  "backend-ts": 0,
   "page": 1,
-  "page_size": 100
+  "size": 1000
 }
 
 Response:
 {
-  "navs": [
-    {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "note_id": "550e8400-e29b-41d4-a716-446655440000",
-      "parent_id": null,
-      "content": "Root node",
-      "position": 0
-    }
-  ],
-  "total": 500,
-  "page": 1,
-  "page_size": 100
+  "nav-list": [ /* ... */ ],
+  "all-pages": 5,
+  "backend-ts": 1730000000000
 }
 ```
 
-### Get All Nodes
+### Get All Nodes (No Pagination)
 ```http
 POST /hulunote/get-all-navs
 Authorization: Bearer <token>
@@ -371,20 +389,14 @@ Content-Type: application/json
 
 Request:
 {
-  "database_id": "550e8400-e29b-41d4-a716-446655440000"
+  "database-id": "550e8400-e29b-41d4-a716-446655440000",
+  "backend-ts": 0
 }
 
 Response:
 {
-  "navs": [
-    {
-      "id": "660e8400-e29b-41d4-a716-446655440000",
-      "note_id": "550e8400-e29b-41d4-a716-446655440000",
-      "parent_id": null,
-      "content": "Root node",
-      "position": 0
-    }
-  ]
+  "nav-list": [ /* ... */ ],
+  "backend-ts": 1730000000000
 }
 ```
 
