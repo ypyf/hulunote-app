@@ -2983,6 +2983,10 @@ pub fn OutlineNode(
                                     view! {
                                         <input
                                             node_ref=editing_ref
+                                            // Store stable ids on the DOM node so blur handlers can read them even if
+                                            // reactive values are disposed during navigation/unmount.
+                                            attr:data-nav-id=nav_id_sv.get_value()
+                                            attr:data-note-id=note_id_sv.get_value()
                                             class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                                             value=move || editing_value.get()
                                             on:input=move |ev| {
@@ -2992,10 +2996,19 @@ pub fn OutlineNode(
                                                 // IMPORTANT: read the value from the input element.
                                                 let new_content = event_target_value(&ev);
 
-                                                // Capture ids for this handler. These are plain strings so we don't
-                                                // access reactive values after re-render/unmount.
-                                                let nav_id_now = nav_id_sv.get_value();
-                                                let note_id_now = note_id_sv.get_value();
+                                                // Navigation can unmount this component before blur runs.
+                                                // Reading StoredValue/signal here can panic if it's already disposed.
+                                                // Instead, read ids from the DOM attributes.
+                                                let (nav_id_now, note_id_now) = ev
+                                                    .target()
+                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                    .map(|el| {
+                                                        (
+                                                            el.get_attribute("data-nav-id").unwrap_or_default(),
+                                                            el.get_attribute("data-note-id").unwrap_or_default(),
+                                                        )
+                                                    })
+                                                    .unwrap_or_default();
 
                                                 // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
