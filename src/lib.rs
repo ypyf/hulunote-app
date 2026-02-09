@@ -2418,6 +2418,9 @@ pub fn NotePage() -> impl IntoView {
     };
 
     let title_value: RwSignal<String> = RwSignal::new(String::new());
+    // Track which note the title_value currently belongs to.
+    let title_note_id: RwSignal<String> = RwSignal::new(String::new());
+
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
@@ -2488,8 +2491,12 @@ pub fn NotePage() -> impl IntoView {
         }
 
         if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
-            // Only overwrite local input when it's empty (avoid clobbering user typing).
-            if title_value.get().trim().is_empty() {
+            // If we navigated to a different note, sync title input immediately.
+            if title_note_id.get() != id {
+                title_note_id.set(id.clone());
+                title_value.set(n.title.clone());
+            } else if title_value.get().trim().is_empty() {
+                // Only overwrite local input when it's empty (avoid clobbering user typing).
                 title_value.set(n.title.clone());
             }
 
