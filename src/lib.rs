@@ -2424,6 +2424,14 @@ pub fn NotePage() -> impl IntoView {
                             if ev.key() == "Enter" {
                                 ev.prevent_default();
                                 save_title();
+
+                                // UX: pressing Enter should commit and exit the title field.
+                                if let Some(t) = ev
+                                    .target()
+                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                {
+                                    let _ = t.blur();
+                                }
                             }
                         }
                     />
