@@ -65,7 +65,7 @@
 
 ### Phase 5.5: Post-Phase-5 Navigation Restructure
 
-Goal: Make post-login UX match product intent: Home shows recents and database management is a dedicated page.
+Goal: Make post-login UX match product intent: Home shows recents, databases are discoverable and manageable from Home, and `/db/*` focuses on pages/notes.
 
 - [x] Routing skeleton:
   - `/` → Home (Recents)
@@ -73,14 +73,16 @@ Goal: Make post-login UX match product intent: Home shows recents and database m
   - `/db/:db_id/note/:note_id` → Note page
   - `/search?q=...` → Search page
 - [x] Top nav: show navigation button on `/db/*` pages; remove Rename/Delete from DB top bar
-- [x] Home (Recents): localStorage-based recent notes (no backend API)
+- [x] Home: localStorage-based recent notes (no backend API)
+- [x] Home: database cards grid (includes "+ New database" placeholder card)
+- [x] Home: database rename/delete available on each database card (hover actions)
 - [x] Sidebar modes:
-  - On `/`: show Databases + Search + Settings/Account
+  - On `/`: show Search + Recent Notes + Settings/Account
   - On `/db/*`: show Search + Pages (notes list) + Settings/Account (hide Databases)
 - [x] Search scope A: one search box, results page groups:
   - Databases (name matches)
   - Notes (title matches) from **current DB only**
-- [ ] Database rename/delete: deferred (no dedicated databases management page).
+- [ ] UX: switching notes from the Pages list should not pollute browser history (Back should return to previous page, e.g. Home)
 
 ## Phase 6: Outline Editor (Core Feature)
 
