@@ -3161,18 +3161,7 @@ pub fn OutlineNode(
                                                             return;
                                                         }
 
-                                                        // Otherwise: move to next visible node.
-                                                        let visible = visible_preorder(&all);
-                                                        let idx = visible.iter().position(|id| id == &nav_id_now);
-                                                        let Some(idx) = idx else { return; };
-                                                        if idx + 1 >= visible.len() { return; }
-
-                                                        let next_id = visible[idx + 1].clone();
-                                                        if let Some(next) = all.iter().find(|n| n.id == next_id) {
-                                                            editing_id.set(Some(next_id));
-                                                            editing_value.set(next.content.clone());
-                                                            target_cursor_col.set(Some(0));
-                                                        }
+                                                        // Strict Roam behavior: if there are no children, ArrowRight does not move to a sibling.
                                                         return;
                                                     }
                                                 }
