@@ -9,7 +9,7 @@ This project targets **Leptos 0.8.x** (see `Cargo.toml`).
 3. Rendering Rules (`view!`)
 4. Event Handlers
 5. Router / Params (CSR)
-6. WASM/CSR & CI Gotchas
+6. WASM/CSR & Build Gotchas
 7. Appendix: Minimal Router Example
 
 ---
@@ -163,7 +163,7 @@ let id_now = params.get_untracked().ok().and_then(|p| p.id).unwrap_or_default();
 
 ---
 
-## 6) WASM/CSR & CI Gotchas
+## 6) WASM/CSR & Build Gotchas
 
 ### 6.1 Ensure CSR is enabled
 
@@ -202,9 +202,9 @@ Always match the `web-sys` feature to the type you use:
 - `HtmlElement` for generic elements
 - Event types like `KeyboardEvent`, `MouseEvent` need their own features if used
 
-### 6.3 CI-only failure checklist
+### 6.3 Build troubleshooting checklist
 
-If CI fails but you can’t reproduce locally, first verify you’re building the **same commit** and doing a **clean build**.
+If a build error seems inconsistent across environments, first verify you’re building the **same commit** and doing a **clean build**.
 
 Suggested checks:
 
