@@ -1236,46 +1236,38 @@ pub fn HomeRecentsPage() -> impl IntoView {
     let recent_notes = move || load_recent_notes();
 
     view! {
-        <div class="space-y-4">
+        <div class="space-y-3">
             <div class="space-y-1">
-                <h1 class="text-xl font-semibold">"Home"</h1>
-                <p class="text-xs text-muted-foreground">"Recent notes."</p>
+                <h1 class="text-xl font-semibold">"Recent"</h1>
             </div>
 
-            <Card>
-                <CardHeader class="p-3">
-                    <CardTitle class="text-sm">"Recent Notes"</CardTitle>
-                </CardHeader>
-                <CardContent class="p-3 pt-0">
-                    <Show
-                        when=move || !recent_notes().is_empty()
-                        fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
-                    >
-                        <div class="space-y-1">
-                            {move || {
-                                recent_notes()
-                                    .into_iter()
-                                    .map(|n| {
-                                        let db_id = n.db_id.clone();
-                                        let db_id_href = db_id.clone();
-                                        let note_id = n.note_id.clone();
-                                        let title = n.title.clone();
-                                        view! {
-                                            <a
-                                                href=format!("/db/{}/note/{}", db_id_href, note_id)
-                                                class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
-                                            >
-                                                <div class="truncate text-sm font-medium">{title}</div>
-                                                <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_id)}</div>
-                                            </a>
-                                        }
-                                    })
-                                    .collect_view()
-                            }}
-                        </div>
-                    </Show>
-                </CardContent>
-            </Card>
+            <Show
+                when=move || !recent_notes().is_empty()
+                fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
+            >
+                <div class="space-y-1">
+                    {move || {
+                        recent_notes()
+                            .into_iter()
+                            .map(|n| {
+                                let db_id = n.db_id.clone();
+                                let db_id_href = db_id.clone();
+                                let note_id = n.note_id.clone();
+                                let title = n.title.clone();
+                                view! {
+                                    <a
+                                        href=format!("/db/{}/note/{}", db_id_href, note_id)
+                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                    >
+                                        <div class="truncate text-sm font-medium">{title}</div>
+                                        <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_id)}</div>
+                                    </a>
+                                }
+                            })
+                            .collect_view()
+                    }}
+                </div>
+            </Show>
         </div>
     }
 }
