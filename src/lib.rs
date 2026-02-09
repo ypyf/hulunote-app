@@ -1238,7 +1238,7 @@ pub fn HomeRecentsPage() -> impl IntoView {
     view! {
         <div class="space-y-3">
             <div class="space-y-1">
-                <h1 class="text-xl font-semibold">"Recent"</h1>
+                <h1 class="text-xl font-semibold">"Recent Notes"</h1>
             </div>
 
             <Show
