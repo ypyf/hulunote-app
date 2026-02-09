@@ -2413,25 +2413,30 @@ pub fn NotePage() -> impl IntoView {
 
     view! {
         <div class="space-y-3">
-            <div class="flex items-center justify-end">
-                <Show when=move || saving.get() fallback=|| ().into_view()>
-                    <div class="text-xs text-muted-foreground">"Saving..."</div>
-                </Show>
-            </div>
-
             <div class="space-y-2">
-                <Input
-                    bind_value=title_value
-                    class="h-10 text-lg font-semibold"
-                    placeholder="Untitled"
-                    on:blur=move |_| save_title()
-                    on:keydown=move |ev: web_sys::KeyboardEvent| {
-                        if ev.key() == "Enter" {
-                            ev.prevent_default();
-                            save_title();
+                <div class="flex items-center gap-2">
+                    <Input
+                        bind_value=title_value
+                        class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                        placeholder="Untitled"
+                        on:blur=move |_| save_title()
+                        on:keydown=move |ev: web_sys::KeyboardEvent| {
+                            if ev.key() == "Enter" {
+                                ev.prevent_default();
+                                save_title();
+                            }
                         }
-                    }
-                />
+                    />
+
+                    // Reserve space to avoid layout shift/flicker.
+                    <div class="h-5 w-5 shrink-0">
+                        <Show when=move || saving.get() fallback=|| ().into_view()>
+                            <div class="h-5 w-5">
+                                <Spinner />
+                            </div>
+                        </Show>
+                    </div>
+                </div>
 
                 <Show when=move || error.get().is_some() fallback=|| ().into_view()>
                     {move || error.get().map(|e| view! {
