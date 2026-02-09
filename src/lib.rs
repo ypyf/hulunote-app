@@ -730,6 +730,10 @@ pub struct AppState {
     pub notes_loading: RwSignal<bool>,
     pub notes_error: RwSignal<Option<String>>,
 
+    /// Notes load guards (avoid duplicate loads + ignore stale responses).
+    pub notes_request_id: RwSignal<u64>,
+    pub notes_last_loaded_db_id: RwSignal<Option<String>>,
+
     /// Current database selection (drives routing in later phases).
     pub current_database_id: RwSignal<Option<String>>,
 
@@ -791,6 +795,8 @@ impl AppState {
             notes: RwSignal::new(vec![]),
             notes_loading: RwSignal::new(false),
             notes_error: RwSignal::new(None),
+            notes_request_id: RwSignal::new(0),
+            notes_last_loaded_db_id: RwSignal::new(None),
             current_database_id: RwSignal::new(current_database_id),
             sidebar_collapsed: RwSignal::new(sidebar_collapsed),
             search_query: RwSignal::new(String::new()),
@@ -1786,76 +1792,68 @@ pub fn DbHomePage() -> impl IntoView {
     };
 
     // Notes loading guards (avoid duplicate loads + ignore stale responses).
-    // Use Arc + atomics/mutexes to satisfy Send bounds and avoid disposed-signal panics.
-    let notes_request_id = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let notes_last_loaded_db_id = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+    // Store guard state on AppState so it survives route changes.
+    let load_notes_for_sv = StoredValue::new(move |id: String, force: bool| {
+        if id.trim().is_empty() {
+            return;
+        }
 
-    let load_notes_for = {
-        let notes_request_id = notes_request_id.clone();
-        let notes_last_loaded_db_id = notes_last_loaded_db_id.clone();
+        if !force {
+            let already_loaded = app_state
+                .0
+                .notes_last_loaded_db_id
+                .get_untracked()
+                .as_deref()
+                == Some(id.as_str());
+            let has_error = app_state.0.notes_error.get_untracked().is_some();
+            let is_loading = app_state.0.notes_loading.get_untracked();
 
-        move |id: String, force: bool| {
-            if id.trim().is_empty() {
+            if already_loaded && !has_error && !is_loading {
+                return;
+            }
+        }
+
+        app_state.0.notes_last_loaded_db_id.set(Some(id.clone()));
+
+        let req_id = app_state
+            .0
+            .notes_request_id
+            .get_untracked()
+            .saturating_add(1);
+        app_state.0.notes_request_id.set(req_id);
+
+        app_state.0.notes_loading.set(true);
+        app_state.0.notes_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let result = api_client.get_all_note_list(&id).await;
+
+            // Ignore stale responses.
+            if app_state.0.notes_request_id.get_untracked() != req_id {
                 return;
             }
 
-            if !force {
-                let already_loaded = notes_last_loaded_db_id
-                    .lock()
-                    .ok()
-                    .and_then(|g| g.as_deref().map(|s| s == id.as_str()))
-                    .unwrap_or(false);
-                let has_error = app_state.0.notes_error.get_untracked().is_some();
-                let is_loading = app_state.0.notes_loading.get_untracked();
-
-                if already_loaded && !has_error && !is_loading {
-                    return;
+            match result {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes);
                 }
-            }
-
-            if let Ok(mut g) = notes_last_loaded_db_id.lock() {
-                *g = Some(id.clone());
-            }
-
-            let req_id = notes_request_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-
-            app_state.0.notes_loading.set(true);
-            app_state.0.notes_error.set(None);
-
-            let api_client = app_state.0.api_client.get_untracked();
-            let notes_request_id = notes_request_id.clone();
-
-            spawn_local(async move {
-                let result = api_client.get_all_note_list(&id).await;
-
-                // Ignore stale responses.
-                if notes_request_id.load(std::sync::atomic::Ordering::Relaxed) != req_id {
-                    return;
-                }
-
-                match result {
-                    Ok(notes) => {
-                        app_state.0.notes.set(notes);
-                    }
-                    Err(e) => {
-                        if e == "Unauthorized" {
-                            let mut c = app_state.0.api_client.get_untracked();
-                            c.logout();
-                            app_state.0.api_client.set(c);
-                            app_state.0.current_user.set(None);
-                            let _ = window().location().set_href("/login");
-                        } else {
-                            app_state.0.notes_error.set(Some(e));
-                            app_state.0.notes.set(vec![]);
-                        }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        app_state.0.notes_error.set(Some(e));
+                        app_state.0.notes.set(vec![]);
                     }
                 }
-                app_state.0.notes_loading.set(false);
-            });
-        }
-    };
-
-    let load_notes_for_sv = StoredValue::new(load_notes_for);
+            }
+            app_state.0.notes_loading.set(false);
+        });
+    });
 
     // Keep global selection in sync with URL.
     Effect::new(move |_| {
