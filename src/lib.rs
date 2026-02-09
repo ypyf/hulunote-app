@@ -3178,7 +3178,8 @@ pub fn OutlineNode(
                                                                 .unwrap_or(true);
 
                                                             if !is_display {
-                                                                // Expand current node
+                                                                // Expand current node AND descend into first child.
+                                                                // This matches Roam's feel: Right at end opens and goes deeper.
                                                                 navs.update(|xs| {
                                                                     if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
                                                                         x.is_display = true;
@@ -3200,8 +3201,9 @@ pub fn OutlineNode(
                                                                     let _ = api_client.upsert_nav(req).await;
                                                                 });
 
-                                                                // Keep editing current node.
-                                                                editing_id.set(Some(nav_id_now));
+                                                                editing_id.set(Some(first_child.id.clone()));
+                                                                editing_value.set(first_child.content.clone());
+                                                                target_cursor_col.set(Some(0));
                                                                 return;
                                                             }
 
