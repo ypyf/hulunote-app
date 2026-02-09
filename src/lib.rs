@@ -1856,11 +1856,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             let note_id = n.note_id.clone();
                                                             let title = n.title.clone();
 
-                                                            let db_name = dbs
+                                                            let db_name_opt = dbs
                                                                 .iter()
                                                                 .find(|d| d.id == db_id)
-                                                                .map(|d| d.name.clone())
-                                                                .unwrap_or_else(|| db_id.clone());
+                                                                .map(|d| d.name.clone());
 
                                                             view! {
                                                                 <a
@@ -1868,7 +1867,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                     class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
                                                                 >
                                                                     <div class="truncate text-sm font-medium">{title}</div>
-                                                                    <div class="truncate text-xs text-muted-foreground">{db_name}</div>
+                                                                    // Only show database name (never show raw id). Keep height stable.
+                                                                    <div class="min-h-[1rem] truncate text-xs text-muted-foreground">
+                                                                        {db_name_opt.unwrap_or_default()}
+                                                                    </div>
                                                                 </a>
                                                             }
                                                         })
