@@ -2877,10 +2877,17 @@ pub fn OutlineNode(
                     ().into_view().into_any()
                 };
 
+                let is_editing_now = editing_id.get_untracked().as_deref() == Some(nav_id.as_str());
+                let row_class = if is_editing_now {
+                    "group flex items-start gap-2 rounded-md bg-muted/60 px-1 py-1 min-h-[24px]"
+                } else {
+                    "group flex items-start gap-2 rounded-md px-1 py-1 min-h-[24px] hover:bg-muted/40"
+                };
+
                 view! {
                     <div>
                         <div
-                            class="flex items-start gap-2 py-1"
+                            class=row_class
                             style=move || format!("padding-left: {}px", indent_px)
                         >
                             <button
