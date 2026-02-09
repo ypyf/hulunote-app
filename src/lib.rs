@@ -2931,9 +2931,12 @@ pub fn OutlineNode(
                                             }
                                             on:blur=move |_| {
                                                 let new_content = editing_value.get_untracked();
+                                                let nav_id_now = nav_id_sv.get_value();
+                                                let note_id_now = note_id_sv.get_value();
+
+                                                // IMPORTANT: read StoredValue first; setting editing_id may unmount this node.
                                                 editing_id.set(None);
 
-                                                let nav_id_now = nav_id_sv.get_value();
                                                 navs.update(|xs| {
                                                     if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
                                                         x.content = new_content.clone();
@@ -2941,7 +2944,6 @@ pub fn OutlineNode(
                                                 });
 
                                                 let api_client = app_state.0.api_client.get_untracked();
-                                                let note_id_now = note_id_sv.get_value();
                                                 let req = CreateOrUpdateNavRequest {
                                                     note_id: note_id_now,
                                                     id: Some(nav_id_now.clone()),
