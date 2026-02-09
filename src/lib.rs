@@ -13,7 +13,6 @@ use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use leptos_router::params::Params;
 use leptos_router::path;
-use leptos_router::NavigateOptions;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 
@@ -2045,7 +2044,6 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                         <div class="space-y-1">
                                             {move || {
                                                 let db_id = current_db_id.get().unwrap_or_default();
-                                                let db_id_for_filter = db_id.clone();
                                                 let q = search_query.get().trim().to_lowercase();
                                                 let notes = expect_context::<AppContext>().0.notes.get();
 
@@ -2061,7 +2059,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
                                                 notes
                                                     .into_iter()
-                                                    .filter(|n| n.database_id == db_id_for_filter)
+                                                    .filter(|n| n.database_id == db_id)
                                                     .filter(|n| {
                                                         if q.is_empty() {
                                                             true
@@ -2076,27 +2074,14 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                         } else {
                                                             ButtonVariant::Ghost
                                                         };
-
-                                                        let db_id_for_nav = db_id.clone();
-                                                        let id_for_nav = n.id.clone();
-
+                                                        let id = n.id.clone();
                                                         view! {
                                                             <Button
                                                                 variant=variant
                                                                 size=ButtonSize::Sm
                                                                 class="w-full justify-start"
                                                                 attr:aria-current=move || if is_selected { Some("page") } else { None }
-                                                                on:click=move |_| {
-                                                                    navigate.with_value(|nav| {
-                                                                        nav(
-                                                                            &format!("/db/{}/note/{}", db_id_for_nav, id_for_nav),
-                                                                            NavigateOptions {
-                                                                                replace: true,
-                                                                                ..Default::default()
-                                                                            },
-                                                                        );
-                                                                    });
-                                                                }
+                                                                href=format!("/db/{}/note/{}", db_id, id)
                                                             >
                                                                 {n.title}
                                                             </Button>
