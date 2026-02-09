@@ -104,8 +104,9 @@ hulunote-app/
 
 ## Documentation
 
+- [User Manual](./docs/USER_MANUAL.md)
 - [Product Overview](./docs/PRODUCT.md)
-- [API Reference](./docs/API_REFERENCE.md)
+- [API Contract](./docs/API_REFERENCE.md)
 - [Leptos Development Guide](./docs/LEPTOS_GUIDE.md)
 - [Test Guide](./docs/TEST_GUIDE.md)
 - [Rust/UI Guide](./docs/RUST_UI_GUIDE.md)
