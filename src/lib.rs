@@ -2420,6 +2420,24 @@ pub fn NotePage() -> impl IntoView {
     // Track which note the title_value currently belongs to.
     let title_note_id: RwSignal<String> = RwSignal::new(String::new());
 
+    // Keep global selected DB in sync when entering a note route directly (e.g. from Home recents).
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            return;
+        }
+
+        if app_state.0.current_database_id.get() != Some(db.clone()) {
+            app_state.0.current_database_id.set(Some(db.clone()));
+
+            // Persist selection for future sessions.
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+            {
+                let _ = storage.set_item(CURRENT_DB_KEY, &db);
+            }
+        }
+    });
+
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
