@@ -2086,10 +2086,17 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                 size=ButtonSize::Sm
                                                                 class="w-full justify-start"
                                                                 attr:aria-current=move || if is_selected { Some("page") } else { None }
-                                                                on:click=move |_| {
+                                                                href=format!("/db/{}/note/{}", db_id_for_nav, id_for_nav)
+                                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                                    // Keep proper link semantics but do not push history entries when switching notes.
+                                                                    ev.prevent_default();
                                                                     navigate.with_value(|nav| {
                                                                         nav(
-                                                                            &format!("/db/{}/note/{}", db_id_for_nav, id_for_nav),
+                                                                            &format!(
+                                                                                "/db/{}/note/{}",
+                                                                                db_id_for_nav.clone(),
+                                                                                id_for_nav.clone()
+                                                                            ),
                                                                             NavigateOptions {
                                                                                 replace: true,
                                                                                 ..Default::default()
