@@ -3256,6 +3256,71 @@ pub fn OutlineNode(
                                                     return;
                                                 }
 
+                                                // Backspace/Delete on empty: soft-delete node (and its subtree)
+                                                if (key == "Backspace" || key == "Delete")
+                                                    && editing_value.get_untracked().trim().is_empty()
+                                                {
+                                                    ev.prevent_default();
+
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+
+                                                    let all = navs.get_untracked();
+
+                                                    // Visible order for choosing next focus.
+                                                    let visible = visible_preorder(&all);
+                                                    let idx = visible.iter().position(|id| id == &nav_id_now);
+
+                                                    // Collect subtree ids (including self).
+                                                    fn collect_subtree(all: &[Nav], root_id: &str, out: &mut Vec<String>) {
+                                                        out.push(root_id.to_string());
+                                                        for c in all.iter().filter(|n| n.parid == root_id) {
+                                                            collect_subtree(all, &c.id, out);
+                                                        }
+                                                    }
+
+                                                    let mut subtree: Vec<String> = vec![];
+                                                    collect_subtree(&all, &nav_id_now, &mut subtree);
+
+                                                    // Update local state: remove subtree nodes.
+                                                    navs.update(|xs| xs.retain(|n| !subtree.iter().any(|id| id == &n.id)));
+
+                                                    // Pick next focus: previous visible if possible, else next.
+                                                    let next_focus = idx
+                                                        .and_then(|i| if i > 0 { Some(visible[i - 1].clone()) } else { None })
+                                                        .or_else(|| idx.and_then(|i| visible.get(i + 1).cloned()));
+
+                                                    editing_id.set(next_focus.clone());
+                                                    if let Some(fid) = next_focus {
+                                                        if let Some(n) = all.iter().find(|n| n.id == fid) {
+                                                            editing_value.set(n.content.clone());
+                                                            target_cursor_col.set(Some(n.content.len() as u32));
+                                                        }
+                                                    } else {
+                                                        editing_id.set(None);
+                                                    }
+
+                                                    // Persist soft delete to backend.
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    spawn_local(async move {
+                                                        for id in subtree {
+                                                            let req = CreateOrUpdateNavRequest {
+                                                                note_id: note_id_now.clone(),
+                                                                id: Some(id),
+                                                                parid: None,
+                                                                content: None,
+                                                                order: None,
+                                                                is_display: None,
+                                                                is_delete: Some(true),
+                                                                properties: None,
+                                                            };
+                                                            let _ = api_client.upsert_nav(req).await;
+                                                        }
+                                                    });
+
+                                                    return;
+                                                }
+
                                                 // Enter: save + create next sibling
                                                 if key == "Enter" {
                                                     ev.prevent_default();
