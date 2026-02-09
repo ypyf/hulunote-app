@@ -1262,7 +1262,7 @@ pub fn HomeRecentsPage() -> impl IntoView {
 
                         let placeholder = view! {
                             <Card
-                                class="group flex cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover"
+                                class="group relative flex h-32 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover"
                                 on:click=move |_| actions.open_create.run(())
                             >
                                 <div class="flex flex-col items-center gap-2 p-6">
@@ -1289,19 +1289,19 @@ pub fn HomeRecentsPage() -> impl IntoView {
 
                                 view! {
                                     <Card
-                                        class="group relative cursor-pointer transition-colors hover:bg-surface-hover"
+                                        class="group relative h-32 cursor-pointer transition-colors hover:bg-surface-hover"
                                         on:click=move |_| {
                                             navigate.with_value(|nav| {
                                                 nav(&format!("/db/{}", id_for_nav), Default::default());
                                             });
                                         }
                                     >
-                                        <CardHeader class="p-3">
+                                        <CardHeader class="p-4">
                                             <CardTitle class="truncate text-sm">{name}</CardTitle>
-                                            <CardDescription class="truncate text-xs">{desc}</CardDescription>
+                                            <CardDescription class="line-clamp-2 text-xs">{desc}</CardDescription>
                                         </CardHeader>
 
-                                        <div class="absolute right-2 top-2 hidden items-center gap-1 group-hover:flex">
+                                        <div class="absolute bottom-2 right-2 hidden items-center gap-1 group-hover:flex">
                                             <Button
                                                 variant=ButtonVariant::Ghost
                                                 size=ButtonSize::Icon
