@@ -2208,6 +2208,16 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 let q = search_query.get().trim().to_lowercase();
                                                 let notes = expect_context::<AppContext>().0.notes.get();
 
+                                                // Highlight current note if we are on /db/:db_id/note/:note_id
+                                                let p = pathname();
+                                                let prefix = format!("/db/{}/note/", db_id);
+                                                let current_note_id = p
+                                                    .strip_prefix(&prefix)
+                                                    .unwrap_or("")
+                                                    .split('/')
+                                                    .next()
+                                                    .unwrap_or("");
+
                                                 notes
                                                     .into_iter()
                                                     .filter(|n| n.database_id == db_id)
@@ -2219,12 +2229,20 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                         }
                                                     })
                                                     .map(|n| {
+                                                        let is_selected = n.id == current_note_id;
+                                                        let variant = if is_selected {
+                                                            ButtonVariant::Accent
+                                                        } else {
+                                                            ButtonVariant::Ghost
+                                                        };
+                                                        let id = n.id.clone();
                                                         view! {
                                                             <Button
-                                                                variant=ButtonVariant::Ghost
+                                                                variant=variant
                                                                 size=ButtonSize::Sm
                                                                 class="w-full justify-start"
-                                                                href=format!("/db/{}/note/{}", db_id, n.id)
+                                                                attr:aria-current=move || if is_selected { Some("page") } else { None }
+                                                                href=format!("/db/{}/note/{}", db_id, id)
                                                             >
                                                                 {n.title}
                                                             </Button>
@@ -2583,6 +2601,8 @@ pub fn DbHomePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<DbRouteParams>();
     let navigate = StoredValue::new(use_navigate());
+    let location = use_location();
+    let pathname = move || location.pathname.get();
 
     let rename_open: RwSignal<bool> = RwSignal::new(false);
 
@@ -2703,6 +2723,44 @@ pub fn DbHomePage() -> impl IntoView {
     Effect::new(move |_| {
         load_notes_for_sv.with_value(|f| {
             f(db_id(), false);
+        });
+    });
+
+    // UX: when user enters /db/:db_id, auto-open the first note.
+    // This makes the main area show a note immediately and enables Pages highlight.
+    Effect::new(move |_| {
+        let id = db_id();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        let p = pathname();
+        if p != format!("/db/{}", id) {
+            return;
+        }
+
+        if app_state.0.notes_loading.get() {
+            return;
+        }
+
+        let mut notes = app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .filter(|n| n.database_id == id)
+            .collect::<Vec<_>>();
+
+        if notes.is_empty() {
+            return;
+        }
+
+        // Prefer most recently updated (lexicographic works for ISO-ish timestamps).
+        notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let first_id = notes[0].id.clone();
+
+        navigate.with_value(|nav| {
+            nav(&format!("/db/{}/note/{}", id, first_id), Default::default());
         });
     });
 
