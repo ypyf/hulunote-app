@@ -2849,10 +2849,15 @@ pub fn OutlineNode(
                 });
 
                 let has_kids = !kids.is_empty();
-                let bullet = if has_kids {
-                    if n.is_display { "▾" } else { "▸" }
+                let (bullet, bullet_class) = if has_kids {
+                    (
+                        if n.is_display { "▾" } else { "▸" },
+                        // Bigger + clearly clickable
+                        "mt-0.5 h-5 w-5 text-base leading-none text-muted-foreground cursor-pointer hover:text-foreground/80",
+                    )
                 } else {
-                    "·"
+                    // Make leaf bullets more visible than a tiny middle dot.
+                    ("•", "mt-0.5 h-5 w-5 text-base leading-none text-muted-foreground")
                 };
 
                 let on_toggle_cb = on_toggle.clone();
@@ -2880,13 +2885,18 @@ pub fn OutlineNode(
                 view! {
                     <div>
                         <div
-                            class="flex items-start gap-2 py-1"
+                            class="flex items-center gap-2 py-1"
                             style=move || format!("padding-left: {}px", indent_px)
                         >
                             <button
-                                class="mt-1 h-4 w-4 text-xs text-muted-foreground"
+                                class=bullet_class
                                 on:click=move |ev| on_toggle_cb.run(ev)
                                 disabled=!has_kids
+                                title=move || if has_kids {
+                                    if n.is_display { "Collapse" } else { "Expand" }
+                                } else {
+                                    ""
+                                }
                             >
                                 {bullet}
                             </button>

@@ -30,7 +30,8 @@ module.exports = {
         ring: "var(--ring)",
 
         // Aliases used by components
-        input: "rgb(var(--border) / <alpha-value>)",
+        // Use a surface token for input background (NOT the border color).
+        input: "rgb(var(--surface-hover) / <alpha-value>)",
         primary: "rgb(var(--accent) / <alpha-value>)",
         "primary-foreground": "rgb(var(--accent-foreground) / <alpha-value>)",
 
@@ -46,7 +47,8 @@ module.exports = {
         success: "rgb(var(--success) / <alpha-value>)",
         "success-foreground": "rgb(var(--success-foreground) / <alpha-value>)",
 
-        card: "rgb(var(--muted) / <alpha-value>)",
+        // Make cards distinct from the default surface.
+        card: "rgb(var(--surface-hover) / <alpha-value>)",
         "card-foreground": "rgb(var(--foreground) / <alpha-value>)",
       },
       borderRadius: {
