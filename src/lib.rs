@@ -2716,9 +2716,7 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
         <div class="rounded-md border bg-card p-3">
             <div class="text-xs text-muted-foreground">"Outline"</div>
 
-            <Show when=move || loading.get() fallback=|| ().into_view()>
-                <div class="mt-2"><Spinner /></div>
-            </Show>
+            // NOTE: intentionally no loading spinner when switching notes.
 
             <Show when=move || error.get().is_some() fallback=|| ().into_view()>
                 {move || error.get().map(|e| view! {
