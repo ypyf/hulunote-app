@@ -1798,24 +1798,26 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             let name_for_delete = name.clone();
 
                                                             view! {
-                                                                <div class="group flex items-center gap-2">
+                                                                <div class="group flex min-w-0 items-center gap-2">
                                                                     <Button
                                                                         variant=variant
                                                                         size=ButtonSize::Sm
-                                                                        class="w-full flex-1 justify-start"
+                                                                        class="min-w-0 flex-1 justify-start"
                                                                         attr:aria-current=move || {
                                                                             if is_selected { Some("page") } else { None }
                                                                         }
                                                                         href=format!("/db/{}", id_href)
                                                                     >
-                                                                        {name_label}
+                                                                        <span class="min-w-0 flex-1 truncate">{name_label}</span>
                                                                     </Button>
 
                                                                     <Show when=move || show_actions fallback=|| ().into_view()>
                                                                         <div class="hidden shrink-0 items-center gap-1 group-hover:flex">
                                                                             <Button
                                                                                 variant=ButtonVariant::Ghost
-                                                                                size=ButtonSize::Sm
+                                                                                size=ButtonSize::Icon
+                                                                                class="h-7 w-7"
+                                                                                attr:title="Rename"
                                                                                 on:click={
                                                                                     let id = id.clone();
                                                                                     let name = name_for_rename.clone();
@@ -1825,12 +1827,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                                     }
                                                                                 }
                                                                             >
-                                                                                "Rename"
+                                                                                <span class="text-xs text-muted-foreground">"✎"</span>
                                                                             </Button>
                                                                             <Button
                                                                                 variant=ButtonVariant::Ghost
-                                                                                size=ButtonSize::Sm
-                                                                                class="text-destructive"
+                                                                                size=ButtonSize::Icon
+                                                                                class="h-7 w-7 text-destructive"
+                                                                                attr:title="Delete"
                                                                                 on:click={
                                                                                     let id = id.clone();
                                                                                     let name = name_for_delete.clone();
@@ -1840,7 +1843,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                                     }
                                                                                 }
                                                                             >
-                                                                                "Delete"
+                                                                                <span class="text-xs">"🗑"</span>
                                                                             </Button>
                                                                         </div>
                                                                     </Show>
