@@ -2908,7 +2908,152 @@ pub fn OutlineNode(
                                                 });
                                             }
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
-                                                if ev.key() == "Enter" {
+                                                let key = ev.key();
+
+                                                // Tab / Shift+Tab: indent / outdent
+                                                if key == "Tab" {
+                                                    ev.prevent_default();
+
+                                                    let shift = ev.shift_key();
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+
+                                                    let all = navs.get_untracked();
+                                                    let Some(me) = all.iter().find(|x| x.id == nav_id_now) else {
+                                                        return;
+                                                    };
+
+                                                    // Save current edit buffer into local state first.
+                                                    let current_content = editing_value.get_untracked();
+                                                    navs.update(|xs| {
+                                                        if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                            x.content = current_content.clone();
+                                                        }
+                                                    });
+
+                                                    let api_client = app_state.0.api_client.get_untracked();
+
+                                                    if !shift {
+                                                        // Indent: become child of previous sibling.
+                                                        let parid = me.parid.clone();
+                                                        let mut sibs = all
+                                                            .iter()
+                                                            .filter(|x| x.parid == parid)
+                                                            .cloned()
+                                                            .collect::<Vec<_>>();
+                                                        sibs.sort_by(|a, b| a.same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                        let prev = sibs
+                                                            .iter()
+                                                            .rev()
+                                                            .find(|s| s.same_deep_order < me.same_deep_order)
+                                                            .cloned();
+
+                                                        let Some(prev) = prev else {
+                                                            return;
+                                                        };
+
+                                                        let new_parid = prev.id.clone();
+
+                                                        // Append to end of new parent's children.
+                                                        let last_child_order = all
+                                                            .iter()
+                                                            .filter(|x| x.parid == new_parid)
+                                                            .map(|x| x.same_deep_order)
+                                                            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                                                        let new_order = last_child_order.unwrap_or(0.0) + 1.0;
+
+                                                        navs.update(|xs| {
+                                                            if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                                x.parid = new_parid.clone();
+                                                                x.same_deep_order = new_order;
+                                                            }
+                                                            if let Some(p) = xs.iter_mut().find(|x| x.id == new_parid) {
+                                                                p.is_display = true;
+                                                            }
+                                                        });
+
+                                                        let req = CreateOrUpdateNavRequest {
+                                                            note_id: note_id_now,
+                                                            id: Some(nav_id_now.clone()),
+                                                            parid: Some(new_parid),
+                                                            content: Some(current_content),
+                                                            order: Some(new_order),
+                                                            is_display: None,
+                                                            is_delete: None,
+                                                            properties: None,
+                                                        };
+
+                                                        spawn_local(async move {
+                                                            let _ = api_client.upsert_nav(req).await;
+                                                        });
+                                                    } else {
+                                                        // Outdent: become sibling of parent.
+                                                        let parent_id = me.parid.clone();
+                                                        let root = "00000000-0000-0000-0000-000000000000";
+                                                        if parent_id == root {
+                                                            return;
+                                                        }
+
+                                                        let Some(parent) = all.iter().find(|x| x.id == parent_id) else {
+                                                            return;
+                                                        };
+
+                                                        let new_parid = parent.parid.clone();
+
+                                                        // Put right after parent (midpoint between parent and parent's next sibling).
+                                                        let mut parent_sibs = all
+                                                            .iter()
+                                                            .filter(|x| x.parid == new_parid)
+                                                            .cloned()
+                                                            .collect::<Vec<_>>();
+                                                        parent_sibs.sort_by(|a, b| a.same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                        let next_order = parent_sibs
+                                                            .iter()
+                                                            .find(|s| s.same_deep_order > parent.same_deep_order)
+                                                            .map(|s| s.same_deep_order);
+
+                                                        let new_order = if let Some(no) = next_order {
+                                                            (parent.same_deep_order + no) / 2.0
+                                                        } else {
+                                                            parent.same_deep_order + 1.0
+                                                        };
+
+                                                        navs.update(|xs| {
+                                                            if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                                x.parid = new_parid.clone();
+                                                                x.same_deep_order = new_order;
+                                                            }
+                                                        });
+
+                                                        let req = CreateOrUpdateNavRequest {
+                                                            note_id: note_id_now,
+                                                            id: Some(nav_id_now.clone()),
+                                                            parid: Some(new_parid),
+                                                            content: Some(current_content),
+                                                            order: Some(new_order),
+                                                            is_display: None,
+                                                            is_delete: None,
+                                                            properties: None,
+                                                        };
+
+                                                        spawn_local(async move {
+                                                            let _ = api_client.upsert_nav(req).await;
+                                                        });
+                                                    }
+
+                                                    // Keep editing current node.
+                                                    editing_id.set(Some(nav_id_now));
+                                                    return;
+                                                }
+
+                                                // Enter: save + create next sibling
+                                                if key == "Enter" {
                                                     ev.prevent_default();
 
                                                     let current_content = editing_value.get_untracked();
