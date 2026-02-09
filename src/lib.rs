@@ -2922,10 +2922,13 @@ pub fn OutlineNode(
                                     }
 
                                     view! {
-                                        <Input
+                                        <input
                                             node_ref=editing_ref
-                                            bind_value=editing_value
                                             class="h-7"
+                                            value=move || editing_value.get()
+                                            on:input=move |ev| {
+                                                editing_value.set(event_target_value(&ev));
+                                            }
                                             on:blur=move |_| {
                                                 let new_content = editing_value.get_untracked();
                                                 editing_id.set(None);
