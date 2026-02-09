@@ -2719,7 +2719,7 @@ pub fn DbHomePage() -> impl IntoView {
         });
     };
 
-    let on_open_rename = move |_| {
+    let _on_open_rename = move |_: web_sys::MouseEvent| {
         rename_error.set(None);
         if let Some(d) = db() {
             rename_value.set(d.name);
@@ -2754,7 +2754,7 @@ pub fn DbHomePage() -> impl IntoView {
         });
     };
 
-    let on_open_delete = move |_| {
+    let _on_open_delete = move |_: web_sys::MouseEvent| {
         delete_confirm.set(String::new());
         delete_error.set(None);
         delete_open.set(true);
@@ -2820,22 +2820,12 @@ pub fn DbHomePage() -> impl IntoView {
                 </div>
 
                 <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Outline
-                        size=ButtonSize::Sm
-                        class="bg-surface hover:bg-accent-soft"
-                        on:click=on_open_rename
+                    <a
+                        href="/databases"
+                        class="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
                     >
-                        "Rename"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Outline
-                        size=ButtonSize::Sm
-                        class="border-destructive/40 text-destructive hover:bg-surface-hover"
-                        on:click=on_open_delete
-                    >
-                        "Delete"
-                    </Button>
+                        "Manage databases"
+                    </a>
                 </div>
             </div>
 
