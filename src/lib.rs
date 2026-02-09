@@ -1974,8 +1974,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
                                 // Home
                                 if p == "/" {
-                                    return view! { <div class="truncate text-sm font-medium">"Home"</div> }
-                                        .into_any();
+                                    return view! {
+                                        <div class="truncate text-sm font-medium">"All databases"</div>
+                                    }
+                                    .into_any();
                                 }
 
                                 // DB / Note
@@ -1983,7 +1985,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                     let db_name = current_db_name()
                                         .unwrap_or_else(|| "Database".to_string());
 
-                                    // If note route, show database > note
+                                    // If note route, show All databases > db > note
                                     if let Some(rest) = p.strip_prefix("/db/") {
                                         if let Some((db_id, tail)) = rest.split_once('/') {
                                             if let Some(note_rest) = tail.strip_prefix("note/") {
@@ -2001,6 +2003,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 return view! {
                                                     <div class="flex min-w-0 items-center gap-2 text-sm">
                                                         <a
+                                                            href="/"
+                                                            class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                        >
+                                                            "All databases"
+                                                        </a>
+                                                        <span class="text-muted-foreground">">"</span>
+                                                        <a
                                                             href=format!("/db/{}", db_id)
                                                             class="min-w-0 truncate font-medium text-foreground hover:underline"
                                                         >
@@ -2012,12 +2021,38 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 }
                                                 .into_any();
                                             }
+
+                                            // DB home: All databases > db
+                                            return view! {
+                                                <div class="flex min-w-0 items-center gap-2 text-sm">
+                                                    <a
+                                                        href="/"
+                                                        class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                    >
+                                                        "All databases"
+                                                    </a>
+                                                    <span class="text-muted-foreground">">"</span>
+                                                    <div class="min-w-0 truncate font-medium">{db_name}</div>
+                                                </div>
+                                            }
+                                            .into_any();
                                         }
                                     }
 
-                                    // DB home
-                                    return view! { <div class="truncate text-sm font-medium">{db_name}</div> }
-                                        .into_any();
+                                    // Fallback DB home
+                                    return view! {
+                                        <div class="flex min-w-0 items-center gap-2 text-sm">
+                                            <a
+                                                href="/"
+                                                class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                            >
+                                                "All databases"
+                                            </a>
+                                            <span class="text-muted-foreground">">"</span>
+                                            <div class="min-w-0 truncate font-medium">{db_name}</div>
+                                        </div>
+                                    }
+                                    .into_any();
                                 }
 
                                 // Fallback
@@ -2025,28 +2060,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             }}
                         </nav>
 
-                        <div class="flex shrink-0 items-center gap-2">
-                            <Show
-                                // Show this only on the database home (/db/:db_id), not on note pages.
-                                when=move || {
-                                    let p = pathname();
-                                    p.starts_with("/db/") && !p.contains("/note/")
-                                }
-                                fallback=|| ().into_view()
-                            >
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    size=ButtonSize::Sm
-                                    on:click=move |_| {
-                                        navigate.with_value(|nav| {
-                                            nav("/", Default::default());
-                                        });
-                                    }
-                                >
-                                    "All databases"
-                                </Button>
-                            </Show>
-                        </div>
+                        <div class="flex shrink-0 items-center gap-2"></div>
                     </div>
                     {children()}
                 </main>
