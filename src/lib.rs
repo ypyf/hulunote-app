@@ -2624,8 +2624,16 @@ pub fn DbHomePage() -> impl IntoView {
         notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         let first_id = notes[0].id.clone();
 
+        // Use replace=true so browser Back goes to the previous page (e.g. Home),
+        // instead of bouncing between /db/:db_id and /db/:db_id/note/:note_id.
         navigate.with_value(|nav| {
-            nav(&format!("/db/{}/note/{}", id, first_id), Default::default());
+            nav(
+                &format!("/db/{}/note/{}", id, first_id),
+                leptos_router::NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                },
+            );
         });
     });
 
