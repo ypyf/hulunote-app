@@ -2321,7 +2321,7 @@ pub fn NotePage() -> impl IntoView {
         }
     });
 
-    let save_title = move |_| {
+    let save_title = move || {
         if saving.get_untracked() {
             return;
         }
@@ -2345,9 +2345,8 @@ pub fn NotePage() -> impl IntoView {
                 Ok(_) => {
                     // Refresh notes list.
                     let c = app_state.0.api_client.get_untracked();
-                    match c.get_all_note_list(&db).await {
-                        Ok(notes) => app_state.0.notes.set(notes),
-                        Err(_) => {}
+                    if let Ok(notes) = c.get_all_note_list(&db).await {
+                        app_state.0.notes.set(notes);
                     }
                     app_state.0.api_client.set(c);
                 }
@@ -2372,14 +2371,9 @@ pub fn NotePage() -> impl IntoView {
                     <p class="text-xs text-muted-foreground">{move || format!("note_id: {}", note_id())}</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Outline
-                        size=ButtonSize::Sm
-                        attr:disabled=move || saving.get()
-                        on:click=save_title
-                    >
-                        {move || if saving.get() { "Saving..." } else { "Save" }}
-                    </Button>
+                    <Show when=move || saving.get() fallback=|| ().into_view()>
+                        <div class="text-xs text-muted-foreground">"Saving..."</div>
+                    </Show>
                 </div>
             </div>
 
@@ -2388,7 +2382,17 @@ pub fn NotePage() -> impl IntoView {
                     <div class="space-y-2">
                         <div class="space-y-1">
                             <Label class="text-xs">"Title"</Label>
-                            <Input bind_value=title_value class="h-8 text-sm" />
+                            <Input
+                                bind_value=title_value
+                                class="h-8 text-sm"
+                                on:blur=move |_| save_title()
+                                on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                    if ev.key() == "Enter" {
+                                        ev.prevent_default();
+                                        save_title();
+                                    }
+                                }
+                            />
                         </div>
 
                         <Show when=move || error.get().is_some() fallback=|| ().into_view()>
