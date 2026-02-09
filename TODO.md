@@ -52,15 +52,15 @@
 
 ## Phase 5: Note Management (List View)
 
-- [ ] Implement note list view
-- [ ] Implement note creation dialog
-- [ ] Implement note detail view
+- [x] Implement note list view (non-paginated, on `/db/:db_id`)
+- [~] Implement note creation dialog *(replaced by one-click "New" creating a daily note title)*
+- [~] Implement note detail view *(route + placeholder page exists: `/db/:db_id/note/:note_id`)*
 - [ ] Implement note editing
 - [ ] Implement note deletion
 - [ ] Create page tree navigation (based on notes)
-- [ ] Connect to `POST /hulunote/new-note`
+- [x] Connect to `POST /hulunote/new-note`
 - [ ] Connect to `POST /hulunote/get-note-list`
-- [ ] Connect to `POST /hulunote/get-all-note-list`
+- [x] Connect to `POST /hulunote/get-all-note-list`
 - [ ] Connect to `POST /hulunote/update-hulunote-note`
 
 ## Phase 6: Outline Editor (Core Feature)
