@@ -118,37 +118,25 @@ spawn_local(async move {
 
 ## 4) Event Handlers
 
-### 4.0 Disposed reactive values (common panic when navigation/unmount happens)
+### 4.0 Disposed reactive values (panic)
 
 You may see a browser console panic like:
 
 > panicked at reactive_graph ... you tried to access a reactive value ... but it has already been disposed
 
-This comes from Leptos' underlying reactive runtime (`reactive_graph`).
-It means: **some signal/memo/StoredValue belonged to an Owner/component scope that has been dropped**,
-but a callback ran later and tried to read it.
-
-Why it happens in apps like Hulunote:
-- Pressing **Enter** can trigger navigation or a state change that **unmounts** the current node/editor.
-- The input then fires a late **`blur`** (or other DOM event).
-- If the `on:blur` handler reads tracked reactive state like `some_signal.get()` / `StoredValue::get_value()`,
-  that read can happen *after unmount* → the reactive value is already disposed → panic.
+Meaning:
+- The reactive value (signal/memo/`StoredValue`) was created in an Owner/component scope.
+- That scope was dropped (unmounted/disposed).
+- A callback ran later and tried to read it.
 
 Rule of thumb:
-- **Inside event handlers that can run during teardown** (blur, keydown that navigates, callbacks scheduled with
-  `set_timeout`, async tasks that outlive the component), avoid reading reactive values that are owned by the
-  component scope.
+- In handlers that may run during teardown (e.g. `blur`, key handlers that navigate, callbacks scheduled with
+  `set_timeout`, async tasks that outlive the component), **avoid reading reactive values owned by the component**.
 
 Safer patterns:
-1) **Capture plain data** (Strings/IDs) *before* starting navigation/unmount, then move them into the handler.
-2) Or **read from the DOM event target** (e.g. attributes on the input) instead of the reactive graph.
-3) Or guard: if you can't recover required ids safely, **do nothing** (skip the request) rather than sending
-   an invalid request.
-
-Hulunote case study (Enter → navigation/unmount → blur):
-- Fix: store `data-nav-id` / `data-note-id` on the `<input>` while it is mounted.
-- In `on:blur`, read ids from `ev.target()` (DOM) and **early-return if empty**.
-- This prevents both the Leptos panic and backend 400s caused by empty ids.
+- **Capture plain data** (e.g. ids/strings) before triggering unmount/navigation.
+- **Read from the DOM event target** when appropriate (e.g. `ev.target()` → input element value/attributes).
+- If required data can't be recovered reliably, **return early**.
 
 
 ### Input handlers
