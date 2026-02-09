@@ -2406,57 +2406,45 @@ pub fn NotePage() -> impl IntoView {
         });
     };
 
-    let current_note = move || {
+    let _current_note = move || {
         let id = note_id();
         app_state.0.notes.get().into_iter().find(|n| n.id == id)
     };
 
     view! {
         <div class="space-y-3">
-            <div class="flex items-start justify-between gap-3">
-                <div class="space-y-1">
-                    <h1 class="text-xl font-semibold">{move || current_note().map(|n| n.title).unwrap_or_else(|| "Note".to_string())}</h1>
-                    <p class="text-xs text-muted-foreground">{move || format!("note_id: {}", note_id())}</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <Show when=move || saving.get() fallback=|| ().into_view()>
-                        <div class="text-xs text-muted-foreground">"Saving..."</div>
-                    </Show>
-                </div>
+            <div class="flex items-center justify-end">
+                <Show when=move || saving.get() fallback=|| ().into_view()>
+                    <div class="text-xs text-muted-foreground">"Saving..."</div>
+                </Show>
             </div>
 
-            <Card>
-                <CardContent>
-                    <div class="space-y-2">
-                        <div class="space-y-1">
-                            <Label class="text-xs">"Title"</Label>
-                            <Input
-                                bind_value=title_value
-                                class="h-8 text-sm"
-                                on:blur=move |_| save_title()
-                                on:keydown=move |ev: web_sys::KeyboardEvent| {
-                                    if ev.key() == "Enter" {
-                                        ev.prevent_default();
-                                        save_title();
-                                    }
-                                }
-                            />
-                        </div>
+            <div class="space-y-2">
+                <Input
+                    bind_value=title_value
+                    class="h-10 text-lg font-semibold"
+                    placeholder="Untitled"
+                    on:blur=move |_| save_title()
+                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                        if ev.key() == "Enter" {
+                            ev.prevent_default();
+                            save_title();
+                        }
+                    }
+                />
 
-                        <Show when=move || error.get().is_some() fallback=|| ().into_view()>
-                            {move || error.get().map(|e| view! {
-                                <Alert class="border-destructive/30">
-                                    <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
-                                </Alert>
-                            })}
-                        </Show>
+                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                    {move || error.get().map(|e| view! {
+                        <Alert class="border-destructive/30">
+                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                        </Alert>
+                    })}
+                </Show>
 
-                        <div class="text-sm text-muted-foreground">
-                            "Outline editor will be implemented in Phase 6 (navs)."
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+                <div class="text-sm text-muted-foreground">
+                    "Outline editor will be implemented in Phase 6 (navs)."
+                </div>
+            </div>
         </div>
     }
 }
