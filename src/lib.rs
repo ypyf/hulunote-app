@@ -2699,7 +2699,8 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                     wasm_bindgen::closure::Closure::once_into_js(move || {
                         let _ = el.focus();
                         if let Some(col) = col {
-                            let len = el.value().len() as u32;
+                            // selectionStart/End are in UTF-16 code units.
+                            let len = el.value().encode_utf16().count() as u32;
                             let pos = col.min(len);
                             let _ = el.set_selection_range(pos, pos);
                         }
@@ -3067,7 +3068,8 @@ pub fn OutlineNode(
                                                     let (cursor_start, cursor_end, len) = if let Some(i) = input() {
                                                         let start = i.selection_start().ok().flatten().unwrap_or(0);
                                                         let end = i.selection_end().ok().flatten().unwrap_or(start);
-                                                        let len = i.value().len() as u32;
+                                                        // IMPORTANT: selectionStart/End use UTF-16 code units, not Rust UTF-8 bytes.
+                                                        let len = i.value().encode_utf16().count() as u32;
                                                         (start, end, len)
                                                     } else {
                                                         (0, 0, 0)
@@ -3093,7 +3095,7 @@ pub fn OutlineNode(
                                                         if let Some(prev) = all.iter().find(|n| n.id == prev_id) {
                                                             editing_id.set(Some(prev_id));
                                                             editing_value.set(prev.content.clone());
-                                                            target_cursor_col.set(Some(prev.content.len() as u32));
+                                                            target_cursor_col.set(Some(prev.content.encode_utf16().count() as u32));
                                                         }
                                                         return;
                                                     }
@@ -3355,7 +3357,7 @@ pub fn OutlineNode(
                                                     if let Some(fid) = next_focus {
                                                         if let Some(n) = all.iter().find(|n| n.id == fid) {
                                                             editing_value.set(n.content.clone());
-                                                            target_cursor_col.set(Some(n.content.len() as u32));
+                                                            target_cursor_col.set(Some(n.content.encode_utf16().count() as u32));
                                                         }
                                                     } else {
                                                         editing_id.set(None);
