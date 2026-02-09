@@ -53,15 +53,15 @@
 ## Phase 5: Note Management (List View)
 
 - [x] Implement note list view (non-paginated, on `/db/:db_id`)
-- [~] Implement note creation dialog *(replaced by one-click "New" creating a daily note title)*
-- [~] Implement note detail view *(route + placeholder page exists: `/db/:db_id/note/:note_id`)*
-- [ ] Implement note editing
-- [ ] Implement note deletion
-- [ ] Create page tree navigation (based on notes)
+- [x] Implement note creation (one-click "New" creates daily note title)
+- [x] Implement note detail view (route + title edit on `/db/:db_id/note/:note_id`)
+- [x] Implement note editing (rename/title via update endpoint)
+- [ ] Implement note deletion *(N/A: backend has no delete-note endpoint in protected routes)*
+- [x] Create page tree navigation (based on notes)
 - [x] Connect to `POST /hulunote/new-note`
 - [ ] Connect to `POST /hulunote/get-note-list`
 - [x] Connect to `POST /hulunote/get-all-note-list`
-- [ ] Connect to `POST /hulunote/update-hulunote-note`
+- [x] Connect to `POST /hulunote/update-hulunote-note`
 
 ## Phase 6: Outline Editor (Core Feature)
 
