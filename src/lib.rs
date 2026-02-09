@@ -1827,7 +1827,22 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                                     }
                                                                                 }
                                                                             >
-                                                                                <span class="text-xs text-muted-foreground">"✎"</span>
+                                                                                <svg
+                                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                                    width="16"
+                                                                                    height="16"
+                                                                                    viewBox="0 0 24 24"
+                                                                                    fill="none"
+                                                                                    stroke="currentColor"
+                                                                                    stroke-width="2"
+                                                                                    stroke-linecap="round"
+                                                                                    stroke-linejoin="round"
+                                                                                    class="text-muted-foreground"
+                                                                                    aria-hidden="true"
+                                                                                >
+                                                                                    <path d="M12 20h9" />
+                                                                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                                                </svg>
                                                                             </Button>
                                                                             <Button
                                                                                 variant=ButtonVariant::Ghost
@@ -1843,7 +1858,24 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                                     }
                                                                                 }
                                                                             >
-                                                                                <span class="text-xs">"🗑"</span>
+                                                                                <svg
+                                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                                    width="16"
+                                                                                    height="16"
+                                                                                    viewBox="0 0 24 24"
+                                                                                    fill="none"
+                                                                                    stroke="currentColor"
+                                                                                    stroke-width="2"
+                                                                                    stroke-linecap="round"
+                                                                                    stroke-linejoin="round"
+                                                                                    aria-hidden="true"
+                                                                                >
+                                                                                    <path d="M3 6h18" />
+                                                                                    <path d="M8 6V4h8v2" />
+                                                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                                                    <path d="M10 11v6" />
+                                                                                    <path d="M14 11v6" />
+                                                                                </svg>
                                                                             </Button>
                                                                         </div>
                                                                     </Show>
@@ -1949,7 +1981,11 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         </div>
                         <div class="flex items-center gap-2">
                             <Show
-                                when=move || pathname().starts_with("/db/")
+                                // Show this only on the database home (/db/:db_id), not on note pages.
+                                when=move || {
+                                    let p = pathname();
+                                    p.starts_with("/db/") && !p.contains("/note/")
+                                }
                                 fallback=|| ().into_view()
                             >
                                 <Button
