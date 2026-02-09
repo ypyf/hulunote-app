@@ -931,6 +931,13 @@ impl Default for AppState {
 #[derive(Clone)]
 pub struct AppContext(pub AppState);
 
+#[derive(Clone)]
+pub struct DbUiActions {
+    pub open_create: Callback<()>,
+    pub open_rename: Callback<(String, String)>,
+    pub open_delete: Callback<(String, String)>,
+}
+
 #[component]
 pub fn LoginPage() -> impl IntoView {
     let email: RwSignal<String> = RwSignal::new(String::new());
@@ -1234,6 +1241,8 @@ pub fn RegistrationPage() -> impl IntoView {
 #[component]
 pub fn HomeRecentsPage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
+    let actions = expect_context::<DbUiActions>();
+    let navigate = StoredValue::new(use_navigate());
 
     view! {
         <div class="space-y-3">
@@ -1247,26 +1256,117 @@ pub fn HomeRecentsPage() -> impl IntoView {
             >
                 <div class="grid gap-3 sm:grid-cols-2">
                     {move || {
-                        app_state
-                            .0
-                            .databases
-                            .get()
-                            .into_iter()
+                        use leptos::prelude::IntoAny;
+
+                        let dbs = app_state.0.databases.get();
+
+                        let placeholder = view! {
+                            <Card
+                                class="group flex cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover"
+                                on:click=move |_| actions.open_create.run(())
+                            >
+                                <div class="flex flex-col items-center gap-2 p-6">
+                                    <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
+                                        <span class="text-lg text-muted-foreground">"+"</span>
+                                    </div>
+                                    <div class="text-sm font-medium">"New database"</div>
+                                </div>
+                            </Card>
+                        }
+                        .into_any();
+
+                        dbs.into_iter()
                             .map(|db| {
                                 let id = db.id.clone();
+                                let name = db.name.clone();
+                                let desc = db.description.clone();
+
+                                let id_for_nav = id.clone();
+                                let id_for_rename = id.clone();
+                                let name_for_rename = name.clone();
+                                let id_for_delete = id.clone();
+                                let name_for_delete = name.clone();
+
                                 view! {
-                                    <a href=format!("/db/{}", id) class="block">
-                                        <Card class="transition-colors hover:bg-surface-hover">
-                                            <CardHeader class="p-3">
-                                                <CardTitle class="truncate text-sm">{db.name}</CardTitle>
-                                                <CardDescription class="truncate text-xs">
-                                                    {db.description}
-                                                </CardDescription>
-                                            </CardHeader>
-                                        </Card>
-                                    </a>
+                                    <Card
+                                        class="group relative cursor-pointer transition-colors hover:bg-surface-hover"
+                                        on:click=move |_| {
+                                            navigate.with_value(|nav| {
+                                                nav(&format!("/db/{}", id_for_nav), Default::default());
+                                            });
+                                        }
+                                    >
+                                        <CardHeader class="p-3">
+                                            <CardTitle class="truncate text-sm">{name}</CardTitle>
+                                            <CardDescription class="truncate text-xs">{desc}</CardDescription>
+                                        </CardHeader>
+
+                                        <div class="absolute right-2 top-2 hidden items-center gap-1 group-hover:flex">
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                class="h-7 w-7"
+                                                attr:title="Rename"
+                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                    ev.stop_propagation();
+                                                    actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
+                                                }
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="16"
+                                                    height="16"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    class="text-muted-foreground"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M12 20h9" />
+                                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                </svg>
+                                            </Button>
+
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                class="h-7 w-7 text-destructive"
+                                                attr:title="Delete"
+                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                    ev.stop_propagation();
+                                                    actions
+                                                        .open_delete
+                                                        .run((id_for_delete.clone(), name_for_delete.clone()));
+                                                }
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="16"
+                                                    height="16"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M3 6h18" />
+                                                    <path d="M8 6V4h8v2" />
+                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                    <path d="M10 11v6" />
+                                                    <path d="M14 11v6" />
+                                                </svg>
+                                            </Button>
+                                        </div>
+                                    </Card>
                                 }
+                                .into_any()
                             })
+                            .chain(std::iter::once(placeholder))
                             .collect_view()
                     }}
                 </div>
@@ -1414,6 +1514,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         delete_error.set(None);
         delete_open.set(true);
     };
+
+    // Expose DB actions to pages (e.g. Home database cards).
+    provide_context(DbUiActions {
+        open_create: Callback::new(move |_| open_create_dialog()),
+        open_rename: Callback::new(move |(id, name)| on_open_rename_db(id, name)),
+        open_delete: Callback::new(move |(id, name)| on_open_delete_db(id, name)),
+    });
 
     let on_submit_delete_db = move |_: web_sys::MouseEvent| {
         if delete_loading.get_untracked() {
