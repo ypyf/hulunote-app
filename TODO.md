@@ -82,7 +82,6 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 - [x] Search scope A: one search box, results page groups:
   - Databases (name matches)
   - Notes (title matches) from **current DB only**
-- [ ] UX: switching notes from the Pages list should not pollute browser history (Back should return to previous page, e.g. Home)
 
 ## Phase 6: Outline Editor (Core Feature)
 
