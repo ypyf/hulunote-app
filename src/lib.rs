@@ -2316,7 +2316,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
                             <div class="space-y-2">
                                 <div class="rounded-md border border-border bg-muted px-3 py-2 text-sm">
-                                    {delete_db_name}
+                                    {move || delete_db_name.get()}
                                 </div>
 
                                 <div class="space-y-1">
