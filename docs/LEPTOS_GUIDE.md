@@ -93,6 +93,27 @@ Notes:
 - **Inside `view!`**: prefer tracked reads via a closure (`move || signal.get()`).
 - **Inside event handlers / async tasks**: prefer **untracked** reads when you want “the current value now” without creating reactive dependencies.
 
+#### Common router pitfall: `use_location().pathname.get()` outside tracking
+
+`use_location().pathname` is a reactive memo.
+If you call `.get()` in a non-reactive context (e.g. inside `spawn_local`, callbacks, or plain component body code that is not used in `view!`/`Effect`), Leptos may warn:
+
+> you access an ArcMemo outside a reactive tracking context
+
+Fix: read the location **untracked** in those contexts.
+
+```rust
+let location = use_location();
+let pathname = move || location.pathname.get();              // tracked (for view!/Effect)
+let pathname_untracked = move || location.pathname.get_untracked(); // untracked (for handlers/async)
+
+spawn_local(async move {
+    if pathname_untracked().starts_with("/db/") {
+        // ...
+    }
+});
+```
+
 ---
 
 ## 4) Event Handlers

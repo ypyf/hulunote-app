@@ -1327,6 +1327,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let navigate = StoredValue::new(use_navigate());
     let location = use_location();
     let pathname = move || location.pathname.get();
+    let pathname_untracked = move || location.pathname.get_untracked();
 
     let sidebar_show_databases = move || {
         let p = pathname();
@@ -1465,7 +1466,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                     delete_open.set(false);
 
                     // If we are currently inside this DB, go Home.
-                    if pathname().starts_with(&format!("/db/{id}")) {
+                    if pathname_untracked().starts_with(&format!("/db/{id}")) {
                         navigate.with_value(|nav| nav("/", Default::default()));
                     }
 
