@@ -774,6 +774,10 @@ const USER_KEY: &str = "hulunote_user";
 const SIDEBAR_COLLAPSED_KEY: &str = "hulunote_sidebar_collapsed";
 const CURRENT_DB_KEY: &str = "hulunote_current_database_id";
 
+// Phase 5.5: local recents
+const RECENT_DBS_KEY: &str = "hulunote_recent_dbs";
+const RECENT_NOTES_KEY: &str = "hulunote_recent_notes";
+
 fn save_user_to_storage(user: &AccountInfo) {
     if let Ok(json) = serde_json::to_string(user) {
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
@@ -789,6 +793,97 @@ fn load_user_from_storage() -> Option<AccountInfo> {
         }
     }
     None
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecentDb {
+    pub id: String,
+    pub name: String,
+    pub last_opened_ms: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecentNote {
+    pub db_id: String,
+    pub note_id: String,
+    pub title: String,
+    pub last_opened_ms: i64,
+}
+
+fn now_ms() -> i64 {
+    js_sys::Date::now().round() as i64
+}
+
+fn load_json_from_storage<T: for<'de> Deserialize<'de>>(key: &str) -> Option<T> {
+    let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten())?;
+    let json = storage.get_item(key).ok().flatten()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn save_json_to_storage<T: Serialize>(key: &str, value: &T) {
+    if let Ok(json) = serde_json::to_string(value) {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item(key, &json);
+        }
+    }
+}
+
+fn upsert_lru_by_key<T: Clone>(
+    mut items: Vec<T>,
+    item: T,
+    same_key: impl Fn(&T, &T) -> bool,
+    max: usize,
+) -> Vec<T> {
+    items.retain(|x| !same_key(x, &item));
+    items.insert(0, item);
+    if items.len() > max {
+        items.truncate(max);
+    }
+    items
+}
+
+fn load_recent_dbs() -> Vec<RecentDb> {
+    load_json_from_storage::<Vec<RecentDb>>(RECENT_DBS_KEY).unwrap_or_default()
+}
+
+fn load_recent_notes() -> Vec<RecentNote> {
+    load_json_from_storage::<Vec<RecentNote>>(RECENT_NOTES_KEY).unwrap_or_default()
+}
+
+fn write_recent_db(id: &str, name: &str) {
+    if id.trim().is_empty() {
+        return;
+    }
+
+    let item = RecentDb {
+        id: id.to_string(),
+        name: name.to_string(),
+        last_opened_ms: now_ms(),
+    };
+
+    let next = upsert_lru_by_key(load_recent_dbs(), item, |a, b| a.id == b.id, 10);
+    save_json_to_storage(RECENT_DBS_KEY, &next);
+}
+
+fn write_recent_note(db_id: &str, note_id: &str, title: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return;
+    }
+
+    let item = RecentNote {
+        db_id: db_id.to_string(),
+        note_id: note_id.to_string(),
+        title: title.to_string(),
+        last_opened_ms: now_ms(),
+    };
+
+    let next = upsert_lru_by_key(
+        load_recent_notes(),
+        item,
+        |a, b| a.db_id == b.db_id && a.note_id == b.note_id,
+        20,
+    );
+    save_json_to_storage(RECENT_NOTES_KEY, &next);
 }
 
 impl AppState {
@@ -1140,22 +1235,86 @@ pub fn RegistrationPage() -> impl IntoView {
 
 #[component]
 pub fn HomeRecentsPage() -> impl IntoView {
+    let recent_dbs = move || load_recent_dbs();
+    let recent_notes = move || load_recent_notes();
+
     view! {
-        <div class="space-y-3">
+        <div class="space-y-4">
             <div class="space-y-1">
                 <h1 class="text-xl font-semibold">"Home"</h1>
-                <p class="text-xs text-muted-foreground">
-                    "Recents (localStorage-based) will be implemented in Phase 5.5."
-                </p>
+                <p class="text-xs text-muted-foreground">"Recent databases and notes (local)."</p>
             </div>
 
-            <Card>
-                <CardContent>
-                    <div class="text-sm text-muted-foreground">
-                        "This page will show recent databases and recent notes."
-                    </div>
-                </CardContent>
-            </Card>
+            <div class="grid gap-4 md:grid-cols-2">
+                <Card>
+                    <CardHeader class="p-3">
+                        <CardTitle class="text-sm">"Recent Databases"</CardTitle>
+                    </CardHeader>
+                    <CardContent class="p-3 pt-0">
+                        <Show
+                            when=move || !recent_dbs().is_empty()
+                            fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent databases."</div> }
+                        >
+                            <div class="space-y-1">
+                                {move || {
+                                    recent_dbs()
+                                        .into_iter()
+                                        .map(|db| {
+                                            let id = db.id.clone();
+                                            let id_href = id.clone();
+                                            let name = db.name.clone();
+                                            view! {
+                                                <a
+                                                    href=format!("/db/{}", id_href)
+                                                    class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                >
+                                                    <div class="truncate text-sm font-medium">{name}</div>
+                                                    <div class="truncate text-xs text-muted-foreground">{id}</div>
+                                                </a>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </div>
+                        </Show>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader class="p-3">
+                        <CardTitle class="text-sm">"Recent Notes"</CardTitle>
+                    </CardHeader>
+                    <CardContent class="p-3 pt-0">
+                        <Show
+                            when=move || !recent_notes().is_empty()
+                            fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
+                        >
+                            <div class="space-y-1">
+                                {move || {
+                                    recent_notes()
+                                        .into_iter()
+                                        .map(|n| {
+                                            let db_id = n.db_id.clone();
+                                            let db_id_href = db_id.clone();
+                                            let note_id = n.note_id.clone();
+                                            let title = n.title.clone();
+                                            view! {
+                                                <a
+                                                    href=format!("/db/{}/note/{}", db_id_href, note_id)
+                                                    class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                >
+                                                    <div class="truncate text-sm font-medium">{title}</div>
+                                                    <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_id)}</div>
+                                                </a>
+                                            }
+                                        })
+                                        .collect_view()
+                                }}
+                            </div>
+                        </Show>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     }
 }
@@ -1773,18 +1932,32 @@ pub fn NotePage() -> impl IntoView {
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    // Keep local edit state in sync with loaded notes.
+    // Keep local edit state in sync with loaded notes + write recent note.
     Effect::new(move |_| {
         let id = note_id();
-        if id.trim().is_empty() {
+        let db = db_id();
+        if id.trim().is_empty() || db.trim().is_empty() {
             return;
         }
 
         if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
             // Only overwrite local input when it's empty (avoid clobbering user typing).
             if title_value.get().trim().is_empty() {
-                title_value.set(n.title);
+                title_value.set(n.title.clone());
             }
+
+            // Phase 5.5: recent notes (local)
+            write_recent_note(&db, &id, &n.title);
+        } else {
+            // Fallback: at least record ids.
+            write_recent_note(&db, &id, &id);
+        }
+
+        // Keep recent DB fresh too.
+        if let Some(d) = app_state.0.databases.get().into_iter().find(|d| d.id == db) {
+            write_recent_db(&d.id, &d.name);
+        } else {
+            write_recent_db(&db, &db);
         }
     });
 
@@ -1976,12 +2149,24 @@ pub fn DbHomePage() -> impl IntoView {
         });
     });
 
-    // Keep global selection in sync with URL.
+    // Keep global selection in sync with URL + write recent DB.
     Effect::new(move |_| {
         let id = db_id();
-        if !id.trim().is_empty() && app_state.0.current_database_id.get() != Some(id.clone()) {
+        if id.trim().is_empty() {
+            return;
+        }
+
+        if app_state.0.current_database_id.get() != Some(id.clone()) {
             app_state.0.current_database_id.set(Some(id.clone()));
             persist_current_db(&id);
+        }
+
+        // Phase 5.5: recent databases (local)
+        if let Some(d) = app_state.0.databases.get().into_iter().find(|d| d.id == id) {
+            write_recent_db(&d.id, &d.name);
+        } else {
+            // Fallback: keep at least the id.
+            write_recent_db(&id, &id);
         }
     });
 
