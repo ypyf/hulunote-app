@@ -1233,43 +1233,37 @@ pub fn RegistrationPage() -> impl IntoView {
 
 #[component]
 pub fn HomeRecentsPage() -> impl IntoView {
-    let recent_notes = move || load_recent_notes();
+    let app_state = expect_context::<AppContext>();
 
     view! {
         <div class="space-y-3">
             <div class="space-y-1">
-                <h1 class="text-xl font-semibold">"Recent Notes"</h1>
+                <h1 class="text-xl font-semibold">"Databases"</h1>
             </div>
 
             <Show
-                when=move || !recent_notes().is_empty()
-                fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
+                when=move || !app_state.0.databases.get().is_empty()
+                fallback=|| view! { <div class="text-sm text-muted-foreground">"No databases."</div> }
             >
-                <div class="space-y-1">
+                <div class="grid gap-3 sm:grid-cols-2">
                     {move || {
-                        let dbs = expect_context::<AppContext>().0.databases.get();
-
-                        recent_notes()
+                        app_state
+                            .0
+                            .databases
+                            .get()
                             .into_iter()
-                            .map(|n| {
-                                let db_id = n.db_id.clone();
-                                let db_id_href = db_id.clone();
-                                let note_id = n.note_id.clone();
-                                let title = n.title.clone();
-
-                                let db_name = dbs
-                                    .iter()
-                                    .find(|d| d.id == db_id)
-                                    .map(|d| d.name.clone())
-                                    .unwrap_or_else(|| db_id.clone());
-
+                            .map(|db| {
+                                let id = db.id.clone();
                                 view! {
-                                    <a
-                                        href=format!("/db/{}/note/{}", db_id_href, note_id)
-                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
-                                    >
-                                        <div class="truncate text-sm font-medium">{title}</div>
-                                        <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_name)}</div>
+                                    <a href=format!("/db/{}", id) class="block">
+                                        <Card class="transition-colors hover:bg-surface-hover">
+                                            <CardHeader class="p-3">
+                                                <CardTitle class="truncate text-sm">{db.name}</CardTitle>
+                                                <CardDescription class="truncate text-xs">
+                                                    {db.description}
+                                                </CardDescription>
+                                            </CardHeader>
+                                        </Card>
                                     </a>
                                 }
                             })
@@ -1322,10 +1316,11 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
     let sidebar_show_databases = move || {
         let p = pathname();
-        // Home should expose DB entry; inside a DB we only show Pages.
-        // Also hide on the dedicated management page to avoid duplication.
-        !p.starts_with("/db/")
+        // On Home, databases are shown in the main area (cards). In a DB, hide databases.
+        !p.starts_with("/db/") && p != "/"
     };
+
+    let sidebar_show_recent_notes = move || pathname() == "/";
 
     let sidebar_show_pages = move || {
         let p = pathname();
@@ -1733,6 +1728,51 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
+                            <Show when=move || sidebar_show_recent_notes() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardHeader class="p-3">
+                                        <CardTitle class="text-sm">"Recent Notes"</CardTitle>
+                                    </CardHeader>
+                                    <CardContent class="p-3 pt-0">
+                                        <Show
+                                            when=move || !load_recent_notes().is_empty()
+                                            fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
+                                        >
+                                            <div class="space-y-1">
+                                                {move || {
+                                                    let dbs = expect_context::<AppContext>().0.databases.get();
+                                                    load_recent_notes()
+                                                        .into_iter()
+                                                        .map(|n| {
+                                                            let db_id = n.db_id.clone();
+                                                            let db_id_href = db_id.clone();
+                                                            let note_id = n.note_id.clone();
+                                                            let title = n.title.clone();
+
+                                                            let db_name = dbs
+                                                                .iter()
+                                                                .find(|d| d.id == db_id)
+                                                                .map(|d| d.name.clone())
+                                                                .unwrap_or_else(|| db_id.clone());
+
+                                                            view! {
+                                                                <a
+                                                                    href=format!("/db/{}/note/{}", db_id_href, note_id)
+                                                                    class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                                >
+                                                                    <div class="truncate text-sm font-medium">{title}</div>
+                                                                    <div class="truncate text-xs text-muted-foreground">{db_name}</div>
+                                                                </a>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
+                                            </div>
+                                        </Show>
+                                    </CardContent>
+                                </Card>
+                            </Show>
+
                             <Show when=move || sidebar_show_databases() fallback=|| ().into_view()>
                                 <Card>
                                     <CardHeader class="flex flex-row items-center justify-end p-3">
@@ -1791,12 +1831,11 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                 ButtonVariant::Ghost
                                                             };
 
+                                                            let id_href = db.id.clone();
+                                                            let name_label = db.name.clone();
+                                                            let name_for_rename = db.name.clone();
+                                                            let name_for_delete = db.name.clone();
                                                             let id = db.id.clone();
-                                                            let id_href = id.clone();
-                                                            let name = db.name.clone();
-                                                            let name_label = name.clone();
-                                                            let name_for_rename = name.clone();
-                                                            let name_for_delete = name.clone();
 
                                                             view! {
                                                                 <div class="group flex min-w-0 items-center gap-2">
