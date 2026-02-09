@@ -62,7 +62,7 @@ assert_eq!(count.get(), 1);
 
 In Leptos 0.8, **do not render a signal handle directly** inside `view!`.
 
-Bad (often shows up as CI-only failure when building `wasm32-unknown-unknown`):
+Bad (this is incorrect in general; it may *surface* as a CI-only failure if CI runs `trunk build` but you only ran `cargo test` locally):
 
 ```rust
 let name: RwSignal<String> = RwSignal::new("abc".to_string());
@@ -204,13 +204,17 @@ Always match the `web-sys` feature to the type you use:
 
 ### 6.3 CI-only failure checklist
 
-If CI fails but your local `cargo test` passes, confirm you are building the same target:
+If CI fails but your local `cargo test` passes, confirm you are building the same **kind of artifact**.
+
+- `cargo test` builds/tests the **host** target (e.g. `aarch64-apple-darwin` on macOS) and may not exercise the exact same code paths/macros as a WASM build.
+- `trunk build` builds `wasm32-unknown-unknown`.
 
 ```bash
 trunk build  # builds wasm32-unknown-unknown
 ```
 
-A very common CI-only symptom is rendering a signal handle directly (`{some_rw_signal}`) instead of rendering its value via a closure (`{move || some_rw_signal.get()}`).
+A common failure that shows up “only in CI” is actually just “not compiled locally yet”:
+rendering a signal handle directly (`{some_rw_signal}`) instead of rendering its value via a closure (`{move || some_rw_signal.get()}`).
 
 ---
 
