@@ -3092,17 +3092,8 @@ pub fn OutlineNode(
 
                                                         let root = "00000000-0000-0000-0000-000000000000";
 
-                                                        // A) Prefer going to parent (if not root)
-                                                        if me.parid != root {
-                                                            if let Some(parent) = all.iter().find(|n| n.id == me.parid) {
-                                                                editing_id.set(Some(parent.id.clone()));
-                                                                editing_value.set(parent.content.clone());
-                                                                target_cursor_col.set(Some(parent.content.encode_utf16().count() as u32));
-                                                                return;
-                                                            }
-                                                        }
-
-                                                        // B) Otherwise go to previous sibling, and descend to its last visible descendant.
+                                                        // Prefer previous sibling when it exists.
+                                                        // If there is no previous sibling (i.e. first child), go to parent.
                                                         let parid = me.parid.clone();
                                                         let mut sibs = all
                                                             .iter()
@@ -3120,9 +3111,18 @@ pub fn OutlineNode(
                                                             .find(|s| s.same_deep_order < me.same_deep_order)
                                                             .cloned();
 
-                                                        let Some(prev) = prev else {
+                                                        if prev.is_none() {
+                                                            if me.parid != root {
+                                                                if let Some(parent) = all.iter().find(|n| n.id == me.parid) {
+                                                                    editing_id.set(Some(parent.id.clone()));
+                                                                    editing_value.set(parent.content.clone());
+                                                                    target_cursor_col.set(Some(parent.content.encode_utf16().count() as u32));
+                                                                }
+                                                            }
                                                             return;
-                                                        };
+                                                        }
+
+                                                        let prev = prev.unwrap();
 
                                                         // Descend to last visible node in prev's subtree.
                                                         fn last_visible_descendant(all: &[Nav], start: &Nav) -> Nav {
