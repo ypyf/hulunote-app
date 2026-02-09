@@ -2438,6 +2438,64 @@ pub fn NotePage() -> impl IntoView {
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Ensure notes for this DB are loaded when deep-linking directly into a note page.
+    // This prevents recent-note title from falling back to note_id.
+    Effect::new(move |_| {
+        let db = db_id();
+        let id = note_id();
+        if db.trim().is_empty() || id.trim().is_empty() {
+            return;
+        }
+
+        let already_loaded_db =
+            app_state.0.notes_last_loaded_db_id.get().as_deref() == Some(db.as_str());
+        let has_note = app_state.0.notes.get().into_iter().any(|n| n.id == id);
+        let is_loading = app_state.0.notes_loading.get();
+
+        if (!already_loaded_db || !has_note) && !is_loading {
+            // Kick off a load with stale-response protection.
+            app_state.0.notes_last_loaded_db_id.set(Some(db.clone()));
+
+            let req_id = app_state
+                .0
+                .notes_request_id
+                .get_untracked()
+                .saturating_add(1);
+            app_state.0.notes_request_id.set(req_id);
+
+            app_state.0.notes_loading.set(true);
+            app_state.0.notes_error.set(None);
+
+            let api_client = app_state.0.api_client.get_untracked();
+            spawn_local(async move {
+                let result = api_client.get_all_note_list(&db).await;
+
+                // Ignore stale responses.
+                if app_state.0.notes_request_id.get_untracked() != req_id {
+                    return;
+                }
+
+                match result {
+                    Ok(notes) => {
+                        app_state.0.notes.set(notes);
+                    }
+                    Err(e) => {
+                        if e == "Unauthorized" {
+                            let mut c = app_state.0.api_client.get_untracked();
+                            c.logout();
+                            app_state.0.api_client.set(c);
+                            app_state.0.current_user.set(None);
+                            let _ = window().location().set_href("/login");
+                        } else {
+                            app_state.0.notes_error.set(Some(e));
+                        }
+                    }
+                }
+                app_state.0.notes_loading.set(false);
+            });
+        }
+    });
+
     // Keep local edit state in sync with loaded notes + write recent note.
     Effect::new(move |_| {
         let id = note_id();
