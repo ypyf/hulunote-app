@@ -69,20 +69,18 @@ Goal: Make post-login UX match product intent: Home shows recents and database m
 
 - [x] Routing skeleton:
   - `/` → Home (Recents)
-  - `/databases` → All Databases (full CRUD)
-  - `/db/:db_id` → Notes home
+  - `/db/:db_id` → Notes home (auto-opens first note)
   - `/db/:db_id/note/:note_id` → Note page
   - `/search?q=...` → Search page
-- [x] Top nav: add **All databases** button on `/db/*` pages (includes note pages); remove Rename/Delete from DB top bar
-- [x] Home (Recents): localStorage-based recent databases + recent notes (no backend API)
+- [x] Top nav: show navigation button on `/db/*` pages; remove Rename/Delete from DB top bar
+- [x] Home (Recents): localStorage-based recent notes (no backend API)
 - [x] Sidebar modes:
-  - On `/` and `/databases`: do NOT show database list in sidebar
-  - On `/db/*`: show Search + Pages (notes tree/list) + Settings/Account
+  - On `/`: show Databases + Search + Settings/Account
+  - On `/db/*`: show Search + Pages (notes list) + Settings/Account (hide Databases)
 - [x] Search scope A: one search box, results page groups:
   - Databases (name matches)
   - Notes (title matches) from **current DB only**
-- [~] Database row actions on `/databases`: implemented as hover actions (Rename/Delete/Open).
-  - TODO (optional): replace with `…` icon + dropdown menu; add toast/alerts polish.
+- [ ] Database rename/delete: deferred (no dedicated databases management page).
 
 ## Phase 6: Outline Editor (Core Feature)
 
