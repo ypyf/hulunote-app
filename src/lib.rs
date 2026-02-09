@@ -1262,7 +1262,7 @@ pub fn HomeRecentsPage() -> impl IntoView {
 
                         let placeholder = view! {
                             <Card
-                                class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover"
+                                class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
                                 on:click=move |_| actions.open_create.run(())
                             >
                                 <div class="flex flex-col items-center gap-2 p-6">
@@ -1289,7 +1289,7 @@ pub fn HomeRecentsPage() -> impl IntoView {
 
                                 view! {
                                     <Card
-                                        class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover"
+                                        class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
                                         on:click=move |_| {
                                             navigate.with_value(|nav| {
                                                 nav(&format!("/db/{}", id_for_nav), Default::default());
