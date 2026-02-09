@@ -1965,21 +1965,67 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                 </aside>
 
                 <main class="min-w-0 flex-1">
-                    <div class="mb-4 flex items-center justify-between">
-                        <div class="space-y-0.5">
-                            <div class="text-sm font-medium">
-                                {move || {
-                                    if pathname().starts_with("/db/") {
-                                        current_db_name()
-                                            .map(|n| n.to_string())
-                                            .unwrap_or_else(|| "Hulunote".to_string())
-                                    } else {
-                                        "Hulunote".to_string()
+                    <div class="mb-4 flex items-center justify-between gap-3">
+                        <nav class="min-w-0" aria-label="Breadcrumb">
+                            {move || {
+                                use leptos::prelude::IntoAny;
+
+                                let p = pathname();
+
+                                // Home
+                                if p == "/" {
+                                    return view! { <div class="truncate text-sm font-medium">"Home"</div> }
+                                        .into_any();
+                                }
+
+                                // DB / Note
+                                if p.starts_with("/db/") {
+                                    let db_name = current_db_name()
+                                        .unwrap_or_else(|| "Database".to_string());
+
+                                    // If note route, show database > note
+                                    if let Some(rest) = p.strip_prefix("/db/") {
+                                        if let Some((db_id, tail)) = rest.split_once('/') {
+                                            if let Some(note_rest) = tail.strip_prefix("note/") {
+                                                let note_id = note_rest.split('/').next().unwrap_or("");
+
+                                                let note_title = app_state
+                                                    .0
+                                                    .notes
+                                                    .get()
+                                                    .into_iter()
+                                                    .find(|n| n.id == note_id)
+                                                    .map(|n| n.title)
+                                                    .unwrap_or_else(|| note_id.to_string());
+
+                                                return view! {
+                                                    <div class="flex min-w-0 items-center gap-2 text-sm">
+                                                        <a
+                                                            href=format!("/db/{}", db_id)
+                                                            class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                        >
+                                                            {db_name}
+                                                        </a>
+                                                        <span class="text-muted-foreground">">"</span>
+                                                        <div class="min-w-0 truncate font-medium">{note_title}</div>
+                                                    </div>
+                                                }
+                                                .into_any();
+                                            }
+                                        }
                                     }
-                                }}
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
+
+                                    // DB home
+                                    return view! { <div class="truncate text-sm font-medium">{db_name}</div> }
+                                        .into_any();
+                                }
+
+                                // Fallback
+                                view! { <div class="truncate text-sm font-medium">"Hulunote"</div> }.into_any()
+                            }}
+                        </nav>
+
+                        <div class="flex shrink-0 items-center gap-2">
                             <Show
                                 // Show this only on the database home (/db/:db_id), not on note pages.
                                 when=move || {
