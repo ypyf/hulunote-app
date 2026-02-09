@@ -3010,6 +3010,13 @@ pub fn OutlineNode(
                                                     })
                                                     .unwrap_or_default();
 
+                                                // If the input is already being torn down (e.g. Enter triggers a state
+                                                // change and the blur fires late), we may not be able to recover ids.
+                                                // In that case, don't send an invalid request.
+                                                if nav_id_now.trim().is_empty() || note_id_now.trim().is_empty() {
+                                                    return;
+                                                }
+
                                                 // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
                                                     editing_id.set(None);
