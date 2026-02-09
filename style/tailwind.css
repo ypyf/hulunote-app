@@ -76,13 +76,7 @@ body {
   background-color: var(--accent-soft);
 }
 
-/* No hover highlight while editing (global: any node is being edited) */
-.outline-editor--editing .outline-row:hover {
-  transition-delay: 0ms;
-  background-color: transparent;
-}
-
-/* Also keep row-local guard (in case outline rows are reused elsewhere) */
+/* No hover highlight on the row that is currently being edited */
 .outline-row--editing:hover {
   transition-delay: 0ms;
   background-color: transparent;
