@@ -1962,11 +1962,14 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         }
     });
 
-    // If there is no selection yet, pick a default once databases arrive.
+    // If there is no selection yet, we only pick a default when the user is inside a DB route.
+    // On Home, we intentionally do NOT highlight any database.
     Effect::new(move |_| {
         let selected = current_db_id.get();
         let dbs = databases.get();
-        if selected.is_none() {
+        let p = pathname();
+
+        if selected.is_none() && p.starts_with("/db/") {
             if let Some(first) = dbs.first() {
                 set_current_db(Some(first.id.clone()));
             }
@@ -2165,12 +2168,14 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                             >
                                                 {move || {
                                                     let selected = current_db_id.get();
+                                                    let allow_highlight = pathname().starts_with("/db/");
+
                                                     databases
                                                         .get()
                                                         .into_iter()
                                                         .map(|db| {
-                                                            let is_selected =
-                                                                selected.as_deref() == Some(db.id.as_str());
+                                                            let is_selected = allow_highlight
+                                                                && selected.as_deref() == Some(db.id.as_str());
                                                             let variant = if is_selected {
                                                                 ButtonVariant::Accent
                                                             } else {
@@ -2183,7 +2188,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                     variant=variant
                                                                     size=ButtonSize::Sm
                                                                     class="w-full justify-start"
-                                                                    attr:aria-current=move || if is_selected { Some("page") } else { None }
+                                                                    attr:aria-current=move || {
+                                                                        if is_selected { Some("page") } else { None }
+                                                                    }
                                                                     href=format!("/db/{}", id)
                                                                 >
                                                                     {db.name}
@@ -2277,9 +2284,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         <div class="space-y-0.5">
                             <div class="text-sm font-medium">
                                 {move || {
-                                    current_db_name()
-                                        .map(|n| n.to_string())
-                                        .unwrap_or_else(|| "Hulunote".to_string())
+                                    if pathname().starts_with("/db/") {
+                                        current_db_name()
+                                            .map(|n| n.to_string())
+                                            .unwrap_or_else(|| "Hulunote".to_string())
+                                    } else {
+                                        "Hulunote".to_string()
+                                    }
                                 }}
                             </div>
                         </div>
