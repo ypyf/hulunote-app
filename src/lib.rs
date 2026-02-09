@@ -2657,6 +2657,8 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
     // Editing state
     let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
     let editing_value: RwSignal<String> = RwSignal::new(String::new());
+    let target_cursor_col: RwSignal<Option<u32>> = RwSignal::new(None);
+    let editing_ref: NodeRef<html::Input> = NodeRef::new();
 
     // Load navs when note_id changes.
     let note_id_for_effect = note_id.clone();
@@ -2678,6 +2680,35 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
             }
             loading.set(false);
         });
+    });
+
+    // Focus the inline editor when editing_id changes.
+    Effect::new(move |_| {
+        let id = editing_id.get();
+        if id.is_none() {
+            return;
+        }
+
+        let col = target_cursor_col.get_untracked();
+        let el = editing_ref.get();
+        if let Some(el) = el {
+            // Focus on next tick so the node is mounted.
+            let _ = web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    wasm_bindgen::closure::Closure::once_into_js(move || {
+                        let _ = el.focus();
+                        if let Some(col) = col {
+                            let len = el.value().len() as u32;
+                            let pos = col.min(len);
+                            let _ = el.set_selection_range(pos, pos);
+                        }
+                    })
+                    .as_ref()
+                    .unchecked_ref(),
+                    0,
+                );
+        }
     });
 
     view! {
@@ -2726,6 +2757,8 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                                             note_id=nid.clone()
                                             editing_id=editing_id
                                             editing_value=editing_value
+                                            target_cursor_col=target_cursor_col
+                                            editing_ref=editing_ref
                                         />
                                     })
                                     .collect_view()}
@@ -2747,6 +2780,8 @@ pub fn OutlineNode(
     note_id: String,
     editing_id: RwSignal<Option<String>>,
     editing_value: RwSignal<String>,
+    target_cursor_col: RwSignal<Option<u32>>,
+    editing_ref: NodeRef<html::Input>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
 
@@ -2831,6 +2866,8 @@ pub fn OutlineNode(
                                 note_id=note_id.clone()
                                 editing_id=editing_id
                                 editing_value=editing_value
+                                target_cursor_col=target_cursor_col
+                                editing_ref=editing_ref
                             />
                         })
                         .collect_view()
@@ -2878,6 +2915,7 @@ pub fn OutlineNode(
 
                                     view! {
                                         <Input
+                                            node_ref=editing_ref
                                             bind_value=editing_value
                                             class="h-7"
                                             on:blur=move |_| {
@@ -2909,6 +2947,97 @@ pub fn OutlineNode(
                                             }
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
+
+                                                // Arrow navigation (Roam-style)
+                                                if key == "ArrowUp" || key == "ArrowDown" {
+                                                    ev.prevent_default();
+
+                                                    let input = ev
+                                                        .target()
+                                                        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok());
+                                                    let cursor_col = input
+                                                        .as_ref()
+                                                        .and_then(|i| i.selection_start().ok().flatten())
+                                                        .unwrap_or(0);
+                                                    target_cursor_col.set(Some(cursor_col));
+
+                                                    // Persist current content locally + fire-and-forget save.
+                                                    let current_content = editing_value.get_untracked();
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+
+                                                    navs.update(|xs| {
+                                                        if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                            x.content = current_content.clone();
+                                                        }
+                                                    });
+
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    let save_req = CreateOrUpdateNavRequest {
+                                                        note_id: note_id_now.clone(),
+                                                        id: Some(nav_id_now.clone()),
+                                                        parid: None,
+                                                        content: Some(current_content),
+                                                        order: None,
+                                                        is_display: None,
+                                                        is_delete: None,
+                                                        properties: None,
+                                                    };
+                                                    spawn_local(async move {
+                                                        let _ = api_client.upsert_nav(save_req).await;
+                                                    });
+
+                                                    // Build visible order (preorder, respecting is-display).
+                                                    let all = navs.get_untracked();
+                                                    let root = "00000000-0000-0000-0000-000000000000";
+
+                                                    fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
+                                                        let mut out = all
+                                                            .iter()
+                                                            .filter(|n| n.parid == parid)
+                                                            .cloned()
+                                                            .collect::<Vec<_>>();
+                                                        out.sort_by(|a, b| a
+                                                            .same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal));
+                                                        out
+                                                    }
+
+                                                    fn collect_visible(all: &[Nav], parid: &str, out: &mut Vec<String>) {
+                                                        for n in children_sorted(all, parid) {
+                                                            out.push(n.id.clone());
+                                                            if n.is_display {
+                                                                collect_visible(all, &n.id, out);
+                                                            }
+                                                        }
+                                                    }
+
+                                                    let mut visible: Vec<String> = vec![];
+                                                    collect_visible(&all, root, &mut visible);
+
+                                                    let idx = visible.iter().position(|id| id == &nav_id_now);
+                                                    if idx.is_none() {
+                                                        return;
+                                                    }
+                                                    let idx = idx.unwrap();
+
+                                                    let next_id = if key == "ArrowUp" {
+                                                        if idx == 0 { None } else { Some(visible[idx - 1].clone()) }
+                                                    } else {
+                                                        if idx + 1 >= visible.len() { None } else { Some(visible[idx + 1].clone()) }
+                                                    };
+
+                                                    if let Some(next_id) = next_id {
+                                                        // Switch editing target.
+                                                        if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
+                                                            editing_id.set(Some(next_id));
+                                                            editing_value.set(next_nav.content.clone());
+                                                        }
+                                                    }
+
+                                                    return;
+                                                }
 
                                                 // Tab / Shift+Tab: indent / outdent
                                                 if key == "Tab" {
