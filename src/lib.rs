@@ -2879,11 +2879,9 @@ pub fn OutlineNode(
 
                 let is_editing_now = editing_id.get_untracked().as_deref() == Some(nav_id.as_str());
                 let row_class = if is_editing_now {
-                    // Active: use surface-active token (stronger than muted alpha over muted background).
-                    "group flex items-start gap-2 rounded-md bg-surface-active px-1 py-1 min-h-[24px] ring-1 ring-border/60 transition-colors"
+                    "group flex items-start gap-2 rounded-md bg-muted/60 px-1 py-1 min-h-[24px]"
                 } else {
-                    // Hover: use surface-hover token (visible against bg-card/muted).
-                    "group flex items-start gap-2 rounded-md px-1 py-1 min-h-[24px] hover:bg-surface-hover ring-1 ring-transparent transition-colors"
+                    "group flex items-start gap-2 rounded-md px-1 py-1 min-h-[24px] hover:bg-muted/40"
                 };
 
                 view! {
