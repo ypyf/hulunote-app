@@ -665,6 +665,31 @@ impl ApiClient {
         }
     }
 
+    pub async fn update_note_title(&self, note_id: &str, title: &str) -> Result<(), String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/update-hulunote-note", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        // Deployed backends vary (snake_case vs kebab-case).
+        let payload = serde_json::json!({
+            "note_id": note_id,
+            "note-id": note_id,
+            "title": title,
+        });
+
+        let res = req.json(&payload).send().await.map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            Ok(())
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Update note failed ({status}): {body}"))
+        }
+    }
+
     pub async fn signup(
         &self,
         email: &str,
@@ -1724,6 +1749,7 @@ pub struct NoteRouteParams {
 
 #[component]
 pub fn NotePage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<NoteRouteParams>();
 
     // Use closures so params access happens inside a reactive tracking context.
@@ -1737,17 +1763,106 @@ pub fn NotePage() -> impl IntoView {
             .unwrap_or_default()
     };
 
+    let title_value: RwSignal<String> = RwSignal::new(String::new());
+    let saving: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Keep local edit state in sync with loaded notes.
+    Effect::new(move |_| {
+        let id = note_id();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
+            // Only overwrite local input when it's empty (avoid clobbering user typing).
+            if title_value.get().trim().is_empty() {
+                title_value.set(n.title);
+            }
+        }
+    });
+
+    let save_title = move |_| {
+        if saving.get_untracked() {
+            return;
+        }
+        let id = note_id();
+        let db = db_id();
+        let new_title = title_value.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if new_title.trim().is_empty() {
+            error.set(Some("Title cannot be empty".to_string()));
+            return;
+        }
+
+        saving.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.update_note_title(&id, &new_title).await {
+                Ok(_) => {
+                    // Refresh notes list.
+                    let c = app_state.0.api_client.get_untracked();
+                    match c.get_all_note_list(&db).await {
+                        Ok(notes) => app_state.0.notes.set(notes),
+                        Err(_) => {}
+                    }
+                    app_state.0.api_client.set(c);
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            saving.set(false);
+        });
+    };
+
+    let current_note = move || {
+        let id = note_id();
+        app_state.0.notes.get().into_iter().find(|n| n.id == id)
+    };
+
     view! {
         <div class="space-y-3">
-            <div class="space-y-1">
-                <h1 class="text-xl font-semibold">"Note"</h1>
-                <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
-                <p class="text-xs text-muted-foreground">{move || format!("note_id: {}", note_id())}</p>
+            <div class="flex items-start justify-between gap-3">
+                <div class="space-y-1">
+                    <h1 class="text-xl font-semibold">{move || current_note().map(|n| n.title).unwrap_or_else(|| "Note".to_string())}</h1>
+                    <p class="text-xs text-muted-foreground">{move || format!("note_id: {}", note_id())}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        attr:disabled=move || saving.get()
+                        on:click=save_title
+                    >
+                        {move || if saving.get() { "Saving..." } else { "Save" }}
+                    </Button>
+                </div>
             </div>
+
             <Card>
                 <CardContent>
-                    <div class="text-sm text-muted-foreground">
-                        "Note detail/editor will be implemented next (Phase 5/6)."
+                    <div class="space-y-2">
+                        <div class="space-y-1">
+                            <Label class="text-xs">"Title"</Label>
+                            <Input bind_value=title_value class="h-8 text-sm" />
+                        </div>
+
+                        <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                            {move || error.get().map(|e| view! {
+                                <Alert class="border-destructive/30">
+                                    <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                </Alert>
+                            })}
+                        </Show>
+
+                        <div class="text-sm text-muted-foreground">
+                            "Outline editor will be implemented in Phase 6 (navs)."
+                        </div>
                     </div>
                 </CardContent>
             </Card>
