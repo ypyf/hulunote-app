@@ -2945,7 +2945,11 @@ pub fn OutlineNode(
                                         return view! {
                                             <div
                                                 class="cursor-text whitespace-pre-wrap min-h-[20px]"
-                                                on:click=move |_| {
+                                                on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                    // Use mousedown (not click) so we can switch editing *before* the
+                                                    // currently-focused input fires blur. Otherwise the blur re-render can
+                                                    // swallow the click and force a second click.
+                                                    ev.prevent_default();
                                                     let id = nav_id_sv.get_value();
                                                     editing_id.set(Some(id));
                                                     editing_value.set(content_for_click.clone());
@@ -2970,8 +2974,12 @@ pub fn OutlineNode(
                                                 let nav_id_now = nav_id_sv.get_value();
                                                 let note_id_now = note_id_sv.get_value();
 
-                                                // IMPORTANT: read StoredValue first; setting editing_id may unmount this node.
-                                                editing_id.set(None);
+                                                // Only clear editing if we are still editing this node.
+                                                // When the user clicks another node, its `on:mousedown` switches editing
+                                                // before this blur runs; clearing here would force a second click.
+                                                if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
+                                                    editing_id.set(None);
+                                                }
 
                                                 navs.update(|xs| {
                                                     if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
