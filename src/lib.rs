@@ -3068,18 +3068,142 @@ pub fn DbHomePage() -> impl IntoView {
 
 #[component]
 pub fn SearchPage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
     let query = use_query_map();
+
     let q = move || query.get().get("q").unwrap_or_default();
+    let q_lower = move || q().trim().to_lowercase();
+
+    let matched_dbs = move || {
+        let q = q_lower();
+        if q.is_empty() {
+            return vec![];
+        }
+        app_state
+            .0
+            .databases
+            .get()
+            .into_iter()
+            .filter(|d| d.name.to_lowercase().contains(&q))
+            .collect::<Vec<_>>()
+    };
+
+    let matched_notes = move || {
+        let q = q_lower();
+        if q.is_empty() {
+            return vec![];
+        }
+        let db_id = app_state.0.current_database_id.get().unwrap_or_default();
+        if db_id.trim().is_empty() {
+            return vec![];
+        }
+
+        app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .filter(|n| n.database_id == db_id)
+            .filter(|n| n.title.to_lowercase().contains(&q))
+            .collect::<Vec<_>>()
+    };
 
     view! {
-        <div class="space-y-3">
+        <div class="space-y-4">
             <div class="space-y-1">
                 <h1 class="text-xl font-semibold">"Search"</h1>
                 <p class="text-xs text-muted-foreground">{move || format!("q = {}", q())}</p>
             </div>
-            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                "Phase 3: Search UI is scaffolded. Results will be implemented in Phase 10."
-            </div>
+
+            <Show
+                when=move || !q_lower().is_empty()
+                fallback=|| view! {
+                    <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                        "Type a query in the sidebar search box and press Enter."
+                    </div>
+                }
+            >
+                <div class="space-y-4">
+                    <Card>
+                        <CardHeader class="p-3">
+                            <CardTitle class="text-sm">"Databases"</CardTitle>
+                        </CardHeader>
+                        <CardContent class="p-3 pt-0">
+                            <Show
+                                when=move || !matched_dbs().is_empty()
+                                fallback=|| view! { <div class="text-sm text-muted-foreground">"No matching databases."</div> }
+                            >
+                                <div class="space-y-1">
+                                    {move || {
+                                        matched_dbs()
+                                            .into_iter()
+                                            .map(|db| {
+                                                let id = db.id.clone();
+                                                let id_href = id.clone();
+                                                let name = db.name.clone();
+                                                view! {
+                                                    <a
+                                                        href=format!("/db/{}", id_href)
+                                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                    >
+                                                        <div class="truncate text-sm font-medium">{name}</div>
+                                                        <div class="truncate text-xs text-muted-foreground">{id}</div>
+                                                    </a>
+                                                }
+                                            })
+                                            .collect_view()
+                                    }}
+                                </div>
+                            </Show>
+                        </CardContent>
+                    </Card>
+
+                    <div class="h-px w-full bg-border" />
+
+                    <Card>
+                        <CardHeader class="p-3">
+                            <CardTitle class="text-sm">"Notes (current DB)"</CardTitle>
+                        </CardHeader>
+                        <CardContent class="p-3 pt-0">
+                            <Show
+                                when=move || !matched_notes().is_empty()
+                                fallback=move || view! {
+                                    <div class="text-sm text-muted-foreground">
+                                        {move || {
+                                            if app_state.0.current_database_id.get().is_none() {
+                                                "Select a database first."
+                                            } else {
+                                                "No matching notes in current DB."
+                                            }
+                                        }}
+                                    </div>
+                                }
+                            >
+                                <div class="space-y-1">
+                                    {move || {
+                                        let db_id = app_state.0.current_database_id.get().unwrap_or_default();
+                                        matched_notes()
+                                            .into_iter()
+                                            .map(|n| {
+                                                let id = n.id.clone();
+                                                let title = n.title.clone();
+                                                view! {
+                                                    <a
+                                                        href=format!("/db/{}/note/{}", db_id, id)
+                                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                    >
+                                                        <div class="truncate text-sm font-medium">{title}</div>
+                                                    </a>
+                                                }
+                                            })
+                                            .collect_view()
+                                    }}
+                                </div>
+                            </Show>
+                        </CardContent>
+                    </Card>
+                </div>
+            </Show>
         </div>
     }
 }
