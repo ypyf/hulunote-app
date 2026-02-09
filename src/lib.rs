@@ -2726,7 +2726,13 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                 })}
             </Show>
 
-            <div class="mt-2">
+            <div class=move || {
+                if editing_id.get().is_some() {
+                    "mt-2 outline-editor outline-editor--editing"
+                } else {
+                    "mt-2 outline-editor"
+                }
+            }>
                 {move || {
                     let all = navs.get();
                     let root = "00000000-0000-0000-0000-000000000000";
