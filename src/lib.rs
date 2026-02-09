@@ -2956,24 +2956,14 @@ pub fn OutlineNode(
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
 
-                                                // Arrow navigation (Roam-style)
-                                                if key == "ArrowUp" || key == "ArrowDown" {
-                                                    ev.prevent_default();
+                                                // Helpers for Roam-style navigation
+                                                let input = || {
+                                                    ev.target()
+                                                        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                };
 
-                                                    let input = ev
-                                                        .target()
-                                                        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok());
-                                                    let cursor_col = input
-                                                        .as_ref()
-                                                        .and_then(|i| i.selection_start().ok().flatten())
-                                                        .unwrap_or(0);
-                                                    target_cursor_col.set(Some(cursor_col));
-
-                                                    // Persist current content locally + fire-and-forget save.
+                                                let save_current = |nav_id_now: &str, note_id_now: &str| {
                                                     let current_content = editing_value.get_untracked();
-                                                    let nav_id_now = nav_id_sv.get_value();
-                                                    let note_id_now = note_id_sv.get_value();
-
                                                     navs.update(|xs| {
                                                         if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
                                                             x.content = current_content.clone();
@@ -2982,8 +2972,8 @@ pub fn OutlineNode(
 
                                                     let api_client = app_state.0.api_client.get_untracked();
                                                     let save_req = CreateOrUpdateNavRequest {
-                                                        note_id: note_id_now.clone(),
-                                                        id: Some(nav_id_now.clone()),
+                                                        note_id: note_id_now.to_string(),
+                                                        id: Some(nav_id_now.to_string()),
                                                         parid: None,
                                                         content: Some(current_content),
                                                         order: None,
@@ -2991,12 +2981,13 @@ pub fn OutlineNode(
                                                         is_delete: None,
                                                         properties: None,
                                                     };
+
                                                     spawn_local(async move {
                                                         let _ = api_client.upsert_nav(save_req).await;
                                                     });
+                                                };
 
-                                                    // Build visible order (preorder, respecting is-display).
-                                                    let all = navs.get_untracked();
+                                                fn visible_preorder(all: &[Nav]) -> Vec<String> {
                                                     let root = "00000000-0000-0000-0000-000000000000";
 
                                                     fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
@@ -3005,30 +2996,47 @@ pub fn OutlineNode(
                                                             .filter(|n| n.parid == parid)
                                                             .cloned()
                                                             .collect::<Vec<_>>();
-                                                        out.sort_by(|a, b| a
-                                                            .same_deep_order
-                                                            .partial_cmp(&b.same_deep_order)
-                                                            .unwrap_or(std::cmp::Ordering::Equal));
+                                                        out.sort_by(|a, b| {
+                                                            a.same_deep_order
+                                                                .partial_cmp(&b.same_deep_order)
+                                                                .unwrap_or(std::cmp::Ordering::Equal)
+                                                        });
                                                         out
                                                     }
 
-                                                    fn collect_visible(all: &[Nav], parid: &str, out: &mut Vec<String>) {
+                                                    fn collect(all: &[Nav], parid: &str, out: &mut Vec<String>) {
                                                         for n in children_sorted(all, parid) {
                                                             out.push(n.id.clone());
                                                             if n.is_display {
-                                                                collect_visible(all, &n.id, out);
+                                                                collect(all, &n.id, out);
                                                             }
                                                         }
                                                     }
 
-                                                    let mut visible: Vec<String> = vec![];
-                                                    collect_visible(&all, root, &mut visible);
+                                                    let mut out: Vec<String> = vec![];
+                                                    collect(all, root, &mut out);
+                                                    out
+                                                }
+
+                                                // Arrow Up/Down: move between visible nodes
+                                                if key == "ArrowUp" || key == "ArrowDown" {
+                                                    ev.prevent_default();
+
+                                                    let cursor_col = input()
+                                                        .as_ref()
+                                                        .and_then(|i| i.selection_start().ok().flatten())
+                                                        .unwrap_or(0);
+                                                    target_cursor_col.set(Some(cursor_col));
+
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+                                                    save_current(&nav_id_now, &note_id_now);
+
+                                                    let all = navs.get_untracked();
+                                                    let visible = visible_preorder(&all);
 
                                                     let idx = visible.iter().position(|id| id == &nav_id_now);
-                                                    if idx.is_none() {
-                                                        return;
-                                                    }
-                                                    let idx = idx.unwrap();
+                                                    let Some(idx) = idx else { return; };
 
                                                     let next_id = if key == "ArrowUp" {
                                                         if idx == 0 { None } else { Some(visible[idx - 1].clone()) }
@@ -3037,7 +3045,6 @@ pub fn OutlineNode(
                                                     };
 
                                                     if let Some(next_id) = next_id {
-                                                        // Switch editing target.
                                                         if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
                                                             editing_id.set(Some(next_id));
                                                             editing_value.set(next_nav.content.clone());
@@ -3045,6 +3052,66 @@ pub fn OutlineNode(
                                                     }
 
                                                     return;
+                                                }
+
+                                                // Arrow Left/Right: jump to prev/next visible node at boundaries
+                                                if key == "ArrowLeft" || key == "ArrowRight" {
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+
+                                                    let (cursor_start, cursor_end, len) = if let Some(i) = input() {
+                                                        let start = i.selection_start().ok().flatten().unwrap_or(0);
+                                                        let end = i.selection_end().ok().flatten().unwrap_or(start);
+                                                        let len = i.value().len() as u32;
+                                                        (start, end, len)
+                                                    } else {
+                                                        (0, 0, 0)
+                                                    };
+
+                                                    // Only trigger when selection is collapsed.
+                                                    if cursor_start != cursor_end {
+                                                        return;
+                                                    }
+
+                                                    if key == "ArrowLeft" && cursor_start == 0 {
+                                                        ev.prevent_default();
+                                                        target_cursor_col.set(None);
+                                                        save_current(&nav_id_now, &note_id_now);
+
+                                                        let all = navs.get_untracked();
+                                                        let visible = visible_preorder(&all);
+                                                        let idx = visible.iter().position(|id| id == &nav_id_now);
+                                                        let Some(idx) = idx else { return; };
+                                                        if idx == 0 { return; }
+
+                                                        let prev_id = visible[idx - 1].clone();
+                                                        if let Some(prev) = all.iter().find(|n| n.id == prev_id) {
+                                                            editing_id.set(Some(prev_id));
+                                                            editing_value.set(prev.content.clone());
+                                                            target_cursor_col.set(Some(prev.content.len() as u32));
+                                                        }
+                                                        return;
+                                                    }
+
+                                                    if key == "ArrowRight" && cursor_start == len {
+                                                        ev.prevent_default();
+                                                        target_cursor_col.set(None);
+                                                        save_current(&nav_id_now, &note_id_now);
+
+                                                        let all = navs.get_untracked();
+                                                        let visible = visible_preorder(&all);
+                                                        let idx = visible.iter().position(|id| id == &nav_id_now);
+                                                        let Some(idx) = idx else { return; };
+                                                        if idx + 1 >= visible.len() { return; }
+
+                                                        let next_id = visible[idx + 1].clone();
+                                                        if let Some(next) = all.iter().find(|n| n.id == next_id) {
+                                                            editing_id.set(Some(next_id));
+                                                            editing_value.set(next.content.clone());
+                                                            target_cursor_col.set(Some(0));
+                                                        }
+                                                        return;
+                                                    }
                                                 }
 
                                                 // Tab / Shift+Tab: indent / outdent
