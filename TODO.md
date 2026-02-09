@@ -59,7 +59,7 @@
 - [ ] Implement note deletion *(N/A: backend has no delete-note endpoint in protected routes)*
 - [x] Create page tree navigation (based on notes)
 - [x] Connect to `POST /hulunote/new-note`
-- [ ] Connect to `POST /hulunote/get-note-list`
+- [ ] Connect to `POST /hulunote/get-note-list` *(deferred: we are using get-all-note-list for now; implement pagination later)*
 - [x] Connect to `POST /hulunote/get-all-note-list`
 - [x] Connect to `POST /hulunote/update-hulunote-note`
 
