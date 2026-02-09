@@ -2924,7 +2924,7 @@ pub fn OutlineNode(
                                     view! {
                                         <input
                                             node_ref=editing_ref
-                                            class="h-7"
+                                            class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                                             value=move || editing_value.get()
                                             on:input=move |ev| {
                                                 editing_value.set(event_target_value(&ev));
