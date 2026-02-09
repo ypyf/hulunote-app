@@ -68,11 +68,10 @@ body {
 .outline-row {
   border-radius: var(--radius-md);
   transition: background-color 160ms ease;
-  transition-delay: 0ms;
 }
 
+/* Hover highlight: keep it immediate to avoid flicker when rows switch editing state. */
 .outline-row:hover {
-  transition-delay: 200ms;
   background-color: var(--accent-soft);
 }
 
