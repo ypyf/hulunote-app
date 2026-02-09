@@ -2745,24 +2745,32 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                         view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
                             .into_any()
                     } else {
-                        let nid = note_id();
+                        let nid_sv = StoredValue::new(note_id());
+                        let root_ids_sv = StoredValue::new(
+                            roots.into_iter().map(|n| n.id).collect::<Vec<String>>(),
+                        );
+
                         view! {
                             <div class="space-y-0.5">
-                                {roots
-                                    .into_iter()
-                                    .map(|n| view! {
-                                        <OutlineNode
-                                            nav_id=n.id
-                                            depth=0
-                                            navs=navs
-                                            note_id=nid.clone()
-                                            editing_id=editing_id
-                                            editing_value=editing_value
-                                            target_cursor_col=target_cursor_col
-                                            editing_ref=editing_ref
-                                        />
-                                    })
-                                    .collect_view()}
+                                <For
+                                    each=move || root_ids_sv.get_value()
+                                    key=|id| id.clone()
+                                    children=move |id| {
+                                        let nid = nid_sv.get_value();
+                                        view! {
+                                            <OutlineNode
+                                                nav_id=id
+                                                depth=0
+                                                navs=navs
+                                                note_id=nid
+                                                editing_id=editing_id
+                                                editing_value=editing_value
+                                                target_cursor_col=target_cursor_col
+                                                editing_ref=editing_ref
+                                            />
+                                        }
+                                    }
+                                />
                             </div>
                         }
                         .into_any()
@@ -2863,31 +2871,48 @@ pub fn OutlineNode(
                 let on_toggle_cb = on_toggle.clone();
 
                 let children_view = if n.is_display && has_kids {
-                    kids.into_iter()
-                        .map(|c| view! {
-                            <OutlineNode
-                                nav_id=c.id
-                                depth=depth+1
-                                navs=navs
-                                note_id=note_id.clone()
-                                editing_id=editing_id
-                                editing_value=editing_value
-                                target_cursor_col=target_cursor_col
-                                editing_ref=editing_ref
-                            />
-                        })
-                        .collect_view()
-                        .into_any()
+                    let kid_ids_sv = StoredValue::new(
+                        kids.into_iter().map(|c| c.id).collect::<Vec<String>>(),
+                    );
+
+                    view! {
+                        <For
+                            each=move || kid_ids_sv.get_value()
+                            key=|id| id.clone()
+                            children=move |id| {
+                                let nid = note_id_sv.get_value();
+                                view! {
+                                    <OutlineNode
+                                        nav_id=id
+                                        depth=depth + 1
+                                        navs=navs
+                                        note_id=nid
+                                        editing_id=editing_id
+                                        editing_value=editing_value
+                                        target_cursor_col=target_cursor_col
+                                        editing_ref=editing_ref
+                                    />
+                                }
+                            }
+                        />
+                    }
+                    .into_any()
                 } else {
                     ().into_view().into_any()
                 };
 
                 view! {
                     <div>
-                        <div
-                            class="outline-row flex items-center gap-2 py-1"
-                            style=move || format!("padding-left: {}px", indent_px)
-                        >
+                        <div style=move || format!("padding-left: {}px", indent_px)>
+                            <div class=move || {
+                                let id = nav_id_sv.get_value();
+                                let is_editing = editing_id.get().as_deref() == Some(id.as_str());
+                                if is_editing {
+                                    "outline-row outline-row--editing flex items-center gap-2 py-1"
+                                } else {
+                                    "outline-row flex items-center gap-2 py-1"
+                                }
+                            }>
                             <button
                                 class=bullet_class
                                 on:click=move |ev| on_toggle_cb.run(ev)
@@ -3539,6 +3564,7 @@ pub fn OutlineNode(
                                     .into_any()
                                 }}
                             </div>
+                        </div>
                         </div>
 
                         {children_view}

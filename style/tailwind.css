@@ -72,6 +72,12 @@ body {
 }
 
 .outline-row:hover {
-  transition-delay: 500ms;
-  background-color: rgb(var(--surface-hover));
+  transition-delay: 200ms;
+  background-color: var(--accent-soft);
+}
+
+/* No hover highlight while editing */
+.outline-row--editing:hover {
+  transition-delay: 0ms;
+  background-color: transparent;
 }
