@@ -2909,18 +2909,47 @@ pub fn DbHomePage() -> impl IntoView {
         });
     };
 
-    view! {
-        <div class="space-y-3">
-            <div class="flex items-start justify-between gap-3">
-                <div class="space-y-1">
-                    <h1 class="text-xl font-semibold">
-                        {move || db().map(|d| d.name).unwrap_or_else(|| "Database".to_string())}
-                    </h1>
-                    <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
-                </div>
+    let is_auto_opening_note = move || {
+        let id = db_id();
+        let p = pathname();
+        if id.trim().is_empty() {
+            return false;
+        }
+        if p != format!("/db/{}", id) {
+            return false;
+        }
 
-                <div class="flex items-center gap-2"></div>
-            </div>
+        // If notes are loading, or we already have notes for this DB, we're about to auto-navigate.
+        let has_notes = app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .any(|n| n.database_id == id);
+
+        app_state.0.notes_loading.get() || has_notes
+    };
+
+    view! {
+        <Show
+            when=move || !is_auto_opening_note()
+            fallback=move || view! {
+                <div class="flex h-[40vh] items-center justify-center">
+                    <Spinner />
+                </div>
+            }
+        >
+            <div class="space-y-3">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                        <h1 class="text-xl font-semibold">
+                            {move || db().map(|d| d.name).unwrap_or_else(|| "Database".to_string())}
+                        </h1>
+                        <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
+                    </div>
+
+                    <div class="flex items-center gap-2"></div>
+                </div>
 
             <Card>
                 <CardContent>
@@ -3146,6 +3175,7 @@ pub fn DbHomePage() -> impl IntoView {
                 </div>
             </Show>
         </div>
+        </Show>
     }
 }
 
