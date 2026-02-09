@@ -3104,6 +3104,62 @@ pub fn OutlineNode(
                                                         save_current(&nav_id_now, &note_id_now);
 
                                                         let all = navs.get_untracked();
+
+                                                        // Roam-ish behavior: if node has children and is collapsed, expand.
+                                                        // If expanded, move into first child.
+                                                        let mut children = all
+                                                            .iter()
+                                                            .filter(|n| n.parid == nav_id_now)
+                                                            .cloned()
+                                                            .collect::<Vec<_>>();
+                                                        children.sort_by(|a, b| a
+                                                            .same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                        if let Some(first_child) = children.first().cloned() {
+                                                            let is_display = all
+                                                                .iter()
+                                                                .find(|n| n.id == nav_id_now)
+                                                                .map(|n| n.is_display)
+                                                                .unwrap_or(true);
+
+                                                            if !is_display {
+                                                                // Expand current node
+                                                                navs.update(|xs| {
+                                                                    if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                                        x.is_display = true;
+                                                                    }
+                                                                });
+
+                                                                let api_client = app_state.0.api_client.get_untracked();
+                                                                let req = CreateOrUpdateNavRequest {
+                                                                    note_id: note_id_now.clone(),
+                                                                    id: Some(nav_id_now.clone()),
+                                                                    parid: None,
+                                                                    content: None,
+                                                                    order: None,
+                                                                    is_display: Some(true),
+                                                                    is_delete: None,
+                                                                    properties: None,
+                                                                };
+                                                                spawn_local(async move {
+                                                                    let _ = api_client.upsert_nav(req).await;
+                                                                });
+
+                                                                // Keep editing current node.
+                                                                editing_id.set(Some(nav_id_now));
+                                                                return;
+                                                            }
+
+                                                            // Move into first child.
+                                                            editing_id.set(Some(first_child.id.clone()));
+                                                            editing_value.set(first_child.content.clone());
+                                                            target_cursor_col.set(Some(0));
+                                                            return;
+                                                        }
+
+                                                        // Otherwise: move to next visible node.
                                                         let visible = visible_preorder(&all);
                                                         let idx = visible.iter().position(|id| id == &nav_id_now);
                                                         let Some(idx) = idx else { return; };
