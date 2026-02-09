@@ -63,25 +63,26 @@
 - [x] Connect to `POST /hulunote/get-all-note-list`
 - [x] Connect to `POST /hulunote/update-hulunote-note`
 
-### Phase 5.5: Post-Phase-5 Navigation Restructure (Planned)
+### Phase 5.5: Post-Phase-5 Navigation Restructure
 
 Goal: Make post-login UX match product intent: Home shows recents and database management is a dedicated page.
 
-- [ ] Routing skeleton:
+- [x] Routing skeleton:
   - `/` → Home (Recents)
   - `/databases` → All Databases (full CRUD)
   - `/db/:db_id` → Notes home
   - `/db/:db_id/note/:note_id` → Note page
   - `/search?q=...` → Search page
-- [ ] Top nav: add **All databases** button on `/db/*` and `/note/*` pages; remove Rename/Delete from DB top bar
-- [ ] Home (Recents): localStorage-based recent databases + recent notes (no backend API)
-- [ ] Sidebar modes:
+- [x] Top nav: add **All databases** button on `/db/*` pages (includes note pages); remove Rename/Delete from DB top bar
+- [x] Home (Recents): localStorage-based recent databases + recent notes (no backend API)
+- [x] Sidebar modes:
   - On `/` and `/databases`: do NOT show database list in sidebar
   - On `/db/*`: show Search + Pages (notes tree/list) + Settings/Account
-- [ ] Search scope A: one search box, results page groups:
+- [x] Search scope A: one search box, results page groups:
   - Databases (name matches)
   - Notes (title matches) from **current DB only**
-- [ ] Database row actions on `/databases`: hover shows `…` → menu (Rename/Delete) with good feedback states
+- [~] Database row actions on `/databases`: implemented as hover actions (Rename/Delete/Open).
+  - TODO (optional): replace with `…` icon + dropdown menu; add toast/alerts polish.
 
 ## Phase 6: Outline Editor (Core Feature)
 

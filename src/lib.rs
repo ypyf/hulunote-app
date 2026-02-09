@@ -3513,4 +3513,41 @@ mod tests {
         let next = next_available_daily_note_title_for_date(base, &notes);
         assert_eq!(next, format!("{}-3", base));
     }
+
+    #[test]
+    fn test_upsert_lru_by_key_dedup_and_order() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let out = upsert_lru_by_key(items, "b".to_string(), |x, y| x == y, 10);
+        assert_eq!(out, vec!["b", "a", "c"]);
+    }
+
+    #[test]
+    fn test_upsert_lru_by_key_truncate() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let out = upsert_lru_by_key(items, "d".to_string(), |x, y| x == y, 3);
+        assert_eq!(out, vec!["d", "a", "b"]);
+    }
+
+    #[test]
+    fn test_recent_structs_serde_roundtrip() {
+        let db = RecentDb {
+            id: "db1".to_string(),
+            name: "My DB".to_string(),
+            last_opened_ms: 123,
+        };
+        let note = RecentNote {
+            db_id: "db1".to_string(),
+            note_id: "n1".to_string(),
+            title: "T".to_string(),
+            last_opened_ms: 456,
+        };
+
+        let db_json = serde_json::to_string(&db).unwrap();
+        let db2: RecentDb = serde_json::from_str(&db_json).unwrap();
+        assert_eq!(db, db2);
+
+        let note_json = serde_json::to_string(&note).unwrap();
+        let note2: RecentNote = serde_json::from_str(&note_json).unwrap();
+        assert_eq!(note, note2);
+    }
 }
