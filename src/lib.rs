@@ -1235,29 +1235,46 @@ pub fn RegistrationPage() -> impl IntoView {
 
 #[component]
 pub fn HomeRecentsPage() -> impl IntoView {
-    let recent_dbs = move || load_recent_dbs();
+    let app_state = expect_context::<AppContext>();
     let recent_notes = move || load_recent_notes();
 
     view! {
         <div class="space-y-4">
             <div class="space-y-1">
                 <h1 class="text-xl font-semibold">"Home"</h1>
-                <p class="text-xs text-muted-foreground">"Recent databases and notes (local)."</p>
+                <p class="text-xs text-muted-foreground">
+                    "Show recent notes and a clear entry to databases."
+                </p>
             </div>
 
             <div class="grid gap-4 md:grid-cols-2">
                 <Card>
-                    <CardHeader class="p-3">
-                        <CardTitle class="text-sm">"Recent Databases"</CardTitle>
+                    <CardHeader class="flex flex-row items-center justify-between gap-2 p-3">
+                        <CardTitle class="text-sm">"Databases"</CardTitle>
+                        <a
+                            href="/databases"
+                            class="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                        >
+                            "All databases"
+                        </a>
                     </CardHeader>
                     <CardContent class="p-3 pt-0">
                         <Show
-                            when=move || !recent_dbs().is_empty()
-                            fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent databases."</div> }
+                            when=move || !app_state.0.databases.get().is_empty()
+                            fallback=|| {
+                                view! {
+                                    <div class="text-sm text-muted-foreground">
+                                        "No databases loaded. Try Refresh on /databases."
+                                    </div>
+                                }
+                            }
                         >
                             <div class="space-y-1">
                                 {move || {
-                                    recent_dbs()
+                                    app_state
+                                        .0
+                                        .databases
+                                        .get()
                                         .into_iter()
                                         .map(|db| {
                                             let id = db.id.clone();
