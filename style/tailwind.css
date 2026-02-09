@@ -73,6 +73,5 @@ body {
 
 .outline-row:hover {
   transition-delay: 500ms;
-  /* Card now uses surface-hover, so use surface-active for visible contrast. */
-  background-color: rgb(var(--surface-active));
+  background-color: rgb(var(--surface-hover));
 }
