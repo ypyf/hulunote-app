@@ -14,8 +14,6 @@ use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use leptos_router::params::Params;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use std::sync::Arc;
 use wasm_bindgen::JsCast;
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
@@ -1300,6 +1298,20 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let create_error: RwSignal<Option<String>> = RwSignal::new(None);
     let create_loading: RwSignal<bool> = RwSignal::new(false);
 
+    // Home sidebar: rename/delete actions (hover)
+    let rename_open: RwSignal<bool> = RwSignal::new(false);
+    let rename_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let rename_value: RwSignal<String> = RwSignal::new(String::new());
+    let rename_loading: RwSignal<bool> = RwSignal::new(false);
+    let rename_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let delete_open: RwSignal<bool> = RwSignal::new(false);
+    let delete_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let delete_db_name: RwSignal<String> = RwSignal::new(String::new());
+    let delete_confirm: RwSignal<String> = RwSignal::new(String::new());
+    let delete_loading: RwSignal<bool> = RwSignal::new(false);
+    let delete_error: RwSignal<Option<String>> = RwSignal::new(None);
+
     let search_query = app_state.0.search_query;
     let search_ref: NodeRef<html::Input> = NodeRef::new();
 
@@ -1349,6 +1361,106 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         create_desc.set(String::new());
         create_error.set(None);
         create_open.set(true);
+    };
+
+    let refresh_databases = move || {
+        let mut c = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            if let Ok(dbs) = c.get_database_list().await {
+                app_state.0.databases.set(dbs);
+            }
+            app_state.0.api_client.set(c);
+        });
+    };
+
+    let on_open_rename_db = move |id: String, name: String| {
+        rename_db_id.set(Some(id));
+        rename_value.set(name);
+        rename_error.set(None);
+        rename_open.set(true);
+    };
+
+    let on_submit_rename_db = move |_: web_sys::MouseEvent| {
+        if rename_loading.get_untracked() {
+            return;
+        }
+
+        let id = rename_db_id.get_untracked().unwrap_or_default();
+        let new_name = rename_value.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if new_name.trim().is_empty() {
+            rename_error.set(Some("Name cannot be empty".to_string()));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        rename_loading.set(true);
+        rename_error.set(None);
+
+        spawn_local(async move {
+            match api_client.rename_database(&id, &new_name).await {
+                Ok(_) => {
+                    refresh_databases();
+                    rename_open.set(false);
+                }
+                Err(e) => rename_error.set(Some(e)),
+            }
+            rename_loading.set(false);
+        });
+    };
+
+    let on_open_delete_db = move |id: String, name: String| {
+        delete_db_id.set(Some(id));
+        delete_db_name.set(name);
+        delete_confirm.set(String::new());
+        delete_error.set(None);
+        delete_open.set(true);
+    };
+
+    let on_submit_delete_db = move |_: web_sys::MouseEvent| {
+        if delete_loading.get_untracked() {
+            return;
+        }
+
+        let id = delete_db_id.get_untracked().unwrap_or_default();
+        let name = delete_db_name.get_untracked();
+        let confirm = delete_confirm.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if confirm.trim() != name.trim() {
+            delete_error.set(Some(
+                "Type the database name to confirm deletion".to_string(),
+            ));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        delete_loading.set(true);
+        delete_error.set(None);
+
+        spawn_local(async move {
+            match api_client.delete_database_by_id(&id).await {
+                Ok(_) => {
+                    refresh_databases();
+                    delete_open.set(false);
+
+                    // If we are currently inside this DB, go Home.
+                    if pathname().starts_with(&format!("/db/{id}")) {
+                        navigate.with_value(|nav| nav("/", Default::default()));
+                    }
+
+                    // Clear selection if it matches.
+                    if current_db_id.get_untracked().as_deref() == Some(id.as_str()) {
+                        set_current_db(None);
+                    }
+                }
+                Err(e) => delete_error.set(Some(e)),
+            }
+            delete_loading.set(false);
+        });
     };
 
     let submit_create_database = move || {
@@ -1664,6 +1776,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 {move || {
                                                     let selected = current_db_id.get();
                                                     let allow_highlight = pathname().starts_with("/db/");
+                                                    let show_actions = pathname() == "/";
 
                                                     databases
                                                         .get()
@@ -1678,18 +1791,60 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             };
 
                                                             let id = db.id.clone();
+                                                            let id_href = id.clone();
+                                                            let name = db.name.clone();
+                                                            let name_label = name.clone();
+                                                            let name_for_rename = name.clone();
+                                                            let name_for_delete = name.clone();
+
                                                             view! {
-                                                                <Button
-                                                                    variant=variant
-                                                                    size=ButtonSize::Sm
-                                                                    class="w-full justify-start"
-                                                                    attr:aria-current=move || {
-                                                                        if is_selected { Some("page") } else { None }
-                                                                    }
-                                                                    href=format!("/db/{}", id)
-                                                                >
-                                                                    {db.name}
-                                                                </Button>
+                                                                <div class="group flex items-center gap-2">
+                                                                    <Button
+                                                                        variant=variant
+                                                                        size=ButtonSize::Sm
+                                                                        class="w-full flex-1 justify-start"
+                                                                        attr:aria-current=move || {
+                                                                            if is_selected { Some("page") } else { None }
+                                                                        }
+                                                                        href=format!("/db/{}", id_href)
+                                                                    >
+                                                                        {name_label}
+                                                                    </Button>
+
+                                                                    <Show when=move || show_actions fallback=|| ().into_view()>
+                                                                        <div class="hidden shrink-0 items-center gap-1 group-hover:flex">
+                                                                            <Button
+                                                                                variant=ButtonVariant::Ghost
+                                                                                size=ButtonSize::Sm
+                                                                                on:click={
+                                                                                    let id = id.clone();
+                                                                                    let name = name_for_rename.clone();
+                                                                                    move |ev: web_sys::MouseEvent| {
+                                                                                        ev.stop_propagation();
+                                                                                        on_open_rename_db(id.clone(), name.clone());
+                                                                                    }
+                                                                                }
+                                                                            >
+                                                                                "Rename"
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant=ButtonVariant::Ghost
+                                                                                size=ButtonSize::Sm
+                                                                                class="text-destructive"
+                                                                                on:click={
+                                                                                    let id = id.clone();
+                                                                                    let name = name_for_delete.clone();
+                                                                                    move |ev: web_sys::MouseEvent| {
+                                                                                        ev.stop_propagation();
+                                                                                        on_open_delete_db(id.clone(), name.clone());
+                                                                                    }
+                                                                                }
+                                                                            >
+                                                                                "Delete"
+                                                                            </Button>
+                                                                        </div>
+                                                                    </Show>
+                                                                </div>
                                                             }
                                                         })
                                                         .collect_view()
@@ -1858,6 +2013,112 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                 <Spinner />
                                             </Show>
                                             {move || if create_loading.get() { "Creating..." } else { "Create" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+
+                <Show when=move || rename_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium">"Rename database"</div>
+                                <div class="text-xs text-muted-foreground">"Only the name can be updated (backend limitation)."</div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"New name"</Label>
+                                    <Input bind_value=rename_value class="h-8 text-sm" />
+                                </div>
+
+                                <Show when=move || rename_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || rename_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || rename_loading.get()
+                                        on:click=move |_| rename_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || rename_loading.get()
+                                        on:click=on_submit_rename_db
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || rename_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if rename_loading.get() { "Saving..." } else { "Save" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+
+                <Show when=move || delete_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium text-destructive">"Delete database"</div>
+                                <div class="text-xs text-muted-foreground">
+                                    "Type the database name to confirm deletion."
+                                </div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                                    {delete_db_name}
+                                </div>
+
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Confirm name"</Label>
+                                    <Input bind_value=delete_confirm class="h-8 text-sm" placeholder="Type name exactly" />
+                                </div>
+
+                                <Show when=move || delete_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || delete_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || delete_loading.get()
+                                        on:click=move |_| delete_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        class="border-destructive/40 text-destructive"
+                                        attr:disabled=move || delete_loading.get()
+                                        on:click=on_submit_delete_db
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || delete_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if delete_loading.get() { "Deleting..." } else { "Delete" }}
                                         </span>
                                     </Button>
                                 </div>
