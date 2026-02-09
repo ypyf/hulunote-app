@@ -1988,18 +1988,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                     // If note route, show All databases > db > note
                                     if let Some(rest) = p.strip_prefix("/db/") {
                                         if let Some((db_id, tail)) = rest.split_once('/') {
-                                            if let Some(note_rest) = tail.strip_prefix("note/") {
-                                                let note_id = note_rest.split('/').next().unwrap_or("");
-
-                                                let note_title = app_state
-                                                    .0
-                                                    .notes
-                                                    .get()
-                                                    .into_iter()
-                                                    .find(|n| n.id == note_id)
-                                                    .map(|n| n.title)
-                                                    .unwrap_or_else(|| note_id.to_string());
-
+                                            if let Some(_note_rest) = tail.strip_prefix("note/") {
+                                                // Note route: do NOT show note title in breadcrumbs.
                                                 return view! {
                                                     <div class="flex min-w-0 items-center gap-2 text-sm">
                                                         <a
@@ -2008,15 +1998,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                         >
                                                             "All databases"
                                                         </a>
-                                                        <span class="text-muted-foreground">">"</span>
+                                                        <span class="text-muted-foreground">"›"</span>
                                                         <a
                                                             href=format!("/db/{}", db_id)
                                                             class="min-w-0 truncate font-medium text-foreground hover:underline"
                                                         >
                                                             {db_name}
                                                         </a>
-                                                        <span class="text-muted-foreground">">"</span>
-                                                        <div class="min-w-0 truncate font-medium">{note_title}</div>
                                                     </div>
                                                 }
                                                 .into_any();
@@ -2031,7 +2019,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                     >
                                                         "All databases"
                                                     </a>
-                                                    <span class="text-muted-foreground">">"</span>
+                                                    <span class="text-muted-foreground">"›"</span>
                                                     <div class="min-w-0 truncate font-medium">{db_name}</div>
                                                 </div>
                                             }
@@ -2048,7 +2036,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                             >
                                                 "All databases"
                                             </a>
-                                            <span class="text-muted-foreground">">"</span>
+                                            <span class="text-muted-foreground">"›"</span>
                                             <div class="min-w-0 truncate font-medium">{db_name}</div>
                                         </div>
                                     }
