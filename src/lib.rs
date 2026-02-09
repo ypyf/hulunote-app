@@ -2919,14 +2919,7 @@ pub fn DbHomePage() -> impl IntoView {
                     <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    <a
-                        href="/"
-                        class="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                    >
-                        "Home"
-                    </a>
-                </div>
+                <div class="flex items-center gap-2"></div>
             </div>
 
             <Card>
