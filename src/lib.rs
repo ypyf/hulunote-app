@@ -1814,9 +1814,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
     let sidebar_show_databases = move || {
         let p = pathname();
-        // Keep the database list visible almost everywhere (including Home),
-        // but hide it on the dedicated management page.
-        p != "/databases"
+        // Home should expose DB entry; inside a DB we only show Pages.
+        // Also hide on the dedicated management page to avoid duplication.
+        !p.starts_with("/db/") && p != "/databases"
     };
 
     let sidebar_show_pages = move || {
