@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_dom::helpers::window_event_listener;
 use leptos_router::components::{Route, Router, Routes};
-use leptos_router::hooks::{use_navigate, use_query_map};
+use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use leptos_router::params::Params;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
@@ -1846,6 +1846,18 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let search_ref: NodeRef<html::Input> = NodeRef::new();
 
     let navigate = StoredValue::new(use_navigate());
+    let location = use_location();
+    let pathname = move || location.pathname.get();
+
+    let sidebar_show_databases = move || {
+        let p = pathname();
+        !(p == "/" || p == "/databases")
+    };
+
+    let sidebar_show_pages = move || {
+        let p = pathname();
+        p.starts_with("/db/")
+    };
 
     let sidebar_width_class = move || {
         if sidebar_collapsed.get() {
@@ -2145,115 +2157,120 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                 </CardContent>
                             </Card>
 
-                            <Card>
-                                <CardHeader class="flex flex-row items-center justify-end p-3">
-                                    <span class="sr-only">"Databases"</span>
-                                    <div class="flex items-center gap-2">
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            size=ButtonSize::Icon
-                                            on:click=move |_| open_create_dialog()
-                                            attr:title="New database"
-                                            class="h-7 w-7"
-                                        >
-                                            <span class="text-xs text-muted-foreground">"+"</span>
-                                        </Button>
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            size=ButtonSize::Icon
-                                            on:click=move |_| load_databases()
-                                            attr:title="Refresh"
-                                            class="h-7 w-7"
-                                        >
-                                            <span class="text-xs text-muted-foreground">"↻"</span>
-                                        </Button>
+                            <Show when=move || sidebar_show_databases() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardHeader class="flex flex-row items-center justify-end p-3">
+                                        <span class="sr-only">"Databases"</span>
+                                        <div class="flex items-center gap-2">
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                on:click=move |_| open_create_dialog()
+                                                attr:title="New database"
+                                                class="h-7 w-7"
+                                            >
+                                                <span class="text-xs text-muted-foreground">"+"</span>
+                                            </Button>
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                on:click=move |_| load_databases()
+                                                attr:title="Refresh"
+                                                class="h-7 w-7"
+                                            >
+                                                <span class="text-xs text-muted-foreground">"↻"</span>
+                                            </Button>
                                         </div>
-                                </CardHeader>
-                                <CardContent class="p-3 pt-0">
-                                    <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
-                                        {move || db_error.get().map(|e| view! {
-                                            <div class="mt-2 text-[11px] text-destructive">{e}</div>
-                                        })}
-                                    </Show>
+                                    </CardHeader>
+                                    <CardContent class="p-3 pt-0">
+                                        <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
+                                            {move || db_error.get().map(|e| view! {
+                                                <div class="mt-2 text-[11px] text-destructive">{e}</div>
+                                            })}
+                                        </Show>
 
-                                    <div class="mt-2 space-y-1">
-                                        <Show
-                                            when=move || !databases.get().is_empty()
-                                            fallback=move || view! {
-                                                <div class="text-[11px] text-muted-foreground">
-                                                    {move || if db_loading.get() { "Loading..." } else { "No databases" }}
-                                                </div>
-                                            }
-                                        >
+                                        <div class="mt-2 space-y-1">
+                                            <Show
+                                                when=move || !databases.get().is_empty()
+                                                fallback=move || view! {
+                                                    <div class="text-[11px] text-muted-foreground">
+                                                        {move || if db_loading.get() { "Loading..." } else { "No databases" }}
+                                                    </div>
+                                                }
+                                            >
+                                                {move || {
+                                                    let selected = current_db_id.get();
+                                                    databases
+                                                        .get()
+                                                        .into_iter()
+                                                        .map(|db| {
+                                                            let is_selected =
+                                                                selected.as_deref() == Some(db.id.as_str());
+                                                            let variant = if is_selected {
+                                                                ButtonVariant::Accent
+                                                            } else {
+                                                                ButtonVariant::Ghost
+                                                            };
+
+                                                            let id = db.id.clone();
+                                                            view! {
+                                                                <Button
+                                                                    variant=variant
+                                                                    size=ButtonSize::Sm
+                                                                    class="w-full justify-start"
+                                                                    attr:aria-current=move || if is_selected { Some("page") } else { None }
+                                                                    href=format!("/db/{}", id)
+                                                                >
+                                                                    {db.name}
+                                                                </Button>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
+                                            </Show>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </Show>
+
+                            <Show when=move || sidebar_show_pages() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardContent class="p-3">
+                                        <span class="sr-only">"Pages"</span>
+                                        <div class="space-y-1">
                                             {move || {
-                                                let selected = current_db_id.get();
-                                                databases
-                                                    .get()
-                                                    .into_iter()
-                                                    .map(|db| {
-                                                        let is_selected = selected.as_deref() == Some(db.id.as_str());
-                                                        let variant = if is_selected {
-                                                            ButtonVariant::Accent
-                                                        } else {
-                                                            ButtonVariant::Ghost
-                                                        };
+                                                let db_id = current_db_id.get().unwrap_or_default();
+                                                let q = search_query.get().trim().to_lowercase();
+                                                let notes = expect_context::<AppContext>().0.notes.get();
 
-                                                        let id = db.id.clone();
+                                                notes
+                                                    .into_iter()
+                                                    .filter(|n| n.database_id == db_id)
+                                                    .filter(|n| {
+                                                        if q.is_empty() {
+                                                            true
+                                                        } else {
+                                                            n.title.to_lowercase().contains(&q)
+                                                        }
+                                                    })
+                                                    .map(|n| {
                                                         view! {
                                                             <Button
-                                                                variant=variant
+                                                                variant=ButtonVariant::Ghost
                                                                 size=ButtonSize::Sm
                                                                 class="w-full justify-start"
-                                                                attr:aria-current=move || if is_selected { Some("page") } else { None }
-                                                                href=format!("/db/{}", id)
+                                                                href=format!("/db/{}/note/{}", db_id, n.id)
                                                             >
-                                                                {db.name}
+                                                                {n.title}
                                                             </Button>
                                                         }
                                                     })
                                                     .collect_view()
                                             }}
-                                        </Show>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Card>
-                                <CardContent class="p-3">
-                                    <span class="sr-only">"Pages"</span>
-                                    <div class="space-y-1">
-                                        {move || {
-                                            let db_id = current_db_id.get().unwrap_or_default();
-                                            let q = search_query.get().trim().to_lowercase();
-                                            let notes = expect_context::<AppContext>().0.notes.get();
-
-                                            notes
-                                                .into_iter()
-                                                .filter(|n| n.database_id == db_id)
-                                                .filter(|n| {
-                                                    if q.is_empty() {
-                                                        true
-                                                    } else {
-                                                        n.title.to_lowercase().contains(&q)
-                                                    }
-                                                })
-                                                .map(|n| {
-                                                    view! {
-                                                        <Button
-                                                            variant=ButtonVariant::Ghost
-                                                            size=ButtonSize::Sm
-                                                            class="w-full justify-start"
-                                                            href=format!("/db/{}/note/{}", db_id, n.id)
-                                                        >
-                                                            {n.title}
-                                                        </Button>
-                                                    }
-                                                })
-                                                .collect_view()
-                                        }}
-                                    </div>
-                                </CardContent>
-                            </Card>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </Show>
 
                             <Card>
                                 <CardContent class="p-3">
@@ -2284,21 +2301,22 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                size=ButtonSize::Sm
-                                on:click=move |_| {
-                                    if let Some(id) = current_db_id.get() {
-                                        navigate.with_value(|nav| {
-                                            nav(&format!("/db/{}", id), Default::default());
-                                        });
-                                    } else {
-                                        navigate.with_value(|nav| nav("/", Default::default()));
-                                    }
-                                }
+                            <Show
+                                when=move || pathname().starts_with("/db/")
+                                fallback=|| ().into_view()
                             >
-                                "Current DB"
-                            </Button>
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    on:click=move |_| {
+                                        navigate.with_value(|nav| {
+                                            nav("/databases", Default::default());
+                                        });
+                                    }
+                                >
+                                    "All databases"
+                                </Button>
+                            </Show>
                         </div>
                     </div>
                     {children()}
