@@ -699,7 +699,10 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
         }
     }
 
-    pub async fn upsert_nav(&self, req_body: CreateOrUpdateNavRequest) -> Result<(), String> {
+    pub async fn upsert_nav(
+        &self,
+        req_body: CreateOrUpdateNavRequest,
+    ) -> Result<serde_json::Value, String> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/create-or-update-nav", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
@@ -707,7 +710,7 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
         let res = req.json(&req_body).send().await.map_err(|e| e.to_string())?;
 
         if res.status().is_success() {
-            Ok(())
+            res.json().await.map_err(|e| e.to_string())
         } else if res.status().as_u16() == 401 {
             Err("Unauthorized".to_string())
         } else {
@@ -2651,6 +2654,10 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Editing state
+    let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let editing_value: RwSignal<String> = RwSignal::new(String::new());
+
     // Load navs when note_id changes.
     let note_id_for_effect = note_id.clone();
     Effect::new(move |_| {
@@ -2712,7 +2719,14 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                                 {roots
                                     .into_iter()
                                     .map(|n| view! {
-                                        <OutlineNode nav_id=n.id depth=0 navs=navs note_id=nid.clone() />
+                                        <OutlineNode
+                                            nav_id=n.id
+                                            depth=0
+                                            navs=navs
+                                            note_id=nid.clone()
+                                            editing_id=editing_id
+                                            editing_value=editing_value
+                                        />
                                     })
                                     .collect_view()}
                             </div>
@@ -2731,6 +2745,8 @@ pub fn OutlineNode(
     depth: usize,
     navs: RwSignal<Vec<Nav>>,
     note_id: String,
+    editing_id: RwSignal<Option<String>>,
+    editing_value: RwSignal<String>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
 
@@ -2738,6 +2754,9 @@ pub fn OutlineNode(
     let nav_id_for_toggle = nav_id.clone();
     let nav_id_for_render = nav_id.clone();
     let note_id_for_toggle = note_id.clone();
+
+    let nav_id_sv = StoredValue::new(nav_id.clone());
+    let note_id_sv = StoredValue::new(note_id.clone());
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
 
@@ -2805,7 +2824,14 @@ pub fn OutlineNode(
                 let children_view = if n.is_display && has_kids {
                     kids.into_iter()
                         .map(|c| view! {
-                            <OutlineNode nav_id=c.id depth=depth+1 navs=navs note_id=note_id.clone() />
+                            <OutlineNode
+                                nav_id=c.id
+                                depth=depth+1
+                                navs=navs
+                                note_id=note_id.clone()
+                                editing_id=editing_id
+                                editing_value=editing_value
+                            />
                         })
                         .collect_view()
                         .into_any()
@@ -2827,7 +2853,163 @@ pub fn OutlineNode(
                                 {bullet}
                             </button>
 
-                            <div class="min-w-0 flex-1 text-sm">{n.content}</div>
+                            <div class="min-w-0 flex-1 text-sm">
+                                {move || {
+                                    let id = nav_id_sv.get_value();
+                                    let is_editing = editing_id.get().as_deref() == Some(id.as_str());
+
+                                    if !is_editing {
+                                        let content_now = n.content.clone();
+                                        let content_for_click = content_now.clone();
+                                        return view! {
+                                            <div
+                                                class="cursor-text whitespace-pre-wrap"
+                                                on:click=move |_| {
+                                                    let id = nav_id_sv.get_value();
+                                                    editing_id.set(Some(id));
+                                                    editing_value.set(content_for_click.clone());
+                                                }
+                                            >
+                                                {content_now}
+                                            </div>
+                                        }
+                                        .into_any();
+                                    }
+
+                                    view! {
+                                        <Input
+                                            bind_value=editing_value
+                                            class="h-7"
+                                            on:blur=move |_| {
+                                                let new_content = editing_value.get_untracked();
+                                                editing_id.set(None);
+
+                                                let nav_id_now = nav_id_sv.get_value();
+                                                navs.update(|xs| {
+                                                    if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                        x.content = new_content.clone();
+                                                    }
+                                                });
+
+                                                let api_client = app_state.0.api_client.get_untracked();
+                                                let note_id_now = note_id_sv.get_value();
+                                                let req = CreateOrUpdateNavRequest {
+                                                    note_id: note_id_now,
+                                                    id: Some(nav_id_now.clone()),
+                                                    parid: None,
+                                                    content: Some(new_content),
+                                                    order: None,
+                                                    is_display: None,
+                                                    is_delete: None,
+                                                    properties: None,
+                                                };
+                                                spawn_local(async move {
+                                                    let _ = api_client.upsert_nav(req).await;
+                                                });
+                                            }
+                                            on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                                if ev.key() == "Enter" {
+                                                    ev.prevent_default();
+
+                                                    let current_content = editing_value.get_untracked();
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+
+                                                    navs.update(|xs| {
+                                                        if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                            x.content = current_content.clone();
+                                                        }
+                                                    });
+
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    let save_req = CreateOrUpdateNavRequest {
+                                                        note_id: note_id_now.clone(),
+                                                        id: Some(nav_id_now.clone()),
+                                                        parid: None,
+                                                        content: Some(current_content),
+                                                        order: None,
+                                                        is_display: None,
+                                                        is_delete: None,
+                                                        properties: None,
+                                                    };
+
+                                                    // Create sibling
+                                                    let all = navs.get_untracked();
+                                                    let Some(me) = all.iter().find(|x| x.id == nav_id_now) else {
+                                                        return;
+                                                    };
+
+                                                    let parid = me.parid.clone();
+                                                    let mut sibs = all
+                                                        .iter()
+                                                        .filter(|x| x.parid == parid)
+                                                        .cloned()
+                                                        .collect::<Vec<_>>();
+                                                    sibs.sort_by(|a, b| a.same_deep_order
+                                                        .partial_cmp(&b.same_deep_order)
+                                                        .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                    let next_order = sibs
+                                                        .iter()
+                                                        .find(|s| s.same_deep_order > me.same_deep_order)
+                                                        .map(|s| s.same_deep_order);
+
+                                                    let new_order = if let Some(no) = next_order {
+                                                        (me.same_deep_order + no) / 2.0
+                                                    } else {
+                                                        me.same_deep_order + 1.0
+                                                    };
+
+                                                    editing_id.set(None);
+
+                                                    spawn_local(async move {
+                                                        let _ = api_client.upsert_nav(save_req).await;
+
+                                                        let create_req = CreateOrUpdateNavRequest {
+                                                            note_id: note_id_now.clone(),
+                                                            id: None,
+                                                            parid: Some(parid.clone()),
+                                                            content: Some("".to_string()),
+                                                            order: Some(new_order),
+                                                            is_display: Some(true),
+                                                            is_delete: Some(false),
+                                                            properties: None,
+                                                        };
+
+                                                        if let Ok(resp) = api_client.upsert_nav(create_req).await {
+                                                            let new_id = resp
+                                                                .get("id")
+                                                                .and_then(|v| v.as_str())
+                                                                .unwrap_or("")
+                                                                .to_string();
+
+                                                            if !new_id.trim().is_empty() {
+                                                                navs.update(|xs| {
+                                                                    xs.push(Nav {
+                                                                        id: new_id.clone(),
+                                                                        note_id: note_id_now.clone(),
+                                                                        parid: parid.clone(),
+                                                                        same_deep_order: new_order,
+                                                                        content: String::new(),
+                                                                        is_display: true,
+                                                                        is_delete: false,
+                                                                    });
+                                                                    xs.sort_by(|a, b| a.same_deep_order
+                                                                        .partial_cmp(&b.same_deep_order)
+                                                                        .unwrap_or(std::cmp::Ordering::Equal));
+                                                                });
+                                                                editing_id.set(Some(new_id));
+                                                                editing_value.set(String::new());
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        />
+                                    }
+                                    .into_any()
+                                }}
+                            </div>
                         </div>
 
                         {children_view}
