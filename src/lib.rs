@@ -1247,6 +1247,8 @@ pub fn HomeRecentsPage() -> impl IntoView {
             >
                 <div class="space-y-1">
                     {move || {
+                        let dbs = expect_context::<AppContext>().0.databases.get();
+
                         recent_notes()
                             .into_iter()
                             .map(|n| {
@@ -1254,13 +1256,20 @@ pub fn HomeRecentsPage() -> impl IntoView {
                                 let db_id_href = db_id.clone();
                                 let note_id = n.note_id.clone();
                                 let title = n.title.clone();
+
+                                let db_name = dbs
+                                    .iter()
+                                    .find(|d| d.id == db_id)
+                                    .map(|d| d.name.clone())
+                                    .unwrap_or_else(|| db_id.clone());
+
                                 view! {
                                     <a
                                         href=format!("/db/{}/note/{}", db_id_href, note_id)
                                         class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
                                     >
                                         <div class="truncate text-sm font-medium">{title}</div>
-                                        <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_id)}</div>
+                                        <div class="truncate text-xs text-muted-foreground">{format!("db: {}", db_name)}</div>
                                     </a>
                                 }
                             })
@@ -1966,10 +1975,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
 
                                 // Home
                                 if p == "/" {
-                                    return view! {
-                                        <div class="truncate text-sm font-medium">"All databases"</div>
-                                    }
-                                    .into_any();
+                                    return view! { <div class="truncate text-sm font-medium"></div> }
+                                        .into_any();
                                 }
 
                                 // DB / Note
