@@ -1139,38 +1139,40 @@ pub fn RegistrationPage() -> impl IntoView {
 }
 
 #[component]
-pub fn HomePage() -> impl IntoView {
-    let app_state = expect_context::<AppContext>();
-    let current_db_id = app_state.0.current_database_id;
-    let databases = app_state.0.databases;
-
-    let current_db_name = move || {
-        current_db_id
-            .get()
-            .and_then(|id| databases.get().into_iter().find(|d| d.id == id))
-            .map(|d| d.name)
-    };
-
+pub fn HomeRecentsPage() -> impl IntoView {
     view! {
         <div class="space-y-3">
             <div class="space-y-1">
-                <h1 class="text-xl font-semibold">"Hulunote"</h1>
+                <h1 class="text-xl font-semibold">"Home"</h1>
                 <p class="text-xs text-muted-foreground">
-                    {move || {
-                        current_db_name()
-                            .map(|n| format!("Database: {}", n))
-                            .unwrap_or_else(|| "Select a database in the sidebar.".to_string())
-                    }}
+                    "Recents (localStorage-based) will be implemented in Phase 5.5."
                 </p>
             </div>
 
             <Card>
                 <CardContent>
                     <div class="text-sm text-muted-foreground">
-                        "Phase 3: Layout & Navigation. Main content will become note list/editor in later phases."
+                        "This page will show recent databases and recent notes."
                     </div>
                 </CardContent>
             </Card>
+        </div>
+    }
+}
+
+#[component]
+pub fn AllDatabasesPage() -> impl IntoView {
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Databases"</h1>
+                <p class="text-xs text-muted-foreground">
+                    "Database management will move here (Phase 5.5)."
+                </p>
+            </div>
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "TODO: list/create/rename/delete databases on this page."
+            </div>
         </div>
     }
 }
@@ -1733,24 +1735,9 @@ pub fn RootAuthed(children: ChildrenFn) -> impl IntoView {
 
 #[component]
 pub fn RootPage() -> impl IntoView {
-    let app_state = expect_context::<AppContext>();
-    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
-    let navigate = use_navigate();
-
-    // If we already have a database selected, treat `/` as a redirect to `/db/:db_id`.
-    Effect::new(move |_| {
-        if is_authenticated() {
-            if let Some(id) = app_state.0.current_database_id.get() {
-                if !id.trim().is_empty() {
-                    navigate(&format!("/db/{}", id), Default::default());
-                }
-            }
-        }
-    });
-
     view! {
         <RootAuthed>
-            <HomePage />
+            <HomeRecentsPage />
         </RootAuthed>
     }
 }
@@ -2433,6 +2420,11 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| view! { <div class="px-4 py-8 text-xs text-muted-foreground">"Not found"</div> }>
                 <Route path=path!("login") view=LoginPage />
                 <Route path=path!("signup") view=RegistrationPage />
+                <Route path=path!("databases") view=move || view! {
+                    <RootAuthed>
+                        <AllDatabasesPage />
+                    </RootAuthed>
+                } />
                 <Route path=path!("db/:db_id") view=move || view! {
                     <RootAuthed>
                         <DbHomePage />
