@@ -13,7 +13,11 @@ Agents operating in this repository must follow a strict, engineering-driven wor
 - Commit all code changes
 - Preserve reusable lessons in this file
 
-Uncommitted changes or undocumented lessons are considered incomplete work.
+Avoid leaving long-lived uncommitted work. However, do not create low-signal commits just to “check a box”.
+
+- It’s OK to keep local WIP while iterating.
+- Before handing work off (PR/review), changes must be committed in coherent, reviewable units.
+- Only record lessons in this file when they are genuinely reusable (avoid noise).
 
 If a task is ambiguous, underspecified, or conflicts with existing design:
 
