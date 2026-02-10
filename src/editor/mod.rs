@@ -1011,7 +1011,7 @@ pub fn OutlineNode(
                                                                             </a>
 
                                                                             <Show when=move || preview_open.get()>
-                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border border-border bg-card text-card-foreground p-3 text-xs shadow-lg">
+                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border border-border-strong bg-card text-card-foreground p-3 text-xs shadow-lg">
                                                                                     <div class="font-medium truncate">{title_preview_title.clone()}</div>
                                                                                     <Show when=move || preview_loading.get() fallback=|| ().into_view()>
                                                                                         <div class="mt-2 text-muted-foreground">"Loading…"</div>
@@ -1945,7 +1945,7 @@ pub fn OutlineNode(
                                         />
 
                                         <Show when=move || ac_sv.get_value().ac_open.get()>
-                                            <div class="absolute z-50 mt-1 w-[28rem] max-w-full rounded-md border border-border bg-background text-foreground p-1 text-sm shadow-lg">
+                                            <div class="absolute z-50 mt-1 w-[28rem] max-w-full rounded-md border border-border-strong bg-background text-foreground p-1 text-sm shadow-lg">
                                                 {move || {
                                                     let ac = ac_sv.get_value();
                                                     let items = ac.ac_items.get();
