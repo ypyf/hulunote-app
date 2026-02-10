@@ -130,8 +130,13 @@ Meaning:
 - A callback ran later and tried to read it.
 
 Rule of thumb:
-- In handlers that may run during teardown (e.g. `blur`, key handlers that navigate, callbacks scheduled with
-  `set_timeout`, async tasks that outlive the component), **avoid reading reactive values owned by the component**.
+- In handlers that may run during teardown (e.g. `blur`, click handlers that unmount the current input,
+  key handlers that navigate, callbacks scheduled with `set_timeout`, async tasks that outlive the component),
+  **avoid reading reactive values owned by the component** (especially `StoredValue::get_value()`).
+
+Concrete fix pattern:
+- Capture the signals you need **directly** (e.g. `let open = ctx.open;`) and use them in the handler,
+  instead of fetching the whole context via a `StoredValue` inside the handler.
 
 Safer patterns:
 - **Capture plain data** (e.g. ids/strings) before triggering unmount/navigation.

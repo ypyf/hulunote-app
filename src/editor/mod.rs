@@ -482,6 +482,11 @@ pub fn OutlineNode(
     let ac = expect_context::<AutocompleteCtx>();
     let navigate = leptos_router::hooks::use_navigate();
 
+    // Capture autocomplete signals directly for event handlers that may fire after unmount (e.g. blur).
+    // Avoid accessing `StoredValue` in those cases because it may have been disposed.
+    let ac_open = ac.ac_open;
+    let ac_start_utf16 = ac.ac_start_utf16;
+
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
     let nav_id_for_render = nav_id.clone();
@@ -1251,11 +1256,9 @@ pub fn OutlineNode(
                                                 ac.ac_open.set(true);
                                             }
                                             on:blur=move |ev| {
-                                                let ac = ac_sv.get_value();
-
                                                 // Close autocomplete if open.
-                                                ac.ac_open.set(false);
-                                                ac.ac_start_utf16.set(None);
+                                                ac_open.set(false);
+                                                ac_start_utf16.set(None);
 
                                                 // IMPORTANT: read the value from the input element.
                                                 let new_content = event_target_value(&ev);
