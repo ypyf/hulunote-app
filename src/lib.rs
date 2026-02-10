@@ -3108,6 +3108,102 @@ pub fn OutlineNode(
                                                     out
                                                 }
 
+                                                // Alt+Up/Down: move current node among siblings (order only)
+                                                if ev.alt_key() && (key == "ArrowUp" || key == "ArrowDown") {
+                                                    ev.prevent_default();
+
+                                                    let cursor_col = input()
+                                                        .as_ref()
+                                                        .and_then(|i| i.selection_start().ok().flatten())
+                                                        .unwrap_or(0);
+                                                    target_cursor_col.set(Some(cursor_col));
+
+                                                    let nav_id_now = nav_id_sv.get_value();
+                                                    let note_id_now = note_id_sv.get_value();
+                                                    let current_content = editing_value.get_untracked();
+
+                                                    let all = navs.get_untracked();
+                                                    let Some(me) = all.iter().find(|n| n.id == nav_id_now) else {
+                                                        return;
+                                                    };
+
+                                                    // Siblings sorted by order.
+                                                    let parid = me.parid.clone();
+                                                    let mut sibs = all
+                                                        .iter()
+                                                        .filter(|n| n.parid == parid)
+                                                        .cloned()
+                                                        .collect::<Vec<_>>();
+                                                    sibs.sort_by(|a, b| {
+                                                        a.same_deep_order
+                                                            .partial_cmp(&b.same_deep_order)
+                                                            .unwrap_or(std::cmp::Ordering::Equal)
+                                                    });
+
+                                                    let idx = sibs.iter().position(|n| n.id == nav_id_now);
+                                                    let Some(idx) = idx else { return; };
+
+                                                    // Compute new order by placing between adjacent siblings.
+                                                    let new_order = if key == "ArrowUp" {
+                                                        if idx == 0 {
+                                                            // Already first.
+                                                            return;
+                                                        }
+                                                        let prev = &sibs[idx - 1];
+                                                        let prevprev_order = if idx >= 2 {
+                                                            sibs[idx - 2].same_deep_order
+                                                        } else {
+                                                            prev.same_deep_order - 1.0
+                                                        };
+                                                        (prevprev_order + prev.same_deep_order) / 2.0
+                                                    } else {
+                                                        if idx + 1 >= sibs.len() {
+                                                            // Already last.
+                                                            return;
+                                                        }
+                                                        let next = &sibs[idx + 1];
+                                                        let nextnext_order = if idx + 2 < sibs.len() {
+                                                            sibs[idx + 2].same_deep_order
+                                                        } else {
+                                                            next.same_deep_order + 1.0
+                                                        };
+                                                        (next.same_deep_order + nextnext_order) / 2.0
+                                                    };
+
+                                                    // Update local state.
+                                                    navs.update(|xs| {
+                                                        if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                            x.content = current_content.clone();
+                                                            x.same_deep_order = new_order;
+                                                        }
+                                                        xs.sort_by(|a, b| {
+                                                            a.same_deep_order
+                                                                .partial_cmp(&b.same_deep_order)
+                                                                .unwrap_or(std::cmp::Ordering::Equal)
+                                                        });
+                                                    });
+
+                                                    // Persist to backend.
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    let req = CreateOrUpdateNavRequest {
+                                                        note_id: note_id_now,
+                                                        id: Some(nav_id_now.clone()),
+                                                        parid: None,
+                                                        content: Some(current_content),
+                                                        order: Some(new_order),
+                                                        is_display: None,
+                                                        is_delete: None,
+                                                        properties: None,
+                                                    };
+                                                    spawn_local(async move {
+                                                        let _ = api_client.upsert_nav(req).await;
+                                                    });
+
+                                                    // Keep editing current node.
+                                                    editing_id.set(Some(nav_id_now));
+                                                    return;
+                                                }
+
                                                 // Arrow Up/Down: move between visible nodes
                                                 if key == "ArrowUp" || key == "ArrowDown" {
                                                     ev.prevent_default();
