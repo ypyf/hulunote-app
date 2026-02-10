@@ -10,6 +10,8 @@ pub mod popover;
 pub mod scroll_area;
 pub mod select;
 pub mod tooltip;
+pub mod separator;
+pub mod command;
 
 // Re-export component symbols so callers can `use crate::components::ui::Button` etc.
 pub use alert::*;
@@ -31,4 +33,7 @@ pub use scroll_area::*;
 pub use select::*;
 #[allow(unused_imports)]
 pub use tooltip::*;
-pub mod separator;
+#[allow(unused_imports)]
+pub use separator::*;
+#[allow(unused_imports)]
+pub use command::*;

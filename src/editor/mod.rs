@@ -1,5 +1,6 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::components::hooks::use_random::use_random_id_for;
+use crate::components::ui::{Command, CommandItem, CommandList};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
@@ -489,6 +490,65 @@ pub fn OutlineNode(
     let app_state_sv = StoredValue::new(app_state.clone());
     let ac_sv = StoredValue::new(ac.clone());
     let navigate_sv = StoredValue::new(navigate.clone());
+
+    // Stable ids for the `[[...]]` autocomplete popover (anchor positioning).
+    let ac_uid_sv = StoredValue::new(use_random_id_for("ac_menu"));
+    let ac_popover_id_sv = StoredValue::new(format!("ac_popover{}", ac_uid_sv.get_value()));
+    let ac_anchor_name_sv = StoredValue::new(format!("--ac_anchor{}", ac_uid_sv.get_value()));
+
+    // Autocomplete list container ref (for keyboard selection scroll).
+    let ac_list_ref: NodeRef<html::Div> = NodeRef::new();
+
+    // Keep selected item visible while navigating the autocomplete menu with ArrowUp/ArrowDown.
+    Effect::new(move |_| {
+        let ac = ac_sv.get_value();
+        if !ac.ac_open.get() {
+            return;
+        }
+
+        // Track both items and index so we react to changes.
+        let items_len = ac.ac_items.get().len();
+        let _idx = ac.ac_index.get();
+        if items_len == 0 {
+            return;
+        }
+
+        let Some(list_el) = ac_list_ref.get() else {
+            return;
+        };
+
+        // Defer to next tick so DOM updates have applied.
+        let _ = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                wasm_bindgen::closure::Closure::once_into_js(move || {
+                    let list_elem: web_sys::Element = list_el.unchecked_into();
+                    let Ok(Some(row)) = list_elem.query_selector(
+                        "[data-name='CommandItem'][aria-selected='true']",
+                    ) else {
+                        return;
+                    };
+
+                    let list_he: web_sys::HtmlElement = list_elem.unchecked_into();
+                    let row_he: web_sys::HtmlElement = row.unchecked_into();
+
+                    let row_top = row_he.offset_top() as i32;
+                    let row_bottom = row_top + row_he.offset_height() as i32;
+
+                    let view_top = list_he.scroll_top();
+                    let view_bottom = view_top + list_he.client_height() as i32;
+
+                    if row_top < view_top {
+                        list_he.set_scroll_top(row_top);
+                    } else if row_bottom > view_bottom {
+                        list_he.set_scroll_top(row_bottom - list_he.client_height() as i32);
+                    }
+                })
+                .as_ref()
+                .unchecked_ref(),
+                0,
+            );
+    });
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
 
@@ -1109,6 +1169,7 @@ pub fn OutlineNode(
                                             // reactive values are disposed during navigation/unmount.
                                             attr:data-nav-id=nav_id_sv.get_value()
                                             attr:data-note-id=note_id_sv.get_value()
+                                            style=format!("anchor-name: {}", ac_anchor_name_sv.get_value())
                                             class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                                             value=move || editing_value.get()
                                             on:input=move |ev: web_sys::Event| {
@@ -1991,94 +2052,164 @@ pub fn OutlineNode(
                                             }
                                         />
 
-                                        <Show when=move || ac_sv.get_value().ac_open.get()>
-                                            <div class="absolute z-50 mt-1 w-[28rem] max-w-full rounded-md border border-border-strong bg-background text-foreground p-1 text-sm shadow-lg">
-                                                {move || {
-                                                    let ac = ac_sv.get_value();
-                                                    let items = ac.ac_items.get();
-                                                    let idx = ac.ac_index.get();
-                                                    if items.is_empty() {
-                                                        if ac.titles_loading.get() {
-                                                            return view! {
-                                                                <div class="px-2 py-1 text-muted-foreground">"Loading…"</div>
-                                                            }
-                                                            .into_any();
-                                                        }
-                                                        return ().into_any();
-                                                    }
+                                        {move || {
+                                            let popover_id = ac_popover_id_sv.get_value();
+                                            let anchor_name = ac_anchor_name_sv.get_value();
+                                            let open = ac_sv.get_value().ac_open.get();
 
-                                                    view! {
-                                                        <div class="max-h-64 overflow-auto">
-                                                            {items
-                                                                .into_iter()
-                                                                .enumerate()
-                                                                .map(|(i, it)| {
-                                                                    let selected = move || i == idx;
-                                                                    let title = it.title.clone();
-                                                                    let is_new = it.is_new;
+                                            // A small JS bridge to sync `data-open` -> Popover API.
+                                            let sync_script = format!(
+                                                r#"(() => {{
+  const pop = document.getElementById('{id}');
+  if (!pop || pop.dataset.init) return;
+  pop.dataset.init = '1';
 
-                                                                    view! {
-                                                                        <div
-                                                                            class=move || {
-                                                                                if selected() {
-                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 bg-accent text-accent-foreground"
-                                                                                } else {
-                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 hover:bg-accent/60"
-                                                                                }
-                                                                            }
-                                                                            on:mousedown=move |ev: web_sys::MouseEvent| {
-                                                                                // Prevent input blur.
-                                                                                ev.prevent_default();
+  const sync = () => {{
+    const open = pop.getAttribute('data-open') === 'true';
+    try {{
+      if (open) pop.showPopover();
+      else pop.hidePopover();
+    }} catch (_) {{}}
+  }};
 
-                                                                                if let Some(input_el) = editing_ref.get() {
-                                                                                    let v = input_el.value();
-                                                                                    let caret_utf16 = input_el
-                                                                                        .selection_start()
-                                                                                        .ok()
-                                                                                        .flatten()
-                                                                                        .unwrap_or(v.encode_utf16().count() as u32);
-                                                                                    let caret_byte = utf16_to_byte_idx(&v, caret_utf16);
-                                                                                    let start_utf16 = ac.ac_start_utf16.get_untracked().unwrap_or(0);
-                                                                                    let start_byte = utf16_to_byte_idx(&v, start_utf16);
+  const mo = new MutationObserver(sync);
+  mo.observe(pop, {{ attributes: true, attributeFilter: ['data-open'] }});
+  sync();
+}})();"#,
+                                                id = popover_id
+                                            );
 
-                                                                                    let mut next = String::new();
-                                                                                    next.push_str(&v[..start_byte.min(v.len())]);
-                                                                                    next.push_str("[[");
-                                                                                    next.push_str(&title);
-                                                                                    next.push_str("]]" );
-                                                                                    next.push_str(&v[caret_byte.min(v.len())..]);
+                                            view! {
+                                                <>
+                                                    <style>
+                                                        {format!(
+                                                            r#"
+#{popover_id} {{
+  position-anchor: {anchor_name};
+  inset: auto;
+  top: anchor(bottom);
+  left: anchor(left);
+  margin-top: 4px;
+  @position-try(flip-block) {{
+    bottom: anchor(top);
+    top: auto;
+    margin-bottom: 4px;
+    margin-top: 0;
+  }}
+  position-try-fallbacks: flip-block;
+  position-try-order: most-height;
+  position-visibility: anchors-visible;
+  z-index: 1000000;
+}}
+"#,
+                                                            popover_id = popover_id,
+                                                            anchor_name = anchor_name
+                                                        )}
+                                                    </style>
 
-                                                                                    input_el.set_value(&next);
-                                                                                    editing_value.set(next.clone());
+                                                    <div
+                                                        id=popover_id
+                                                        popover="manual"
+                                                        data-open=open.to_string()
+                                                        class="z-50 w-[28rem] max-w-[90vw] rounded-md border border-border-strong bg-background text-foreground p-1 text-sm shadow-lg"
+                                                    >
+                                                        {move || {
+                                                            let ac = ac_sv.get_value();
+                                                            let items = ac.ac_items.get();
+                                                            let idx = ac.ac_index.get();
 
-                                                                                    let caret_after = start_utf16
-                                                                                        + 2
-                                                                                        + (title.encode_utf16().count() as u32)
-                                                                                        + 2;
-                                                                                    let _ = input_el.set_selection_range(caret_after, caret_after);
-                                                                                }
-
-                                                                                ac.ac_open.set(false);
-                                                                                ac.ac_start_utf16.set(None);
-                                                                            }
-                                                                            on:mousemove=move |_ev| {
-                                                                                ac.ac_index.set(i);
-                                                                            }
-                                                                        >
-                                                                            <div class="truncate">{title.clone()}</div>
-                                                                            <Show when=move || is_new fallback=|| ().into_view()>
-                                                                                <div class="ml-2 shrink-0 text-xs text-muted-foreground">"Create"</div>
-                                                                            </Show>
-                                                                        </div>
+                                                            if items.is_empty() {
+                                                                if ac.titles_loading.get() {
+                                                                    return view! {
+                                                                        <div class="px-2 py-1 text-muted-foreground">"Loading…"</div>
                                                                     }
-                                                                })
-                                                                .collect_view()}
-                                                        </div>
-                                                    }
-                                                    .into_any()
-                                                }}
-                                            </div>
-                                        </Show>
+                                                                    .into_any();
+                                                                }
+                                                                return ().into_any();
+                                                            }
+
+                                                            view! {
+                                                                <Command class="w-full" should_filter=false disable_scripts=true>
+                                                                    <div class="max-h-64 overflow-auto" node_ref=ac_list_ref>
+                                                                        <CommandList class="max-h-none min-h-0">
+                                                                            {items
+                                                                            .into_iter()
+                                                                            .enumerate()
+                                                                            .map(|(i, it)| {
+                                                                                let title = it.title.clone();
+                                                                                let title_for_insert = title.clone();
+                                                                                let title_for_view = title.clone();
+                                                                                let is_new = it.is_new;
+                                                                                let selected = Signal::derive(move || i == idx);
+
+                                                                                let ac = ac_sv.get_value();
+
+                                                                                view! {
+                                                                                    <CommandItem
+                                                                                        value=title.clone()
+                                                                                        selected=selected
+                                                                                        class="flex items-center justify-between rounded px-2 py-1 hover:bg-surface-hover"
+                                                                                        on_mousedown=Some(Callback::new(move |ev: web_sys::MouseEvent| {
+                                                                                            // Prevent input blur.
+                                                                                            ev.prevent_default();
+
+                                                                                            if let Some(input_el) = editing_ref.get() {
+                                                                                                let v = input_el.value();
+                                                                                                let caret_utf16 = input_el
+                                                                                                    .selection_start()
+                                                                                                    .ok()
+                                                                                                    .flatten()
+                                                                                                    .unwrap_or(v.encode_utf16().count() as u32);
+                                                                                                let caret_byte = utf16_to_byte_idx(&v, caret_utf16);
+                                                                                                let start_utf16 = ac.ac_start_utf16.get_untracked().unwrap_or(0);
+                                                                                                let start_byte = utf16_to_byte_idx(&v, start_utf16);
+
+                                                                                                let mut next = String::new();
+                                                                                                next.push_str(&v[..start_byte.min(v.len())]);
+                                                                                                next.push_str("[[");
+                                                                                                next.push_str(&title_for_insert);
+                                                                                                next.push_str("]]" );
+                                                                                                next.push_str(&v[caret_byte.min(v.len())..]);
+
+                                                                                                input_el.set_value(&next);
+                                                                                                editing_value.set(next.clone());
+
+                                                                                                let caret_after = start_utf16
+                                                                                                    + 2
+                                                                                                    + (title_for_insert.encode_utf16().count() as u32)
+                                                                                                    + 2;
+                                                                                                let _ = input_el.set_selection_range(caret_after, caret_after);
+                                                                                            }
+
+                                                                                            ac.ac_open.set(false);
+                                                                                            ac.ac_start_utf16.set(None);
+                                                                                        }))
+                                                                                        on:mousemove=move |_ev| {
+                                                                                            ac.ac_index.set(i);
+                                                                                        }
+                                                                                        attr:data-ac-idx=i.to_string()
+                                                                                    >
+                                                                                        <div class="truncate">{title_for_view.clone()}</div>
+                                                                                        <Show when=move || is_new fallback=|| ().into_view()>
+                                                                                            <div class="ml-2 shrink-0 text-xs text-muted-foreground">"Create"</div>
+                                                                                        </Show>
+                                                                                    </CommandItem>
+                                                                                }
+                                                                            })
+                                                                            .collect_view()}
+                                                                        </CommandList>
+                                                                    </div>
+                                                                </Command>
+                                                            }
+                                                            .into_any()
+                                                        }}
+                                                    </div>
+
+                                                    <script>{sync_script}</script>
+                                                </>
+                                            }
+                                            .into_any()
+                                        }}
                                     </div>
                                     }
                                     .into_any()

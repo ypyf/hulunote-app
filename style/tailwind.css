@@ -23,6 +23,15 @@
   --border: 30 32 35;               /* color-border: #1E2023 */
   --border-strong: 42 45 51;        /* color-border-strong: #2A2D33 */
 
+  /* Rust/UI compatibility aliases (use `--color-*` tokens inside generated components) */
+  --color-background: rgb(var(--background));
+  --color-foreground: rgb(var(--foreground));
+  /* Make `muted` a visible selection background (slightly lighter than base surface). */
+  --color-muted: rgb(var(--surface-hover));
+  --color-muted-foreground: rgb(var(--muted-foreground));
+  --color-border: rgb(var(--border));
+  --color-border-strong: rgb(var(--border-strong));
+
   /* Accent tokens */
   --accent: 113 112 255;            /* color-accent: #7170FF */
   --accent-hover: 126 125 255;      /* color-accent-hover: #7E7DFF */
@@ -30,6 +39,10 @@
   --accent-foreground: 11 12 14;    /* color-on-accent: #0B0C0E */
   --accent-soft: rgba(113, 112, 255, 0.16); /* more visible hover fill */
   --ring: rgba(113, 112, 255, 0.45);        /* color-ring */
+
+  --color-accent: rgb(var(--accent));
+  --color-accent-foreground: rgb(var(--accent-foreground));
+  --color-ring: var(--ring);
 
   /* Semantic colors used by Rust/UI component variants (shadcn-ish) */
   --secondary: 18 19 22;                /* surface-hover */
