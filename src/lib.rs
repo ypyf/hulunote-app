@@ -3217,11 +3217,10 @@ pub fn OutlineNode(
                                                             x.content = current_content.clone();
                                                             x.same_deep_order = new_order;
                                                         }
-                                                        xs.sort_by(|a, b| {
-                                                            a.same_deep_order
-                                                                .partial_cmp(&b.same_deep_order)
-                                                                .unwrap_or(std::cmp::Ordering::Equal)
-                                                        });
+
+                                                        // Keep navs unsorted: rendering and navigation sort per-parent using
+                                                        // `same_deep_order`, so globally sorting the whole list is unnecessary
+                                                        // work (and gets slower as the outline grows).
                                                     });
 
                                                     // Persist to backend.
@@ -3700,7 +3699,8 @@ pub fn OutlineNode(
                                                         me.same_deep_order + 1.0
                                                     };
 
-                                                    editing_id.set(None);
+                                                    // Keep the current input mounted while we create the next node.
+                                                    // This avoids an extra unmount/remount cycle (and reduces perceived lag).
 
                                                     spawn_local(async move {
                                                         let _ = api_client.upsert_nav(save_req).await;
@@ -3734,12 +3734,13 @@ pub fn OutlineNode(
                                                                         is_display: true,
                                                                         is_delete: false,
                                                                     });
-                                                                    xs.sort_by(|a, b| a.same_deep_order
-                                                                        .partial_cmp(&b.same_deep_order)
-                                                                        .unwrap_or(std::cmp::Ordering::Equal));
+
+                                                                    // Keep navs unsorted: children are sorted per-parent at render
+                                                                    // time and in keyboard navigation.
                                                                 });
                                                                 editing_id.set(Some(new_id));
                                                                 editing_value.set(String::new());
+                                                                target_cursor_col.set(Some(0));
                                                             }
                                                         }
                                                     });
