@@ -560,21 +560,7 @@ pub fn OutlineNode(
                         return;
                     };
 
-                    // Scroll the *popup list* (not the page) to keep the selected row visible.
-                    let list: web_sys::HtmlElement = list_el.unchecked_into();
-                    let selected: web_sys::HtmlElement = selected.unchecked_into();
-
-                    let list_top = list.scroll_top();
-                    let list_h = list.client_height();
-                    let item_top = selected.offset_top();
-                    let item_h = selected.offset_height();
-                    let item_bottom = item_top + item_h;
-
-                    if item_top < list_top {
-                        list.set_scroll_top(item_top);
-                    } else if item_bottom > list_top + list_h {
-                        list.set_scroll_top(item_bottom - list_h);
-                    }
+                    selected.scroll_into_view();
                 })
                 .as_ref()
                 .unchecked_ref(),
