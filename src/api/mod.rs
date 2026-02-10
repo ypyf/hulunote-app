@@ -633,17 +633,44 @@ impl ApiClient {
 
         let mut out: Vec<Nav> = Vec::with_capacity(list.len());
         for item in list {
+            // Preferred: canonical contract uses non-namespaced kebab-case keys.
+            // We also accept namespaced variants defensively.
+            if let Ok(nav) = serde_json::from_value::<Nav>(item.clone()) {
+                out.push(nav);
+                continue;
+            }
+
             let get_s = |k: &str| item.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
             let get_f = |k: &str| item.get(k).and_then(|v| v.as_f64());
             let get_b = |k: &str| item.get(k).and_then(|v| v.as_bool());
 
-            let id = get_s("hulunote-navs/id").unwrap_or_default();
-            let note_id = get_s("hulunote-navs/note-id").unwrap_or_default();
-            let parid = get_s("hulunote-navs/parid").unwrap_or_default();
-            let same_deep_order = get_f("hulunote-navs/same-deep-order").unwrap_or(0.0) as f32;
-            let content = get_s("hulunote-navs/content").unwrap_or_default();
-            let is_display = get_b("hulunote-navs/is-display").unwrap_or(true);
-            let is_delete = get_b("hulunote-navs/is-delete").unwrap_or(false);
+            let id = get_s("id")
+                .or_else(|| get_s("hulunote-navs/id"))
+                .unwrap_or_default();
+
+            let note_id = get_s("note-id")
+                .or_else(|| get_s("hulunote-navs/note-id"))
+                .unwrap_or_default();
+
+            let parid = get_s("parid")
+                .or_else(|| get_s("hulunote-navs/parid"))
+                .unwrap_or_default();
+
+            let same_deep_order = get_f("same-deep-order")
+                .or_else(|| get_f("hulunote-navs/same-deep-order"))
+                .unwrap_or(0.0) as f32;
+
+            let content = get_s("content")
+                .or_else(|| get_s("hulunote-navs/content"))
+                .unwrap_or_default();
+
+            let is_display = get_b("is-display")
+                .or_else(|| get_b("hulunote-navs/is-display"))
+                .unwrap_or(true);
+
+            let is_delete = get_b("is-delete")
+                .or_else(|| get_b("hulunote-navs/is-delete"))
+                .unwrap_or(false);
 
             if !id.trim().is_empty() && !note_id.trim().is_empty() {
                 out.push(Nav {
