@@ -1,12 +1,34 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
-use crate::wiki::{normalize_roam_page_title, parse_wiki_tokens, WikiToken};
+use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcItem {
+    title: String,
+    is_new: bool,
+}
+
+#[derive(Clone)]
+struct AutocompleteCtx {
+    ac_open: RwSignal<bool>,
+    ac_query: RwSignal<String>,
+    ac_items: RwSignal<Vec<AcItem>>,
+    ac_index: RwSignal<usize>,
+    // Start position (UTF-16 code units) of the `[[` trigger in the current input.
+    ac_start_utf16: RwSignal<Option<u32>>,
+
+    // Cache all possible page titles for current DB (notes + wiki links from all navs).
+    titles_cache_db: RwSignal<Option<String>>,
+    titles_cache: RwSignal<Vec<String>>,
+    titles_loading: RwSignal<bool>,
+}
+
 /// Update a nav's content in the local in-memory list.
 ///
 /// This is used by multiple interaction paths (blur-save, click-to-switch, key navigation)
@@ -22,6 +44,83 @@ pub(crate) fn apply_nav_content(navs: &mut [Nav], nav_id: &str, content: &str) -
 
 pub(crate) fn is_tmp_nav_id(id: &str) -> bool {
     id.starts_with("tmp-")
+}
+
+fn utf16_to_byte_idx(s: &str, pos_utf16: u32) -> usize {
+    if pos_utf16 == 0 {
+        return 0;
+    }
+    let mut acc: u32 = 0;
+    for (i, ch) in s.char_indices() {
+        let w = ch.len_utf16() as u32;
+        if acc + w > pos_utf16 {
+            return i;
+        }
+        acc += w;
+        if acc == pos_utf16 {
+            return i + ch.len_utf8();
+        }
+    }
+    s.len()
+}
+
+fn byte_idx_to_utf16(s: &str, byte_idx: usize) -> u32 {
+    s[..byte_idx.min(s.len())].encode_utf16().count() as u32
+}
+
+fn ensure_titles_loaded(app_state: &AppContext, ac: &AutocompleteCtx) {
+    let db_id = app_state
+        .0
+        .current_database_id
+        .get_untracked()
+        .unwrap_or_default();
+    if db_id.trim().is_empty() {
+        return;
+    }
+
+    if ac.titles_loading.get_untracked() {
+        return;
+    }
+
+    if ac.titles_cache_db.get_untracked().as_deref() == Some(db_id.as_str())
+        && !ac.titles_cache.get_untracked().is_empty()
+    {
+        return;
+    }
+
+    ac.titles_loading.set(true);
+    ac.titles_cache_db.set(Some(db_id.clone()));
+
+    let api_client = app_state.0.api_client.get_untracked();
+    let notes = app_state.0.notes.get_untracked();
+
+    let ac2 = ac.clone();
+    spawn_local(async move {
+        // 1) Existing note titles
+        let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for n in notes {
+            if n.database_id == db_id && !n.title.trim().is_empty() {
+                set.insert(n.title);
+            }
+        }
+
+        // 2) Titles referenced via [[...]] across all navs in DB (includes unreferenced pages).
+        if let Ok(all_navs) = api_client.get_all_navs(&db_id).await {
+            for nav in all_navs {
+                if nav.is_delete {
+                    continue;
+                }
+                for t in extract_wiki_links(&nav.content) {
+                    if !t.trim().is_empty() {
+                        set.insert(t);
+                    }
+                }
+            }
+        }
+
+        ac2.titles_cache.set(set.into_iter().collect::<Vec<_>>());
+        ac2.titles_loading.set(false);
+    });
 }
 
 pub(crate) fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
@@ -142,6 +241,21 @@ pub fn OutlineEditor(
     let target_cursor_col: RwSignal<Option<u32>> = RwSignal::new(None);
     let editing_ref: NodeRef<html::Input> = NodeRef::new();
 
+    // Autocomplete for `[[...]]` (Roam-style)
+    // - Data source is fixed: existing notes + titles extracted from all nav contents in current DB.
+    // - Supports creating new titles (insert text even if no existing note).
+    let ac_open: RwSignal<bool> = RwSignal::new(false);
+    let ac_query: RwSignal<String> = RwSignal::new(String::new());
+    let ac_items: RwSignal<Vec<AcItem>> = RwSignal::new(vec![]);
+    let ac_index: RwSignal<usize> = RwSignal::new(0);
+    // Start position (UTF-16 code units) of the `[[` trigger in the current input.
+    let ac_start_utf16: RwSignal<Option<u32>> = RwSignal::new(None);
+
+    // Cache all possible page titles for current DB (notes + wiki links from all navs).
+    let titles_cache_db: RwSignal<Option<String>> = RwSignal::new(None);
+    let titles_cache: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let titles_loading: RwSignal<bool> = RwSignal::new(false);
+
     // Load navs when note_id changes.
     let note_id_for_effect = note_id.clone();
     Effect::new(move |_| {
@@ -192,6 +306,18 @@ pub fn OutlineEditor(
                     0,
                 );
         }
+    });
+
+    // Provide autocomplete context to OutlineNode.
+    provide_context(AutocompleteCtx {
+        ac_open,
+        ac_query,
+        ac_items,
+        ac_index,
+        ac_start_utf16,
+        titles_cache_db,
+        titles_cache,
+        titles_loading,
     });
 
     view! {
@@ -283,6 +409,7 @@ pub fn OutlineNode(
     focused_nav_id: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
+    let ac = expect_context::<AutocompleteCtx>();
     let navigate = leptos_router::hooks::use_navigate();
 
     let nav_id_for_nav = nav_id.clone();
@@ -295,6 +422,7 @@ pub fn OutlineNode(
     let nav_id_sv = StoredValue::new(nav_id.clone());
     let note_id_sv = StoredValue::new(note_id.clone());
     let app_state_sv = StoredValue::new(app_state.clone());
+    let ac_sv = StoredValue::new(ac.clone());
     let navigate_sv = StoredValue::new(navigate.clone());
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
@@ -599,80 +727,251 @@ pub fn OutlineNode(
                                                                         return view! { <span>"[[]]"</span> }.into_any();
                                                                     }
 
+                                                                    let title_display = title_raw.clone();
+                                                                    let title_preview_title = title_raw.clone();
+
                                                                     let title_for_click = title_raw.clone();
                                                                     let title_for_title = title_for_click.clone();
-                                                                    view! {
-                                                                        <a
-                                                                            class="text-primary underline underline-offset-2 hover:text-primary/80"
-                                                                            href="#"
-                                                                            title=move || format!("Open page: {}", title_for_title)
-                                                                            on:mousedown=move |ev: web_sys::MouseEvent| {
-                                                                                // Prevent switching into edit mode.
-                                                                                ev.prevent_default();
-                                                                                ev.stop_propagation();
 
-                                                                                let title = title_for_click.clone();
+                                                                    // Avoid moving `app_state` into one handler and breaking the other.
+                                                                    let app_state_hover = app_state.clone();
+                                                                    let app_state_click = app_state.clone();
+
+                                                                    // Hover preview: title + first N navs (best-effort).
+                                                                    let preview_open: RwSignal<bool> = RwSignal::new(false);
+                                                                    let preview_loading: RwSignal<bool> = RwSignal::new(false);
+                                                                    let preview_error: RwSignal<Option<String>> = RwSignal::new(None);
+                                                                    let preview_lines: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+                                                                    let preview_loaded_for: RwSignal<Option<String>> = RwSignal::new(None);
+
+                                                                    let title_for_hover = title_raw.clone();
+
+                                                                    view! {
+                                                                        <span class="relative inline-block"
+                                                                            on:mouseenter=move |_ev: web_sys::MouseEvent| {
+                                                                                preview_open.set(true);
+
+                                                                                // Avoid refetching while hovering same title.
+                                                                                if preview_loaded_for.get_untracked().as_deref() == Some(title_for_hover.as_str()) {
+                                                                                    return;
+                                                                                }
+                                                                                preview_loaded_for.set(Some(title_for_hover.clone()));
+                                                                                preview_loading.set(true);
+                                                                                preview_error.set(None);
+                                                                                preview_lines.set(vec![]);
+
+                                                                                let title = title_for_hover.clone();
                                                                                 let title_norm = normalize_roam_page_title(&title);
 
-                                                                                let db_id = app_state
+                                                                                let db_id = app_state_hover
                                                                                     .0
                                                                                     .current_database_id
                                                                                     .get_untracked()
                                                                                     .unwrap_or_default();
-                                                                                if db_id.trim().is_empty() {
-                                                                                    return;
-                                                                                }
+                                                                                let notes = app_state_hover.0.notes.get_untracked();
+                                                                                let api_client = app_state_hover.0.api_client.get_untracked();
+                                                                                let app_state_hover2 = app_state_hover.clone();
 
-                                                                                let api_client = app_state.0.api_client.get_untracked();
-                                                                                let navigate2 = navigate.clone();
-                                                                                let app_state2 = app_state.clone();
                                                                                 spawn_local(async move {
-                                                                                    let find_existing_id = |notes: &[Note]| {
-                                                                                        notes
-                                                                                            .iter()
-                                                                                            .find(|n| {
-                                                                                                n.database_id == db_id
-                                                                                                    && normalize_roam_page_title(&n.title)
-                                                                                                        == title_norm
-                                                                                            })
-                                                                                            .map(|n| n.id.clone())
+                                                                                    // 1) Try local notes first.
+                                                                                    let mut note_id_opt = notes
+                                                                                        .iter()
+                                                                                        .find(|n| {
+                                                                                            n.database_id == db_id
+                                                                                                && normalize_roam_page_title(&n.title) == title_norm
+                                                                                        })
+                                                                                        .map(|n| n.id.clone());
+
+                                                                                    // 2) If missing, refresh note list (best-effort) and try again.
+                                                                                    if note_id_opt.is_none() {
+                                                                                        match api_client.get_all_note_list(&db_id).await {
+                                                                                            Ok(notes2) => {
+                                                                                                // Keep global notes cache in sync so future hovers/clicks work.
+                                                                                                app_state_hover2.0.notes.set(notes2.clone());
+
+                                                                                                note_id_opt = notes2
+                                                                                                    .iter()
+                                                                                                    .find(|n| {
+                                                                                                        n.database_id == db_id
+                                                                                                            && normalize_roam_page_title(&n.title) == title_norm
+                                                                                                    })
+                                                                                                    .map(|n| n.id.clone());
+                                                                                            }
+                                                                                            Err(e) => {
+                                                                                                preview_error.set(Some(e));
+                                                                                            }
+                                                                                        }
+                                                                                    }
+
+                                                                                    let Some(note_id) = note_id_opt else {
+                                                                                        // Unreferenced (not created yet) is OK.
+                                                                                        preview_loading.set(false);
+                                                                                        return;
                                                                                     };
 
-                                                                                    // 1) Try local notes first.
-                                                                                    if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
-                                                                                        navigate2(
-                                                                                            &format!("/db/{}/note/{}", db_id, id),
-                                                                                            leptos_router::NavigateOptions::default(),
-                                                                                        );
+                                                                                    match api_client.get_note_navs(&note_id).await {
+                                                                                        Ok(navs) => {
+                                                                                            // Build a visible preorder list with indentation.
+                                                                                            let root = "00000000-0000-0000-0000-000000000000";
+
+                                                                                            let mut by_parent: std::collections::HashMap<String, Vec<Nav>> =
+                                                                                                std::collections::HashMap::new();
+                                                                                            for n in navs.into_iter() {
+                                                                                                if n.is_delete {
+                                                                                                    continue;
+                                                                                                }
+                                                                                                by_parent.entry(n.parid.clone()).or_default().push(n);
+                                                                                            }
+                                                                                            for (_k, xs) in by_parent.iter_mut() {
+                                                                                                xs.sort_by(|a, b| a
+                                                                                                    .same_deep_order
+                                                                                                    .partial_cmp(&b.same_deep_order)
+                                                                                                    .unwrap_or(std::cmp::Ordering::Equal));
+                                                                                            }
+
+                                                                                            let mut out: Vec<String> = vec![];
+                                                                                            fn walk(
+                                                                                                by_parent: &std::collections::HashMap<String, Vec<Nav>>,
+                                                                                                parid: &str,
+                                                                                                depth: usize,
+                                                                                                out: &mut Vec<String>,
+                                                                                                limit: usize,
+                                                                                            ) {
+                                                                                                if out.len() >= limit {
+                                                                                                    return;
+                                                                                                }
+                                                                                                let Some(kids) = by_parent.get(parid) else { return; };
+                                                                                                for n in kids.iter() {
+                                                                                                    if out.len() >= limit {
+                                                                                                        return;
+                                                                                                    }
+                                                                                                    let indent = "  ".repeat(depth);
+                                                                                                    let line = format!("{}{}", indent, n.content);
+                                                                                                    out.push(line);
+                                                                                                    if n.is_display {
+                                                                                                        walk(by_parent, &n.id, depth + 1, out, limit);
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                            walk(&by_parent, root, 0, &mut out, 8);
+                                                                                            preview_lines.set(out);
+                                                                                        }
+                                                                                        Err(e) => {
+                                                                                            preview_error.set(Some(e));
+                                                                                        }
+                                                                                    }
+
+                                                                                    preview_loading.set(false);
+                                                                                });
+                                                                            }
+                                                                            on:mouseleave=move |_ev: web_sys::MouseEvent| {
+                                                                                preview_open.set(false);
+                                                                            }
+                                                                        >
+                                                                            <a
+                                                                                class="text-primary underline underline-offset-2 hover:text-primary/80"
+                                                                                href="#"
+                                                                                title=move || format!("Open page: {}", title_for_title)
+                                                                                on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                                    // Prevent switching into edit mode.
+                                                                                    ev.prevent_default();
+                                                                                    ev.stop_propagation();
+
+                                                                                    let title = title_for_click.clone();
+                                                                                    let title_norm = normalize_roam_page_title(&title);
+
+                                                                                    let db_id = app_state_click
+                                                                                        .0
+                                                                                        .current_database_id
+                                                                                        .get_untracked()
+                                                                                        .unwrap_or_default();
+                                                                                    if db_id.trim().is_empty() {
                                                                                         return;
                                                                                     }
 
-                                                                                    // 2) Refresh notes list for this DB, then try again.
-                                                                                    if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
-                                                                                        app_state2.0.notes.set(notes.clone());
-                                                                                        if let Some(id) = find_existing_id(&notes) {
+                                                                                    let api_client = app_state_click.0.api_client.get_untracked();
+                                                                                    let navigate2 = navigate.clone();
+                                                                                    let app_state2 = app_state_click.clone();
+                                                                                    spawn_local(async move {
+                                                                                        let find_existing_id = |notes: &[Note]| {
+                                                                                            notes
+                                                                                                .iter()
+                                                                                                .find(|n| {
+                                                                                                    n.database_id == db_id
+                                                                                                        && normalize_roam_page_title(&n.title)
+                                                                                                            == title_norm
+                                                                                                })
+                                                                                                .map(|n| n.id.clone())
+                                                                                        };
+
+                                                                                        // 1) Try local notes first.
+                                                                                        if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
                                                                                             navigate2(
                                                                                                 &format!("/db/{}/note/{}", db_id, id),
                                                                                                 leptos_router::NavigateOptions::default(),
                                                                                             );
                                                                                             return;
                                                                                         }
-                                                                                    }
 
-                                                                                    // 3) Still not found: open draft note view (Roam-style, no create on click).
-                                                                                    navigate2(
-                                                                                        &format!(
-                                                                                            "/db/{}/note?title={}",
-                                                                                            db_id,
-                                                                                            urlencoding::encode(&title)
-                                                                                        ),
-                                                                                        leptos_router::NavigateOptions::default(),
-                                                                                    );
-                                                                                });
-                                                                            }
-                                                                        >
-                                                                            "[["{title_raw}"]]"
-                                                                        </a>
+                                                                                        // 2) Refresh notes list for this DB, then try again.
+                                                                                        if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
+                                                                                            app_state2.0.notes.set(notes.clone());
+                                                                                            if let Some(id) = find_existing_id(&notes) {
+                                                                                                navigate2(
+                                                                                                    &format!("/db/{}/note/{}", db_id, id),
+                                                                                                    leptos_router::NavigateOptions::default(),
+                                                                                                );
+                                                                                                return;
+                                                                                            }
+                                                                                        }
+
+                                                                                        // 3) Still not found: open draft note view (Roam-style, no create on click).
+                                                                                        navigate2(
+                                                                                            &format!(
+                                                                                                "/db/{}/note?title={}",
+                                                                                                db_id,
+                                                                                                urlencoding::encode(&title)
+                                                                                            ),
+                                                                                            leptos_router::NavigateOptions::default(),
+                                                                                        );
+                                                                                    });
+                                                                                }
+                                                                            >
+                                                                                "[["{title_display}"]]"
+                                                                            </a>
+
+                                                                            <Show when=move || preview_open.get()>
+                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border bg-popover p-3 text-xs shadow-lg">
+                                                                                    <div class="font-medium truncate">{title_preview_title.clone()}</div>
+                                                                                    <Show when=move || preview_loading.get() fallback=|| ().into_view()>
+                                                                                        <div class="mt-2 text-muted-foreground">"Loading…"</div>
+                                                                                    </Show>
+                                                                                    <Show when=move || preview_error.get().is_some() fallback=|| ().into_view()>
+                                                                                        <div class="mt-2 text-destructive">{move || preview_error.get().unwrap_or_default()}</div>
+                                                                                    </Show>
+                                                                                    <Show
+                                                                                        when=move || !preview_loading.get() && preview_error.get().is_none()
+                                                                                        fallback=|| ().into_view()
+                                                                                    >
+                                                                                        {move || {
+                                                                                            let lines = preview_lines.get();
+                                                                                            if lines.is_empty() {
+                                                                                                return view! { <div class="mt-2 text-muted-foreground">"No content (page may not exist yet)."</div> }.into_any();
+                                                                                            }
+                                                                                            view! {
+                                                                                                <div class="mt-2 space-y-1">
+                                                                                                    {lines
+                                                                                                        .into_iter()
+                                                                                                        .map(|l| view! { <div class="whitespace-pre-wrap break-words">{l}</div> })
+                                                                                                        .collect_view()}
+                                                                                                </div>
+                                                                                            }
+                                                                                            .into_any()
+                                                                                        }}
+                                                                                    </Show>
+                                                                                </div>
+                                                                            </Show>
+                                                                        </span>
                                                                     }
                                                                     .into_any()
                                                                 }
@@ -686,6 +985,7 @@ pub fn OutlineNode(
                                     }
 
                                     view! {
+                                        <div class="relative">
                                         <input
                                             node_ref=editing_ref
                                             // Store stable ids on the DOM node so blur handlers can read them even if
@@ -694,10 +994,94 @@ pub fn OutlineNode(
                                             attr:data-note-id=note_id_sv.get_value()
                                             class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                                             value=move || editing_value.get()
-                                            on:input=move |ev| {
-                                                editing_value.set(event_target_value(&ev));
+                                            on:input=move |ev: web_sys::Event| {
+                                                let v = event_target_value(&ev);
+                                                editing_value.set(v.clone());
+
+                                                // Autocomplete: detect an unclosed `[[...` immediately before the caret.
+                                                let caret_utf16 = ev
+                                                    .target()
+                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                    .and_then(|el| el.selection_start().ok().flatten())
+                                                    .unwrap_or(v.encode_utf16().count() as u32);
+
+                                                let caret_byte = utf16_to_byte_idx(&v, caret_utf16);
+                                                let prefix = &v[..caret_byte.min(v.len())];
+
+                                                let ac = ac_sv.get_value();
+                                                let app_state = app_state_sv.get_value();
+
+                                                let Some(start_byte) = prefix.rfind("[[") else {
+                                                    ac.ac_open.set(false);
+                                                    ac.ac_start_utf16.set(None);
+                                                    return;
+                                                };
+
+                                                // If the user already closed the link before the caret, don't autocomplete.
+                                                if prefix[start_byte..].contains("]]") {
+                                                    ac.ac_open.set(false);
+                                                    ac.ac_start_utf16.set(None);
+                                                    return;
+                                                }
+
+                                                let q = prefix[start_byte + 2..].to_string();
+                                                ac.ac_query.set(q.clone());
+                                                ac.ac_start_utf16
+                                                    .set(Some(byte_idx_to_utf16(&v, start_byte)));
+
+                                                // Load titles lazily (notes + wiki links across DB).
+                                                ensure_titles_loaded(&app_state, &ac);
+
+                                                let titles = ac.titles_cache.get_untracked();
+                                                let q_norm = q.to_lowercase();
+
+                                                let mut items: Vec<AcItem> = vec![];
+
+                                                // Create-new option (only if query is non-empty and not an exact existing title).
+                                                let exact_exists = titles.iter().any(|t| t == &q);
+                                                if !q.trim().is_empty() && !exact_exists {
+                                                    items.push(AcItem {
+                                                        title: q.clone(),
+                                                        is_new: true,
+                                                    });
+                                                }
+
+                                                // Existing titles (filter).
+                                                for t in titles.into_iter() {
+                                                    if q_norm.trim().is_empty()
+                                                        || t.to_lowercase().contains(&q_norm)
+                                                    {
+                                                        // Avoid duplicating the create-new entry.
+                                                        if t == q {
+                                                            continue;
+                                                        }
+                                                        items.push(AcItem {
+                                                            title: t,
+                                                            is_new: false,
+                                                        });
+                                                    }
+                                                    if items.len() >= 20 {
+                                                        break;
+                                                    }
+                                                }
+
+                                                if items.is_empty() {
+                                                    ac.ac_open.set(false);
+                                                    ac.ac_index.set(0);
+                                                    return;
+                                                }
+
+                                                ac.ac_items.set(items);
+                                                ac.ac_index.set(0);
+                                                ac.ac_open.set(true);
                                             }
                                             on:blur=move |ev| {
+                                                let ac = ac_sv.get_value();
+
+                                                // Close autocomplete if open.
+                                                ac.ac_open.set(false);
+                                                ac.ac_start_utf16.set(None);
+
                                                 // IMPORTANT: read the value from the input element.
                                                 let new_content = event_target_value(&ev);
 
@@ -752,11 +1136,81 @@ pub fn OutlineNode(
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
 
-                                                // Helpers for Roam-style navigation
+                                                // Helpers for reading the current input element.
                                                 let input = || {
                                                     ev.target()
                                                         .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
                                                 };
+
+                                                let ac = ac_sv.get_value();
+
+                                                // Autocomplete menu key handling.
+                                                if ac.ac_open.get_untracked() {
+                                                    match key.as_str() {
+                                                        "ArrowDown" => {
+                                                            ev.prevent_default();
+                                                            let len = ac.ac_items.get_untracked().len();
+                                                            if len > 0 {
+                                                                ac.ac_index.update(|i| *i = (*i + 1).min(len - 1));
+                                                            }
+                                                            return;
+                                                        }
+                                                        "ArrowUp" => {
+                                                            ev.prevent_default();
+                                                            ac.ac_index.update(|i| *i = i.saturating_sub(1));
+                                                            return;
+                                                        }
+                                                        "Escape" => {
+                                                            ev.prevent_default();
+                                                            ac.ac_open.set(false);
+                                                            return;
+                                                        }
+                                                        "Enter" | "Tab" => {
+                                                            ev.prevent_default();
+                                                            let items = ac.ac_items.get_untracked();
+                                                            let idx = ac.ac_index.get_untracked();
+                                                            if let Some(item) = items.get(idx) {
+                                                                let chosen = item.title.clone();
+
+                                                                if let Some(input_el) = input() {
+                                                                    let v = input_el.value();
+                                                                    let caret_utf16 = input_el
+                                                                        .selection_start()
+                                                                        .ok()
+                                                                        .flatten()
+                                                                        .unwrap_or(v.encode_utf16().count() as u32);
+
+                                                                    let caret_byte = utf16_to_byte_idx(&v, caret_utf16);
+                                                                    let start_utf16 = ac.ac_start_utf16.get_untracked().unwrap_or(0);
+                                                                    let start_byte = utf16_to_byte_idx(&v, start_utf16);
+
+                                                                    let mut next = String::new();
+                                                                    next.push_str(&v[..start_byte.min(v.len())]);
+                                                                    next.push_str("[[");
+                                                                    next.push_str(&chosen);
+                                                                    next.push_str("]]" );
+                                                                    next.push_str(&v[caret_byte.min(v.len())..]);
+
+                                                                    input_el.set_value(&next);
+                                                                    editing_value.set(next.clone());
+
+                                                                    let caret_after = start_utf16
+                                                                        + 2
+                                                                        + (chosen.encode_utf16().count() as u32)
+                                                                        + 2;
+                                                                    let _ = input_el.set_selection_range(caret_after, caret_after);
+                                                                }
+
+                                                                ac.ac_open.set(false);
+                                                                ac.ac_start_utf16.set(None);
+                                                            }
+                                                            return;
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                }
+
+                                                // Helpers for Roam-style navigation
 
                                                 let save_current = |nav_id_now: &str, note_id_now: &str| {
                                                     let current_content = editing_value.get_untracked();
@@ -1440,6 +1894,90 @@ pub fn OutlineNode(
                                                 }
                                             }
                                         />
+
+                                        <Show when=move || ac_sv.get_value().ac_open.get()>
+                                            <div class="absolute z-50 mt-1 w-[28rem] max-w-full rounded-md border bg-popover p-1 text-sm shadow-lg">
+                                                {move || {
+                                                    let ac = ac_sv.get_value();
+                                                    let items = ac.ac_items.get();
+                                                    let idx = ac.ac_index.get();
+                                                    if items.is_empty() {
+                                                        return ().into_any();
+                                                    }
+
+                                                    view! {
+                                                        <div class="max-h-64 overflow-auto">
+                                                            {items
+                                                                .into_iter()
+                                                                .enumerate()
+                                                                .map(|(i, it)| {
+                                                                    let selected = move || i == idx;
+                                                                    let title = it.title.clone();
+                                                                    let is_new = it.is_new;
+
+                                                                    view! {
+                                                                        <div
+                                                                            class=move || {
+                                                                                if selected() {
+                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 bg-accent"
+                                                                                } else {
+                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 hover:bg-accent/60"
+                                                                                }
+                                                                            }
+                                                                            on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                                // Prevent input blur.
+                                                                                ev.prevent_default();
+
+                                                                                if let Some(input_el) = editing_ref.get() {
+                                                                                    let v = input_el.value();
+                                                                                    let caret_utf16 = input_el
+                                                                                        .selection_start()
+                                                                                        .ok()
+                                                                                        .flatten()
+                                                                                        .unwrap_or(v.encode_utf16().count() as u32);
+                                                                                    let caret_byte = utf16_to_byte_idx(&v, caret_utf16);
+                                                                                    let start_utf16 = ac.ac_start_utf16.get_untracked().unwrap_or(0);
+                                                                                    let start_byte = utf16_to_byte_idx(&v, start_utf16);
+
+                                                                                    let mut next = String::new();
+                                                                                    next.push_str(&v[..start_byte.min(v.len())]);
+                                                                                    next.push_str("[[");
+                                                                                    next.push_str(&title);
+                                                                                    next.push_str("]]" );
+                                                                                    next.push_str(&v[caret_byte.min(v.len())..]);
+
+                                                                                    input_el.set_value(&next);
+                                                                                    editing_value.set(next.clone());
+
+                                                                                    let caret_after = start_utf16
+                                                                                        + 2
+                                                                                        + (title.encode_utf16().count() as u32)
+                                                                                        + 2;
+                                                                                    let _ = input_el.set_selection_range(caret_after, caret_after);
+                                                                                }
+
+                                                                                ac.ac_open.set(false);
+                                                                                ac.ac_start_utf16.set(None);
+                                                                            }
+                                                                            on:mousemove=move |_ev| {
+                                                                                ac.ac_index.set(i);
+                                                                            }
+                                                                        >
+                                                                            <div class="truncate">{title.clone()}</div>
+                                                                            <Show when=move || is_new fallback=|| ().into_view()>
+                                                                                <div class="ml-2 shrink-0 text-xs text-muted-foreground">"Create"</div>
+                                                                            </Show>
+                                                                        </div>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </div>
+                                                    }
+                                                    .into_any()
+                                                }}
+                                            </div>
+                                        </Show>
+                                    </div>
                                     }
                                     .into_any()
                                 }}
