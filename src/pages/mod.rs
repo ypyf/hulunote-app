@@ -2186,182 +2186,188 @@ pub fn NotePage() -> impl IntoView {
 
                 <OutlineEditor note_id=note_id focused_nav_id=focused_nav_id />
 
-                <div class="mt-4 rounded-md border bg-card p-3">
-                    <div class="text-xs text-muted-foreground">"Backlinks"</div>
-
-                    <Show when=move || !all_db_navs_loading.get() fallback=move || view! {
-                        <div class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                            <Spinner />
-                            "Loading backlinks…"
-                        </div>
-                    }>
-                        <Show when=move || all_db_navs_error.get().is_none() fallback=move || view! {
-                            <div class="mt-2 text-xs text-destructive">
-                                {move || all_db_navs_error.get().unwrap_or_default()}
+                {move || {
+                    if all_db_navs_loading.get() {
+                        return view! {
+                            <div class="mt-4 rounded-md border bg-card p-3">
+                                <div class="text-xs text-muted-foreground">"Backlinks"</div>
+                                <div class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Spinner />
+                                    "Loading backlinks…"
+                                </div>
                             </div>
-                        }>
-                            {move || {
-                                let title = title_value.get();
-                                let title = title.trim().to_string();
-                                if title.is_empty() {
-                                    return view! {
-                                        <div class="mt-2 text-sm text-muted-foreground">"Rename the page title to enable backlinks."</div>
-                                    }
-                                    .into_any();
-                                }
+                        }
+                        .into_any();
+                    }
 
-                                let current_note_id = note_id();
+                    if let Some(err) = all_db_navs_error.get() {
+                        return view! {
+                            <div class="mt-4 rounded-md border bg-card p-3">
+                                <div class="text-xs text-muted-foreground">"Backlinks"</div>
+                                <div class="mt-2 text-xs text-destructive">{err}</div>
+                            </div>
+                        }
+                        .into_any();
+                    }
 
-                                // Build index for parent-chain rendering.
-                                let all_navs = all_db_navs.get();
-                                let mut nav_by_id: std::collections::HashMap<String, Nav> =
-                                    std::collections::HashMap::with_capacity(all_navs.len());
-                                for n in all_navs.iter() {
-                                    nav_by_id.insert(n.id.clone(), n.clone());
-                                }
+                    let title = title_value.get();
+                    let title = title.trim().to_string();
+                    if title.is_empty() {
+                        // If the note has no title, backlinks are undefined; hide the card.
+                        return ().into_view().into_any();
+                    }
 
-                                // Collect matching references (note_id -> list of (nav_id, content)).
-                                let mut refs: std::collections::BTreeMap<String, Vec<(String, String)>> =
-                                    std::collections::BTreeMap::new();
+                    let current_note_id = note_id();
 
-                                for nav in all_navs.into_iter() {
-                                    if nav.is_delete {
-                                        continue;
-                                    }
-                                    if nav.note_id == current_note_id {
-                                        continue;
-                                    }
+                    // Build index for parent-chain rendering.
+                    let all_navs = all_db_navs.get();
+                    let mut nav_by_id: std::collections::HashMap<String, Nav> =
+                        std::collections::HashMap::with_capacity(all_navs.len());
+                    for n in all_navs.iter() {
+                        nav_by_id.insert(n.id.clone(), n.clone());
+                    }
 
-                                    let links = extract_wiki_links(&nav.content);
-                                    if links.into_iter().any(|l| l == title) {
-                                        refs.entry(nav.note_id.clone())
-                                            .or_default()
-                                            .push((nav.id.clone(), nav.content.clone()));
-                                    }
-                                }
+                    // Collect matching references (note_id -> list of (nav_id, content)).
+                    let mut refs: std::collections::BTreeMap<String, Vec<(String, String)>> =
+                        std::collections::BTreeMap::new();
 
-                                if refs.is_empty() {
-                                    return view! {
-                                        <div class="mt-2 text-sm text-muted-foreground">"No backlinks yet."</div>
-                                    }
-                                    .into_any();
-                                }
+                    for nav in all_navs.into_iter() {
+                        if nav.is_delete {
+                            continue;
+                        }
+                        if nav.note_id == current_note_id {
+                            continue;
+                        }
 
-                                let db = db_id();
-                                let notes = app_state.0.notes.get();
+                        let links = extract_wiki_links(&nav.content);
+                        if links.into_iter().any(|l| l == title) {
+                            refs.entry(nav.note_id.clone())
+                                .or_default()
+                                .push((nav.id.clone(), nav.content.clone()));
+                        }
+                    }
 
-                                view! {
-                                    <div class="mt-2 space-y-2">
-                                        {refs
-                                            .into_iter()
-                                            .map(|(note_id, items)| {
-                                                let note = notes.iter().find(|n| n.id == note_id).cloned();
-                                                let note_title = note
-                                                    .as_ref()
-                                                    .map(|n| n.title.clone())
-                                                    .unwrap_or_else(|| note_id.clone());
-                                                let note_href = format!("/db/{}/note/{}", db, note_id);
+                    if refs.is_empty() {
+                        // If there are no backlinks, do not show the card at all.
+                        return ().into_view().into_any();
+                    }
 
-                                                view! {
-                                                    <div class="rounded-md border border-border bg-background p-2">
-                                                        <a
-                                                            href=note_href
-                                                            class="block truncate text-sm font-medium hover:underline"
-                                                        >
-                                                            {note_title}
-                                                        </a>
+                    let db = db_id();
+                    let notes = app_state.0.notes.get();
 
-                                                        <div class="mt-1 space-y-1">
-                                                            {items
-                                                                .into_iter()
-                                                                .map(|(nav_id, content)| {
-                                                                    let href = format!(
-                                                                        "/db/{}/note/{}?focus_nav={}",
-                                                                        db,
-                                                                        note_id,
-                                                                        urlencoding::encode(&nav_id)
-                                                                    );
+                    view! {
+                        <div class="mt-4 rounded-md border bg-card p-3">
+                            <div class="text-xs text-muted-foreground">"Backlinks"</div>
 
-                                                                    // Parent chain (context) for this nav.
-                                                                    let mut chain: Vec<String> = vec![];
-                                                                    let mut cur = nav_by_id.get(&nav_id).cloned();
-                                                                    let root = "00000000-0000-0000-0000-000000000000".to_string();
-                                                                    let mut guard = 0;
-                                                                    while let Some(n) = cur {
-                                                                        guard += 1;
-                                                                        if guard > 32 {
-                                                                            break;
-                                                                        }
-                                                                        if n.parid == root {
-                                                                            break;
-                                                                        }
-                                                                        if let Some(p) = nav_by_id.get(&n.parid) {
-                                                                            let c = p.content.trim().to_string();
-                                                                            if !c.is_empty() {
-                                                                                chain.push(c);
-                                                                            }
-                                                                            cur = Some(p.clone());
-                                                                        } else {
-                                                                            break;
-                                                                        }
+                            <div class="mt-2 space-y-2">
+                                {refs
+                                    .into_iter()
+                                    .map(|(note_id, items)| {
+                                        let note = notes.iter().find(|n| n.id == note_id).cloned();
+                                        let note_title = note
+                                            .as_ref()
+                                            .map(|n| n.title.clone())
+                                            .unwrap_or_else(|| note_id.clone());
+                                        let note_href = format!("/db/{}/note/{}", db, note_id);
+
+                                        view! {
+                                            <div class="rounded-md border border-border bg-background p-2">
+                                                <a
+                                                    href=note_href
+                                                    class="block truncate text-sm font-medium hover:underline"
+                                                >
+                                                    {note_title}
+                                                </a>
+
+                                                <div class="mt-1 space-y-1">
+                                                    {items
+                                                        .into_iter()
+                                                        .map(|(nav_id, content)| {
+                                                            let href = format!(
+                                                                "/db/{}/note/{}?focus_nav={}",
+                                                                db,
+                                                                note_id,
+                                                                urlencoding::encode(&nav_id)
+                                                            );
+
+                                                            // Parent chain (context) for this nav.
+                                                            let mut chain: Vec<String> = vec![];
+                                                            let mut cur = nav_by_id.get(&nav_id).cloned();
+                                                            let root = "00000000-0000-0000-0000-000000000000".to_string();
+                                                            let mut guard = 0;
+                                                            while let Some(n) = cur {
+                                                                guard += 1;
+                                                                if guard > 32 {
+                                                                    break;
+                                                                }
+                                                                if n.parid == root {
+                                                                    break;
+                                                                }
+                                                                if let Some(p) = nav_by_id.get(&n.parid) {
+                                                                    let c = p.content.trim().to_string();
+                                                                    if !c.is_empty() {
+                                                                        chain.push(c);
                                                                     }
-                                                                    chain.reverse();
+                                                                    cur = Some(p.clone());
+                                                                } else {
+                                                                    break;
+                                                                }
+                                                            }
+                                                            chain.reverse();
 
-                                                                    let chain_display = if chain.is_empty() {
-                                                                        String::new()
-                                                                    } else {
-                                                                        // Keep it short.
-                                                                        let max = 3usize;
-                                                                        let mut s = String::new();
-                                                                        if chain.len() > max {
-                                                                            s.push_str("… ");
-                                                                        }
-                                                                        for (i, part) in chain
-                                                                            .into_iter()
-                                                                            .rev()
-                                                                            .take(max)
-                                                                            .collect::<Vec<_>>()
-                                                                            .into_iter()
-                                                                            .rev()
-                                                                            .enumerate()
-                                                                        {
-                                                                            if i > 0 {
-                                                                                s.push_str(" › ");
-                                                                            }
-                                                                            s.push_str(&part);
-                                                                        }
-                                                                        s
-                                                                    };
-
-                                                                    let chain_display_for_show = chain_display.clone();
-                                                                    view! {
-                                                                        <a
-                                                                            href=href
-                                                                            class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
-                                                                        >
-                                                                            <Show
-                                                                                when=move || !chain_display_for_show.is_empty()
-                                                                                fallback=|| ().into_view()
-                                                                            >
-                                                                                <div class="mb-1 truncate text-[11px] text-muted-foreground">{chain_display.clone()}</div>
-                                                                            </Show>
-                                                                            <span class="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{content}</span>
-                                                                        </a>
+                                                            let chain_display = if chain.is_empty() {
+                                                                String::new()
+                                                            } else {
+                                                                // Keep it short.
+                                                                let max = 3usize;
+                                                                let mut s = String::new();
+                                                                if chain.len() > max {
+                                                                    s.push_str("… ");
+                                                                }
+                                                                for (i, part) in chain
+                                                                    .into_iter()
+                                                                    .rev()
+                                                                    .take(max)
+                                                                    .collect::<Vec<_>>()
+                                                                    .into_iter()
+                                                                    .rev()
+                                                                    .enumerate()
+                                                                {
+                                                                    if i > 0 {
+                                                                        s.push_str(" › ");
                                                                     }
-                                                                })
-                                                                .collect_view()}
-                                                        </div>
-                                                    </div>
-                                                }
-                                            })
-                                            .collect_view()}
-                                    </div>
-                                }
-                                .into_any()
-                            }}
-                        </Show>
-                    </Show>
-                </div>
+                                                                    s.push_str(&part);
+                                                                }
+                                                                s
+                                                            };
+
+                                                            let chain_display_for_show = chain_display.clone();
+                                                            view! {
+                                                                <a
+                                                                    href=href
+                                                                    class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
+                                                                >
+                                                                    <Show
+                                                                        when=move || !chain_display_for_show.is_empty()
+                                                                        fallback=|| ().into_view()
+                                                                    >
+                                                                        <div class="mb-1 truncate text-[11px] text-muted-foreground">{chain_display.clone()}</div>
+                                                                    </Show>
+                                                                    <span class="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{content}</span>
+                                                                </a>
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </div>
+                                            </div>
+                                        }
+                                    })
+                                    .collect_view()}
+                            </div>
+                        </div>
+                    }
+                    .into_any()
+                }}
             </div>
         </div>
             </Show>
