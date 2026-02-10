@@ -91,23 +91,6 @@ body {
   color: rgb(var(--color-foreground));
 }
 
-/*
-  Outline row hover highlight:
-  - subtle background on hover
-  - smooth fade in/out
-*/
 .outline-row {
   border-radius: var(--radius-md);
-  transition: background-color 160ms ease;
-}
-
-/* Hover highlight: keep it immediate to avoid flicker when rows switch editing state. */
-.outline-row:hover {
-  background-color: var(--accent-soft);
-}
-
-/* No hover highlight on the row that is currently being edited */
-.outline-row--editing:hover {
-  transition-delay: 0ms;
-  background-color: transparent;
 }

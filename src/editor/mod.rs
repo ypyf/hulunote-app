@@ -669,14 +669,12 @@ pub fn OutlineNode(
                                 class=move || {
                                     let id = nav_id_sv.get_value();
                                     let is_editing = editing_id.get().as_deref() == Some(id.as_str());
-                                    let is_focused = focused_nav_id.get().as_deref() == Some(id.as_str());
+                                    let _is_focused = focused_nav_id.get().as_deref() == Some(id.as_str());
 
                                     if is_editing {
                                         "outline-row outline-row--editing flex items-center gap-2 py-1"
-                                    } else if is_focused {
-                                        // Temporary highlight when jumping from backlinks.
-                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-primary/10 ring-1 ring-primary/30"
                                     } else {
+                                        // Keep the same styling for normal/focused rows (no highlight).
                                         "outline-row flex items-center gap-2 py-1"
                                     }
                                 }
