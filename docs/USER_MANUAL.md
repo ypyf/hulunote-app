@@ -79,7 +79,17 @@ At **line end** (cursor at the end of the line):
 
 Otherwise (cursor not at end), ArrowRight behaves as normal text navigation.
 
-### 2.5 Delete empty node (soft delete)
+### 2.5 Alt+Up/Down (reorder node)
+
+When editing a node:
+
+- `Alt/Option + ArrowUp` moves the node **up** among its siblings.
+- `Alt/Option + ArrowDown` moves the node **down** among its siblings.
+- This is **reorder only**:
+  - The node’s indentation does not change (`parid` is unchanged).
+  - Only the order (`same-deep-order`) is updated.
+
+### 2.6 Delete empty node (soft delete)
 
 When editing a node:
 
