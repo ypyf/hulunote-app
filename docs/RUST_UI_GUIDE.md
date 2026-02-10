@@ -61,9 +61,7 @@ In this repo:
 ### Rule: treat generated components as read-only by default
 
 - Do **not** edit generated component source files unless we intentionally want to fork/maintain them.
-- Prefer fixing styling/behavior via:
-  - theme tokens (`style/tailwind.css` + `tailwind.config.js`), or
-  - composition/wrappers in app code.
+- Prefer fixing styling/behavior via theme tokens (`style/tailwind.css` + `tailwind.config.js`).
 - If a generated component must be changed, document the reason and expect that `ui add` may overwrite/merge in the future.
 
 This writes component source code under `src/components/ui/`.
