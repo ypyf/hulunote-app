@@ -1,4 +1,5 @@
 use crate::api::CreateOrUpdateNavRequest;
+use crate::components::hooks::use_random::use_random_id_for;
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
@@ -802,7 +803,8 @@ pub fn OutlineNode(
                                                                     let app_state_click = app_state.clone();
 
                                                                     // Hover preview: title + first N navs (best-effort).
-                                                                    let preview_open: RwSignal<bool> = RwSignal::new(false);
+                                                                    // Use native Popover API + CSS Anchor Positioning (same tech as Rust/UI Popover),
+                                                                    // but wire it for hover + interactive content.
                                                                     let preview_loading: RwSignal<bool> = RwSignal::new(false);
                                                                     let preview_error: RwSignal<Option<String>> = RwSignal::new(None);
                                                                     let preview_lines: RwSignal<Vec<String>> = RwSignal::new(vec![]);
@@ -810,146 +812,190 @@ pub fn OutlineNode(
 
                                                                     let title_for_hover = title_raw.clone();
 
+                                                                    let preview_uid = use_random_id_for("wiki_preview");
+                                                                    let preview_trigger_id = format!("wiki_preview_trigger{}", preview_uid);
+                                                                    let preview_popover_id = format!("wiki_preview_popover{}", preview_uid);
+                                                                    let preview_anchor_name = format!("--wiki_preview_anchor{}", preview_uid);
+
+                                                                    let preview_script = format!(
+                                                                        r#"(() => {{
+  const trigger = document.getElementById('{trigger_id}');
+  const pop = document.getElementById('{popover_id}');
+  if (!trigger || !pop || pop.dataset.init) return;
+  pop.dataset.init = '1';
+
+  let hideTimer = null;
+  const show = () => {{
+    if (hideTimer) {{ clearTimeout(hideTimer); hideTimer = null; }}
+    if (!pop.matches(':popover-open')) pop.showPopover();
+  }};
+  const hideSoon = () => {{
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {{
+      // Only hide if neither trigger nor popover is hovered.
+      if (!trigger.matches(':hover') && !pop.matches(':hover')) {{
+        try {{ pop.hidePopover(); }} catch (_) {{}}
+      }}
+    }}, 80);
+  }};
+
+  trigger.addEventListener('mouseenter', show);
+  trigger.addEventListener('mouseleave', hideSoon);
+  pop.addEventListener('mouseenter', show);
+  pop.addEventListener('mouseleave', hideSoon);
+}})();"#,
+                                                                        trigger_id = preview_trigger_id,
+                                                                        popover_id = preview_popover_id,
+                                                                    );
+
                                                                     view! {
-                                                                        <span class="relative inline-block"
-                                                                            on:mouseenter=move |_ev: web_sys::MouseEvent| {
-                                                                                preview_open.set(true);
+                                                                        <>
+                                                                            <style>
+                                                                                {format!(
+                                                                                    r#"
+#{popover_id} {{
+  position-anchor: {anchor_name};
+  inset: auto;
+  top: anchor(bottom);
+  left: anchor(left);
+  margin-top: 8px;
+  @position-try(flip-block) {{
+    bottom: anchor(top);
+    top: auto;
+    margin-bottom: 8px;
+    margin-top: 0;
+  }}
+  position-try-fallbacks: flip-block;
+  position-try-order: most-height;
+  position-visibility: anchors-visible;
+  z-index: 1000000;
+}}
+"#,
+                                                                                    popover_id = preview_popover_id,
+                                                                                    anchor_name = preview_anchor_name
+                                                                                )}
+                                                                            </style>
 
-                                                                                // Avoid refetching while hovering same title.
-                                                                                if preview_loaded_for.get_untracked().as_deref() == Some(title_for_hover.as_str()) {
-                                                                                    return;
-                                                                                }
-                                                                                preview_loaded_for.set(Some(title_for_hover.clone()));
-                                                                                preview_loading.set(true);
-                                                                                preview_error.set(None);
-                                                                                preview_lines.set(vec![]);
+                                                                            <button
+                                                                                id=preview_trigger_id
+                                                                                type="button"
+                                                                                class="text-primary underline underline-offset-2 hover:text-primary/80"
+                                                                                style=format!("anchor-name: {}", preview_anchor_name)
+                                                                                on:mouseenter=move |_ev: web_sys::MouseEvent| {
+                                                                                    // Lazy-load preview data.
+                                                                                    if preview_loaded_for.get_untracked().as_deref() == Some(title_for_hover.as_str()) {
+                                                                                        return;
+                                                                                    }
+                                                                                    preview_loaded_for.set(Some(title_for_hover.clone()));
+                                                                                    preview_loading.set(true);
+                                                                                    preview_error.set(None);
+                                                                                    preview_lines.set(vec![]);
 
-                                                                                let title = title_for_hover.clone();
-                                                                                let title_norm = normalize_roam_page_title(&title);
+                                                                                    let title = title_for_hover.clone();
+                                                                                    let title_norm = normalize_roam_page_title(&title);
 
-                                                                                let db_id = app_state_hover
-                                                                                    .0
-                                                                                    .current_database_id
-                                                                                    .get_untracked()
-                                                                                    .unwrap_or_default();
-                                                                                let notes = app_state_hover.0.notes.get_untracked();
-                                                                                let api_client = app_state_hover.0.api_client.get_untracked();
-                                                                                let app_state_hover2 = app_state_hover.clone();
+                                                                                    let db_id = app_state_hover
+                                                                                        .0
+                                                                                        .current_database_id
+                                                                                        .get_untracked()
+                                                                                        .unwrap_or_default();
+                                                                                    let notes = app_state_hover.0.notes.get_untracked();
+                                                                                    let api_client = app_state_hover.0.api_client.get_untracked();
+                                                                                    let app_state_hover2 = app_state_hover.clone();
 
-                                                                                spawn_local(async move {
-                                                                                    // 1) Try local notes first.
-                                                                                    let mut note_id_opt = notes
-                                                                                        .iter()
-                                                                                        .find(|n| {
-                                                                                            n.database_id == db_id
-                                                                                                && normalize_roam_page_title(&n.title) == title_norm
-                                                                                        })
-                                                                                        .map(|n| n.id.clone());
+                                                                                    spawn_local(async move {
+                                                                                        let mut note_id_opt = notes
+                                                                                            .iter()
+                                                                                            .find(|n| {
+                                                                                                n.database_id == db_id
+                                                                                                    && normalize_roam_page_title(&n.title) == title_norm
+                                                                                            })
+                                                                                            .map(|n| n.id.clone());
 
-                                                                                    // 2) If missing, refresh note list (best-effort) and try again.
-                                                                                    if note_id_opt.is_none() {
-                                                                                        match api_client.get_all_note_list(&db_id).await {
-                                                                                            Ok(notes2) => {
-                                                                                                // Keep global notes cache in sync so future hovers/clicks work.
-                                                                                                app_state_hover2.0.notes.set(notes2.clone());
+                                                                                        if note_id_opt.is_none() {
+                                                                                            match api_client.get_all_note_list(&db_id).await {
+                                                                                                Ok(notes2) => {
+                                                                                                    app_state_hover2.0.notes.set(notes2.clone());
+                                                                                                    note_id_opt = notes2
+                                                                                                        .iter()
+                                                                                                        .find(|n| {
+                                                                                                            n.database_id == db_id
+                                                                                                                && normalize_roam_page_title(&n.title) == title_norm
+                                                                                                        })
+                                                                                                        .map(|n| n.id.clone());
+                                                                                                }
+                                                                                                Err(e) => {
+                                                                                                    preview_error.set(Some(e));
+                                                                                                }
+                                                                                            }
+                                                                                        }
 
-                                                                                                note_id_opt = notes2
-                                                                                                    .iter()
-                                                                                                    .find(|n| {
-                                                                                                        n.database_id == db_id
-                                                                                                            && normalize_roam_page_title(&n.title) == title_norm
-                                                                                                    })
-                                                                                                    .map(|n| n.id.clone());
+                                                                                        let Some(note_id) = note_id_opt else {
+                                                                                            preview_loading.set(false);
+                                                                                            return;
+                                                                                        };
+
+                                                                                        match api_client.get_note_navs(&note_id).await {
+                                                                                            Ok(navs) => {
+                                                                                                let root = "00000000-0000-0000-0000-000000000000";
+                                                                                                let mut by_parent: std::collections::HashMap<String, Vec<Nav>> =
+                                                                                                    std::collections::HashMap::new();
+                                                                                                for n in navs.into_iter() {
+                                                                                                    if n.is_delete {
+                                                                                                        continue;
+                                                                                                    }
+                                                                                                    by_parent.entry(n.parid.clone()).or_default().push(n);
+                                                                                                }
+                                                                                                for (_k, xs) in by_parent.iter_mut() {
+                                                                                                    xs.sort_by(|a, b| a
+                                                                                                        .same_deep_order
+                                                                                                        .partial_cmp(&b.same_deep_order)
+                                                                                                        .unwrap_or(std::cmp::Ordering::Equal));
+                                                                                                }
+
+                                                                                                let mut out: Vec<String> = vec![];
+                                                                                                fn walk(
+                                                                                                    by_parent: &std::collections::HashMap<String, Vec<Nav>>,
+                                                                                                    parid: &str,
+                                                                                                    depth: usize,
+                                                                                                    out: &mut Vec<String>,
+                                                                                                    limit: usize,
+                                                                                                ) {
+                                                                                                    if out.len() >= limit {
+                                                                                                        return;
+                                                                                                    }
+                                                                                                    let Some(kids) = by_parent.get(parid) else { return; };
+                                                                                                    for n in kids.iter() {
+                                                                                                        if out.len() >= limit {
+                                                                                                            return;
+                                                                                                        }
+                                                                                                        let indent = "  ".repeat(depth);
+                                                                                                        out.push(format!("{}{}", indent, n.content));
+                                                                                                        if n.is_display {
+                                                                                                            walk(by_parent, &n.id, depth + 1, out, limit);
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                                walk(&by_parent, root, 0, &mut out, 8);
+                                                                                                preview_lines.set(out);
                                                                                             }
                                                                                             Err(e) => {
                                                                                                 preview_error.set(Some(e));
                                                                                             }
                                                                                         }
-                                                                                    }
-
-                                                                                    let Some(note_id) = note_id_opt else {
-                                                                                        // Unreferenced (not created yet) is OK.
                                                                                         preview_loading.set(false);
-                                                                                        return;
-                                                                                    };
-
-                                                                                    match api_client.get_note_navs(&note_id).await {
-                                                                                        Ok(navs) => {
-                                                                                            // Build a visible preorder list with indentation.
-                                                                                            let root = "00000000-0000-0000-0000-000000000000";
-
-                                                                                            let mut by_parent: std::collections::HashMap<String, Vec<Nav>> =
-                                                                                                std::collections::HashMap::new();
-                                                                                            for n in navs.into_iter() {
-                                                                                                if n.is_delete {
-                                                                                                    continue;
-                                                                                                }
-                                                                                                by_parent.entry(n.parid.clone()).or_default().push(n);
-                                                                                            }
-                                                                                            for (_k, xs) in by_parent.iter_mut() {
-                                                                                                xs.sort_by(|a, b| a
-                                                                                                    .same_deep_order
-                                                                                                    .partial_cmp(&b.same_deep_order)
-                                                                                                    .unwrap_or(std::cmp::Ordering::Equal));
-                                                                                            }
-
-                                                                                            let mut out: Vec<String> = vec![];
-                                                                                            fn walk(
-                                                                                                by_parent: &std::collections::HashMap<String, Vec<Nav>>,
-                                                                                                parid: &str,
-                                                                                                depth: usize,
-                                                                                                out: &mut Vec<String>,
-                                                                                                limit: usize,
-                                                                                            ) {
-                                                                                                if out.len() >= limit {
-                                                                                                    return;
-                                                                                                }
-                                                                                                let Some(kids) = by_parent.get(parid) else { return; };
-                                                                                                for n in kids.iter() {
-                                                                                                    if out.len() >= limit {
-                                                                                                        return;
-                                                                                                    }
-                                                                                                    let indent = "  ".repeat(depth);
-                                                                                                    let line = format!("{}{}", indent, n.content);
-                                                                                                    out.push(line);
-                                                                                                    if n.is_display {
-                                                                                                        walk(by_parent, &n.id, depth + 1, out, limit);
-                                                                                                    }
-                                                                                                }
-                                                                                            }
-                                                                                            walk(&by_parent, root, 0, &mut out, 8);
-                                                                                            preview_lines.set(out);
-                                                                                        }
-                                                                                        Err(e) => {
-                                                                                            preview_error.set(Some(e));
-                                                                                        }
-                                                                                    }
-
-                                                                                    preview_loading.set(false);
-                                                                                });
-                                                                            }
-                                                                            on:mouseleave=move |_ev: web_sys::MouseEvent| {
-                                                                                preview_open.set(false);
-                                                                            }
-                                                                        >
-                                                                            <a
-                                                                                class="text-primary underline underline-offset-2 hover:text-primary/80"
-                                                                                href="#"
-                                                                                title=""
+                                                                                    });
+                                                                                }
                                                                                 on:mousedown=move |ev: web_sys::MouseEvent| {
-                                                                                    // Only handle left click.
-                                                                                    // Right click should open context menu, not navigate.
+                                                                                    // Keep existing navigation behavior (left click only).
                                                                                     if ev.button() != 0 {
                                                                                         return;
                                                                                     }
-
-                                                                                    // Prevent switching into edit mode.
                                                                                     ev.prevent_default();
                                                                                     ev.stop_propagation();
 
                                                                                     let title = title_for_click.clone();
                                                                                     let title_norm = normalize_roam_page_title(&title);
-
                                                                                     let db_id = app_state_click
                                                                                         .0
                                                                                         .current_database_id
@@ -974,7 +1020,6 @@ pub fn OutlineNode(
                                                                                                 .map(|n| n.id.clone())
                                                                                         };
 
-                                                                                        // 1) Try local notes first.
                                                                                         if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
                                                                                             navigate2(
                                                                                                 &format!("/db/{}/note/{}", db_id, id),
@@ -983,7 +1028,6 @@ pub fn OutlineNode(
                                                                                             return;
                                                                                         }
 
-                                                                                        // 2) Refresh notes list for this DB, then try again.
                                                                                         if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
                                                                                             app_state2.0.notes.set(notes.clone());
                                                                                             if let Some(id) = find_existing_id(&notes) {
@@ -995,7 +1039,6 @@ pub fn OutlineNode(
                                                                                             }
                                                                                         }
 
-                                                                                        // 3) Still not found: open draft note view (Roam-style, no create on click).
                                                                                         navigate2(
                                                                                             &format!(
                                                                                                 "/db/{}/note?title={}",
@@ -1008,40 +1051,44 @@ pub fn OutlineNode(
                                                                                 }
                                                                             >
                                                                                 "[["{title_display}"]]"
-                                                                            </a>
+                                                                            </button>
 
-                                                                            <Show when=move || preview_open.get()>
-                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border border-border-strong bg-card text-card-foreground p-3 text-xs shadow-lg">
-                                                                                    <div class="font-medium truncate">{title_preview_title.clone()}</div>
-                                                                                    <Show when=move || preview_loading.get() fallback=|| ().into_view()>
-                                                                                        <div class="mt-2 text-muted-foreground">"Loading…"</div>
-                                                                                    </Show>
-                                                                                    <Show when=move || preview_error.get().is_some() fallback=|| ().into_view()>
-                                                                                        <div class="mt-2 text-destructive">{move || preview_error.get().unwrap_or_default()}</div>
-                                                                                    </Show>
-                                                                                    <Show
-                                                                                        when=move || !preview_loading.get() && preview_error.get().is_none()
-                                                                                        fallback=|| ().into_view()
-                                                                                    >
-                                                                                        {move || {
-                                                                                            let lines = preview_lines.get();
-                                                                                            if lines.is_empty() {
-                                                                                                return view! { <div class="mt-2 text-muted-foreground">"No content (page may not exist yet)."</div> }.into_any();
-                                                                                            }
-                                                                                            view! {
-                                                                                                <div class="mt-2 space-y-1">
-                                                                                                    {lines
-                                                                                                        .into_iter()
-                                                                                                        .map(|l| view! { <div class="whitespace-pre-wrap break-words">{l}</div> })
-                                                                                                        .collect_view()}
-                                                                                                </div>
-                                                                                            }
-                                                                                            .into_any()
-                                                                                        }}
-                                                                                    </Show>
-                                                                                </div>
-                                                                            </Show>
-                                                                        </span>
+                                                                            <div
+                                                                                id=preview_popover_id
+                                                                                popover="manual"
+                                                                                class="w-[28rem] max-w-[90vw] rounded-md border border-border-strong bg-card text-card-foreground p-3 text-xs shadow-lg"
+                                                                            >
+                                                                                <div class="font-medium truncate">{title_preview_title.clone()}</div>
+                                                                                <Show when=move || preview_loading.get() fallback=|| ().into_view()>
+                                                                                    <div class="mt-2 text-muted-foreground">"Loading…"</div>
+                                                                                </Show>
+                                                                                <Show when=move || preview_error.get().is_some() fallback=|| ().into_view()>
+                                                                                    <div class="mt-2 text-destructive">{move || preview_error.get().unwrap_or_default()}</div>
+                                                                                </Show>
+                                                                                <Show
+                                                                                    when=move || !preview_loading.get() && preview_error.get().is_none()
+                                                                                    fallback=|| ().into_view()
+                                                                                >
+                                                                                    {move || {
+                                                                                        let lines = preview_lines.get();
+                                                                                        if lines.is_empty() {
+                                                                                            return view! { <div class="mt-2 text-muted-foreground">"No content (page may not exist yet)."</div> }.into_any();
+                                                                                        }
+                                                                                        view! {
+                                                                                            <div class="mt-2 space-y-1">
+                                                                                                {lines
+                                                                                                    .into_iter()
+                                                                                                    .map(|l| view! { <div class="whitespace-pre-wrap break-words">{l}</div> })
+                                                                                                    .collect_view()}
+                                                                                            </div>
+                                                                                        }
+                                                                                        .into_any()
+                                                                                    }}
+                                                                                </Show>
+                                                                            </div>
+
+                                                                            <script>{preview_script}</script>
+                                                                        </>
                                                                     }
                                                                     .into_any()
                                                                 }
