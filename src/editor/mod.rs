@@ -387,7 +387,7 @@ pub fn OutlineEditor(
     });
 
     view! {
-        <div class="rounded-md border bg-card p-3">
+        <div class="rounded-md bg-card p-3">
             <div class="text-xs text-muted-foreground">"Outline"</div>
 
             // NOTE: intentionally no loading spinner when switching notes.
