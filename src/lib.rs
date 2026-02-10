@@ -126,6 +126,19 @@ pub struct Nav {
     pub is_delete: bool,
 }
 
+/// Update a nav's content in the local in-memory list.
+///
+/// This is used by multiple interaction paths (blur-save, click-to-switch, key navigation)
+/// to avoid regressions where an edit buffer is lost during focus/unmount transitions.
+fn apply_nav_content(navs: &mut [Nav], nav_id: &str, content: &str) -> bool {
+    if let Some(n) = navs.iter_mut().find(|n| n.id == nav_id) {
+        n.content = content.to_string();
+        true
+    } else {
+        false
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginRequest {
     pub email: String,
@@ -2955,8 +2968,38 @@ pub fn OutlineNode(
                                             <div
                                                 class="cursor-text whitespace-pre-wrap min-h-[20px]"
                                                 on:mousedown=move |_ev: web_sys::MouseEvent| {
-                                                    // Use mousedown (not click) for single-click switching, but defer the
-                                                    // actual state switch so the currently-focused input can blur and save.
+                                                    // Use mousedown (not click) for single-click switching.
+                                                    // IMPORTANT: don't rely on `blur` to save. When a focused input is
+                                                    // unmounted by state updates, browsers may not fire blur reliably.
+                                                    // Save the current editing buffer explicitly before switching.
+
+                                                    if let Some(current_id) = editing_id.get_untracked() {
+                                                        let current_content = editing_value.get_untracked();
+
+                                                        // Update local state.
+                                                        navs.update(|xs| {
+                                                            let _ = apply_nav_content(xs, &current_id, &current_content);
+                                                        });
+
+                                                        // Persist to backend.
+                                                        let api_client = app_state.0.api_client.get_untracked();
+                                                        let note_id_now = note_id_sv.get_value();
+                                                        let req = CreateOrUpdateNavRequest {
+                                                            note_id: note_id_now,
+                                                            id: Some(current_id.clone()),
+                                                            parid: None,
+                                                            content: Some(current_content),
+                                                            order: None,
+                                                            is_display: None,
+                                                            is_delete: None,
+                                                            properties: None,
+                                                        };
+                                                        spawn_local(async move {
+                                                            let _ = api_client.upsert_nav(req).await;
+                                                        });
+                                                    }
+
+                                                    // Defer the actual switch so the current input can unmount cleanly.
                                                     let id = id_for_click.clone();
                                                     let next_value = content_for_click.clone();
                                                     let editing_id = editing_id;
@@ -3023,9 +3066,7 @@ pub fn OutlineNode(
                                                 }
 
                                                 navs.update(|xs| {
-                                                    if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
-                                                        x.content = new_content.clone();
-                                                    }
+                                                    let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                 });
 
                                                 let api_client = app_state.0.api_client.get_untracked();
@@ -4629,6 +4670,50 @@ mod tests {
         let mut client = ApiClient::new("http://localhost:6689".to_string());
         client.set_token("my-jwt-token".to_string());
         assert!(client.is_authenticated());
+    }
+
+    #[test]
+    fn test_apply_nav_content_updates_matching_nav() {
+        let mut navs = vec![
+            Nav {
+                id: "a".to_string(),
+                note_id: "n".to_string(),
+                parid: "root".to_string(),
+                same_deep_order: 1.0,
+                content: "old".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "b".to_string(),
+                note_id: "n".to_string(),
+                parid: "root".to_string(),
+                same_deep_order: 2.0,
+                content: "keep".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+        ];
+
+        assert!(apply_nav_content(&mut navs, "a", "new"));
+        assert_eq!(navs[0].content, "new");
+        assert_eq!(navs[1].content, "keep");
+    }
+
+    #[test]
+    fn test_apply_nav_content_returns_false_when_missing() {
+        let mut navs = vec![Nav {
+            id: "a".to_string(),
+            note_id: "n".to_string(),
+            parid: "root".to_string(),
+            same_deep_order: 1.0,
+            content: "old".to_string(),
+            is_display: true,
+            is_delete: false,
+        }];
+
+        assert!(!apply_nav_content(&mut navs, "missing", "new"));
+        assert_eq!(navs[0].content, "old");
     }
 
     // NOTE: database list parsing is intentionally strict to the canonical contract.
