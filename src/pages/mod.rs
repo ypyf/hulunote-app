@@ -1,0 +1,3176 @@
+use crate::api::CreateOrUpdateNavRequest;
+use crate::components::ui::{
+    Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
+    CardHeader, CardTitle, Input, Label, Spinner,
+};
+use crate::editor::OutlineEditor;
+use crate::models::{Nav, Note};
+use crate::state::{AppContext, DbUiActions};
+use crate::storage::{
+    load_recent_notes, save_user_to_storage, write_recent_db, write_recent_note, CURRENT_DB_KEY,
+    SIDEBAR_COLLAPSED_KEY,
+};
+use crate::util::next_available_daily_note_title;
+use crate::wiki::{extract_wiki_links, normalize_roam_page_title};
+use leptos::ev;
+use leptos::html;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use leptos_dom::helpers::window_event_listener;
+use leptos_router::hooks::{use_location, use_navigate, use_query_map};
+use leptos_router::params::Params;
+use wasm_bindgen::JsCast;
+#[component]
+pub fn LoginPage() -> impl IntoView {
+    let email: RwSignal<String> = RwSignal::new(String::new());
+    let password: RwSignal<String> = RwSignal::new(String::new());
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let loading: RwSignal<bool> = RwSignal::new(false);
+
+    let app_state = expect_context::<AppContext>();
+
+    let on_submit = move |ev: web_sys::SubmitEvent| {
+        ev.prevent_default();
+
+        let email_val = email.get();
+        let password_val = password.get();
+        let mut api_client = app_state.0.api_client.get_untracked();
+
+        loading.set(true);
+        error.set(None);
+
+        spawn_local(async move {
+            match api_client.login(&email_val, &password_val).await {
+                Ok(response) => {
+                    api_client.set_token(response.token);
+                    api_client.save_to_storage();
+                    save_user_to_storage(&response.hulunote);
+                    app_state.0.api_client.set(api_client);
+                    app_state.0.current_user.set(Some(response.hulunote));
+                    let _ = window().location().set_href("/");
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    view! {
+        <div class="min-h-screen bg-background">
+            <div class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-10">
+                <div class="mb-6 flex items-center justify-center">
+                    <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
+                </div>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-lg">"Log in"</CardTitle>
+                        <CardDescription class="text-xs">"Use your email and password to continue."</CardDescription>
+                    </CardHeader>
+
+                    <CardContent>
+                        <form class="flex flex-col gap-3" on:submit=on_submit>
+                        <div class="flex flex-col gap-1.5">
+                            <Label html_for="email" class="text-xs">"Email"</Label>
+                            <Input
+                                id="email"
+                                r#type="email"
+                                placeholder="you@example.com"
+                                bind_value=email
+                                required=true
+                                class="h-8 text-sm"
+                            />
+                        </div>
+
+                        <div class="flex flex-col gap-1.5">
+                            <Label html_for="password" class="text-xs">"Password"</Label>
+                            <Input
+                                id="password"
+                                r#type="password"
+                                placeholder="••••••••"
+                                bind_value=password
+                                required=true
+                                class="h-8 text-sm"
+                            />
+                        </div>
+
+                        <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">
+                                                {e}
+                                            </AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
+                        <Button
+                            class="w-full"
+                            size=ButtonSize::Sm
+                            attr:disabled=move || loading.get()
+                        >
+                            <span class="inline-flex items-center gap-2">
+                                <Show when=move || loading.get() fallback=|| ().into_view()>
+                                    <Spinner />
+                                </Show>
+                                {move || if loading.get() { "Signing in..." } else { "Continue" }}
+                            </span>
+                        </Button>
+
+                        <div class="pt-1 text-xs text-muted-foreground">
+                            "No account? "
+                            <a class="text-primary underline underline-offset-4" href="/signup">"Sign up"</a>
+                        </div>
+                    </form>
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn RegistrationPage() -> impl IntoView {
+    let email: RwSignal<String> = RwSignal::new(String::new());
+    let username: RwSignal<String> = RwSignal::new(String::new());
+    let password: RwSignal<String> = RwSignal::new(String::new());
+    let confirm_password: RwSignal<String> = RwSignal::new(String::new());
+    let registration_code: RwSignal<String> = RwSignal::new(String::new());
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let success: RwSignal<bool> = RwSignal::new(false);
+
+    let app_state = expect_context::<AppContext>();
+
+    let on_submit = move |ev: web_sys::SubmitEvent| {
+        ev.prevent_default();
+
+        let email_val = email.get();
+        let username_val = username.get();
+        let password_val = password.get();
+        let confirm_password_val = confirm_password.get();
+        let reg_code_val = registration_code.get();
+        let api_client = app_state.0.api_client.get_untracked();
+
+        if password_val != confirm_password_val {
+            error.set(Some("Passwords do not match".to_string()));
+            return;
+        }
+
+        if password_val.len() < 6 {
+            error.set(Some("Password must be at least 6 characters".to_string()));
+            return;
+        }
+
+        if reg_code_val.trim().is_empty() {
+            error.set(Some("Registration code is required".to_string()));
+            return;
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        spawn_local(async move {
+            match api_client
+                .signup(&email_val, &username_val, &password_val, &reg_code_val)
+                .await
+            {
+                Ok(_response) => {
+                    // Backend returns a token on signup; we keep UX simple and ask user to sign in.
+                    success.set(true);
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    view! {
+        <div class="min-h-screen bg-background">
+            <div class="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-4 py-10">
+                <div class="mb-6 flex items-center justify-center">
+                    <a href="/" class="text-sm font-medium text-foreground">"Hulunote"</a>
+                </div>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-lg">"Create account"</CardTitle>
+                        <CardDescription class="text-xs">"A registration code is required."</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+
+                    <Show
+                        when=move || !success.get()
+                        fallback=move || view! {
+                            <Alert>
+                                <AlertDescription class="text-xs">
+                                    "Account created. You can now "
+                                    <a class="text-primary underline underline-offset-4" href="/login">"log in"</a>
+                                    "."
+                                </AlertDescription>
+                            </Alert>
+                        }
+                    >
+                        <form class="flex flex-col gap-3" on:submit=on_submit>
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="username" class="text-xs">"Username"</Label>
+                                <Input
+                                    id="username"
+                                    r#type="text"
+                                    placeholder="yourname"
+                                    bind_value=username
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="email" class="text-xs">"Email"</Label>
+                                <Input
+                                    id="email"
+                                    r#type="email"
+                                    placeholder="you@example.com"
+                                    bind_value=email
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="password" class="text-xs">"Password"</Label>
+                                <Input
+                                    id="password"
+                                    r#type="password"
+                                    placeholder="••••••••"
+                                    bind_value=password
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="confirm_password" class="text-xs">"Confirm password"</Label>
+                                <Input
+                                    id="confirm_password"
+                                    r#type="password"
+                                    placeholder="••••••••"
+                                    bind_value=confirm_password
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <Label html_for="registration_code" class="text-xs">"Registration code"</Label>
+                                <Input
+                                    id="registration_code"
+                                    r#type="text"
+                                    placeholder="FA8E-AF6E-4578-9347"
+                                    bind_value=registration_code
+                                    required=true
+                                    class="h-8 text-sm"
+                                />
+                            </div>
+
+                            <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                                {move || {
+                                    error.get().map(|e| {
+                                        view! {
+                                            <Alert class="border-destructive/30">
+                                                <AlertDescription class="text-destructive text-xs">
+                                                    {e}
+                                                </AlertDescription>
+                                            </Alert>
+                                        }
+                                    })
+                                }}
+                            </Show>
+
+                            <Button
+                                class="w-full"
+                                size=ButtonSize::Sm
+                                attr:disabled=move || loading.get()
+                            >
+                                <span class="inline-flex items-center gap-2">
+                                    <Show when=move || loading.get() fallback=|| ().into_view()>
+                                        <Spinner />
+                                    </Show>
+                                    {move || if loading.get() { "Creating..." } else { "Continue" }}
+                                </span>
+                            </Button>
+
+                            <div class="pt-1 text-xs text-muted-foreground">
+                                "Already have an account? "
+                                <a class="text-primary underline underline-offset-4" href="/login">"Log in"</a>
+                            </div>
+                        </form>
+                    </Show>
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn HomeRecentsPage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let actions = expect_context::<DbUiActions>();
+    let navigate = StoredValue::new(use_navigate());
+
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Databases"</h1>
+            </div>
+
+            <Show
+                when=move || !app_state.0.databases.get().is_empty()
+                fallback=|| view! { <div class="text-sm text-muted-foreground">"No databases."</div> }
+            >
+                <div class="grid gap-3 sm:grid-cols-2">
+                    {move || {
+                        use leptos::prelude::IntoAny;
+
+                        let dbs = app_state.0.databases.get();
+
+                        let placeholder = view! {
+                            <Card
+                                class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
+                                on:click=move |_| actions.open_create.run(())
+                            >
+                                <div class="flex flex-col items-center gap-2 p-6">
+                                    <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
+                                        <span class="text-lg text-muted-foreground">"+"</span>
+                                    </div>
+                                    <div class="text-sm font-medium">"New database"</div>
+                                </div>
+                            </Card>
+                        }
+                        .into_any();
+
+                        dbs.into_iter()
+                            .map(|db| {
+                                let id = db.id.clone();
+                                let name = db.name.clone();
+                                let desc = db.description.clone();
+
+                                let id_for_nav = id.clone();
+                                let id_for_rename = id.clone();
+                                let name_for_rename = name.clone();
+                                let id_for_delete = id.clone();
+                                let name_for_delete = name.clone();
+
+                                view! {
+                                    <Card
+                                        class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
+                                        on:click=move |_| {
+                                            navigate.with_value(|nav| {
+                                                nav(&format!("/db/{}", id_for_nav), Default::default());
+                                            });
+                                        }
+                                    >
+                                        <CardHeader class="p-4">
+                                            <CardTitle class="truncate text-sm">{name}</CardTitle>
+                                            <CardDescription class="line-clamp-2 text-xs">{desc}</CardDescription>
+                                        </CardHeader>
+
+                                        <div class="absolute bottom-2 right-2 hidden items-center gap-1 group-hover:flex">
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                class="h-7 w-7"
+                                                attr:title="Rename"
+                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                    ev.stop_propagation();
+                                                    actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
+                                                }
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="16"
+                                                    height="16"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    class="text-muted-foreground"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M12 20h9" />
+                                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                </svg>
+                                            </Button>
+
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                class="h-7 w-7 text-destructive"
+                                                attr:title="Delete"
+                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                    ev.stop_propagation();
+                                                    actions
+                                                        .open_delete
+                                                        .run((id_for_delete.clone(), name_for_delete.clone()));
+                                                }
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="16"
+                                                    height="16"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    aria-hidden="true"
+                                                >
+                                                    <path d="M3 6h18" />
+                                                    <path d="M8 6V4h8v2" />
+                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                    <path d="M10 11v6" />
+                                                    <path d="M14 11v6" />
+                                                </svg>
+                                            </Button>
+                                        </div>
+                                    </Card>
+                                }
+                                .into_any()
+                            })
+                            .chain(std::iter::once(placeholder))
+                            .collect_view()
+                    }}
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+
+    let databases = app_state.0.databases;
+    let current_db_id = app_state.0.current_database_id;
+    let sidebar_collapsed = app_state.0.sidebar_collapsed;
+
+    let db_loading: RwSignal<bool> = RwSignal::new(false);
+    let db_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Phase 4: database create dialog state
+    let create_open: RwSignal<bool> = RwSignal::new(false);
+    let create_name: RwSignal<String> = RwSignal::new(String::new());
+    let create_desc: RwSignal<String> = RwSignal::new(String::new());
+    let create_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let create_loading: RwSignal<bool> = RwSignal::new(false);
+
+    // Home sidebar: rename/delete actions (hover)
+    let rename_open: RwSignal<bool> = RwSignal::new(false);
+    let rename_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let rename_value: RwSignal<String> = RwSignal::new(String::new());
+    let rename_loading: RwSignal<bool> = RwSignal::new(false);
+    let rename_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let delete_open: RwSignal<bool> = RwSignal::new(false);
+    let delete_db_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let delete_db_name: RwSignal<String> = RwSignal::new(String::new());
+    let delete_confirm: RwSignal<String> = RwSignal::new(String::new());
+    let delete_loading: RwSignal<bool> = RwSignal::new(false);
+    let delete_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let search_query = app_state.0.search_query;
+    let search_ref: NodeRef<html::Input> = NodeRef::new();
+
+    let navigate = StoredValue::new(use_navigate());
+    let location = use_location();
+    let pathname = move || location.pathname.get();
+    let pathname_untracked = move || location.pathname.get_untracked();
+
+    let sidebar_show_databases = move || {
+        let p = pathname();
+        // On Home, databases are shown in the main area (cards). In a DB, hide databases.
+        !p.starts_with("/db/") && p != "/"
+    };
+
+    let sidebar_show_recent_notes = move || pathname() == "/";
+
+    let sidebar_show_pages = move || {
+        let p = pathname();
+        p.starts_with("/db/")
+    };
+
+    let sidebar_width_class = move || {
+        if sidebar_collapsed.get() {
+            "w-14"
+        } else {
+            "w-64"
+        }
+    };
+
+    let persist_sidebar = move || {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item(
+                SIDEBAR_COLLAPSED_KEY,
+                if sidebar_collapsed.get() { "1" } else { "0" },
+            );
+        }
+    };
+
+    let set_current_db = move |id: Option<String>| {
+        current_db_id.set(id.clone());
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let v = id.unwrap_or_default();
+            let _ = storage.set_item(CURRENT_DB_KEY, &v);
+        }
+    };
+
+    let open_create_dialog = move || {
+        create_name.set(String::new());
+        create_desc.set(String::new());
+        create_error.set(None);
+        create_open.set(true);
+    };
+
+    let refresh_databases = move || {
+        let mut c = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            if let Ok(dbs) = c.get_database_list().await {
+                app_state.0.databases.set(dbs);
+            }
+            app_state.0.api_client.set(c);
+        });
+    };
+
+    let on_open_rename_db = move |id: String, name: String| {
+        rename_db_id.set(Some(id));
+        rename_value.set(name);
+        rename_error.set(None);
+        rename_open.set(true);
+    };
+
+    let on_submit_rename_db = move |_: web_sys::MouseEvent| {
+        if rename_loading.get_untracked() {
+            return;
+        }
+
+        let id = rename_db_id.get_untracked().unwrap_or_default();
+        let new_name = rename_value.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if new_name.trim().is_empty() {
+            rename_error.set(Some("Name cannot be empty".to_string()));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        rename_loading.set(true);
+        rename_error.set(None);
+
+        spawn_local(async move {
+            match api_client.rename_database(&id, &new_name).await {
+                Ok(_) => {
+                    refresh_databases();
+                    rename_open.set(false);
+                }
+                Err(e) => rename_error.set(Some(e)),
+            }
+            rename_loading.set(false);
+        });
+    };
+
+    let on_open_delete_db = move |id: String, name: String| {
+        delete_db_id.set(Some(id));
+        delete_db_name.set(name);
+        delete_confirm.set(String::new());
+        delete_error.set(None);
+        delete_open.set(true);
+    };
+
+    // Expose DB actions to pages (e.g. Home database cards).
+    provide_context(DbUiActions {
+        open_create: Callback::new(move |_| open_create_dialog()),
+        open_rename: Callback::new(move |(id, name)| on_open_rename_db(id, name)),
+        open_delete: Callback::new(move |(id, name)| on_open_delete_db(id, name)),
+    });
+
+    let on_submit_delete_db = move |_: web_sys::MouseEvent| {
+        if delete_loading.get_untracked() {
+            return;
+        }
+
+        let id = delete_db_id.get_untracked().unwrap_or_default();
+        let name = delete_db_name.get_untracked();
+        let confirm = delete_confirm.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if confirm.trim() != name.trim() {
+            delete_error.set(Some(
+                "Type the database name to confirm deletion".to_string(),
+            ));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        delete_loading.set(true);
+        delete_error.set(None);
+
+        spawn_local(async move {
+            match api_client.delete_database_by_id(&id).await {
+                Ok(_) => {
+                    refresh_databases();
+                    delete_open.set(false);
+
+                    // If we are currently inside this DB, go Home.
+                    if pathname_untracked().starts_with(&format!("/db/{id}")) {
+                        navigate.with_value(|nav| nav("/", Default::default()));
+                    }
+
+                    // Clear selection if it matches.
+                    if current_db_id.get_untracked().as_deref() == Some(id.as_str()) {
+                        set_current_db(None);
+                    }
+                }
+                Err(e) => delete_error.set(Some(e)),
+            }
+            delete_loading.set(false);
+        });
+    };
+
+    let submit_create_database = move || {
+        if create_loading.get_untracked() {
+            return;
+        }
+
+        let name = create_name.get_untracked();
+        if name.trim().is_empty() {
+            create_error.set(Some("Database name is required".to_string()));
+            return;
+        }
+
+        let desc = create_desc.get_untracked();
+        let api_client = app_state.0.api_client.get_untracked();
+
+        create_loading.set(true);
+        create_error.set(None);
+
+        spawn_local(async move {
+            match api_client.create_database(&name, &desc).await {
+                Ok(v) => {
+                    // Try to extract the created database id from the response.
+                    let new_id = v
+                        .get("database")
+                        .and_then(|d| {
+                            d.get("hulunote-databases/id")
+                                .or_else(|| d.get("id"))
+                                .and_then(|x| x.as_str())
+                        })
+                        .map(|s| s.to_string());
+
+                    // Refresh DB list from backend.
+                    let mut c = app_state.0.api_client.get_untracked();
+                    match c.get_database_list().await {
+                        Ok(dbs) => {
+                            app_state.0.databases.set(dbs);
+                            app_state.0.api_client.set(c);
+                        }
+                        Err(_) => {
+                            app_state.0.api_client.set(c);
+                        }
+                    }
+
+                    if let Some(id) = new_id {
+                        set_current_db(Some(id.clone()));
+                        // Navigate to the new database home.
+                        // We cannot call navigate directly here; store selection and rely on caller UI.
+                        // (navigation is triggered below on the main thread)
+                        navigate.with_value(|nav| {
+                            nav(&format!("/db/{}", id), Default::default());
+                        });
+                    }
+
+                    create_open.set(false);
+                }
+                Err(e) => {
+                    create_error.set(Some(e));
+                }
+            }
+            create_loading.set(false);
+        });
+    };
+
+    let load_databases = move || {
+        // Avoid parallel loads.
+        if db_loading.get_untracked() {
+            return;
+        }
+
+        let mut api_client = app_state.0.api_client.get_untracked();
+        if !api_client.is_authenticated() {
+            return;
+        }
+
+        db_loading.set(true);
+        db_error.set(None);
+
+        spawn_local(async move {
+            match api_client.get_database_list().await {
+                Ok(dbs) => {
+                    app_state.0.databases.set(dbs);
+                    app_state.0.api_client.set(api_client);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        api_client.logout();
+                        app_state.0.api_client.set(api_client);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        db_error.set(Some(e));
+                        app_state.0.api_client.set(api_client);
+                    }
+                }
+            }
+            db_loading.set(false);
+        });
+    };
+
+    // Initial load when we enter the authenticated shell.
+    Effect::new(move |_| {
+        let authed = app_state.0.api_client.get().is_authenticated();
+        if authed && databases.get().is_empty() {
+            load_databases();
+        }
+    });
+
+    // If there is no selection yet, we only pick a default when the user is inside a DB route.
+    // On Home, we intentionally do NOT highlight any database.
+    Effect::new(move |_| {
+        let selected = current_db_id.get();
+        let dbs = databases.get();
+        let p = pathname();
+
+        if selected.is_none() && p.starts_with("/db/") {
+            if let Some(first) = dbs.first() {
+                set_current_db(Some(first.id.clone()));
+            }
+        }
+    });
+
+    let on_toggle_sidebar = move |_| {
+        sidebar_collapsed.update(|v| *v = !*v);
+        persist_sidebar();
+    };
+
+    // Keyboard shortcuts (Phase 3):
+    // - Cmd/Ctrl+B: toggle sidebar
+    // - Cmd/Ctrl+K: focus search
+    // - Esc: blur search
+    let _key_handle = window_event_listener(ev::keydown, move |ev: web_sys::KeyboardEvent| {
+        let is_meta = ev.meta_key() || ev.ctrl_key();
+        let key = ev.key().to_lowercase();
+
+        // Avoid hijacking shortcuts while typing in inputs.
+        let target_tag = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .map(|el| el.tag_name().to_lowercase());
+
+        if let Some(tag) = target_tag {
+            if tag == "input" || tag == "textarea" {
+                // Allow Escape to still blur.
+                if key != "escape" {
+                    return;
+                }
+            }
+        }
+
+        if is_meta && key == "b" {
+            ev.prevent_default();
+            sidebar_collapsed.update(|v| *v = !*v);
+            persist_sidebar();
+            return;
+        }
+
+        if is_meta && key == "k" {
+            ev.prevent_default();
+            if let Some(input) = search_ref.get() {
+                let _ = input.focus();
+            }
+            return;
+        }
+
+        if key == "escape" {
+            if let Some(input) = search_ref.get() {
+                let _ = input.blur();
+            }
+        }
+    });
+
+    let on_logout = move |_| {
+        let mut api_client = app_state.0.api_client.get_untracked();
+        api_client.logout();
+        app_state.0.api_client.set(api_client);
+        app_state.0.current_user.set(None);
+        app_state.0.databases.set(vec![]);
+        set_current_db(None);
+        let _ = window().location().set_href("/login");
+    };
+
+    let current_db_name = move || {
+        let id = current_db_id.get();
+        let dbs = databases.get();
+        id.and_then(|id| dbs.into_iter().find(|d| d.id == id).map(|d| d.name))
+    };
+
+    view! {
+        <div class="min-h-screen bg-background text-foreground">
+            <div class="mx-auto flex min-h-screen w-full max-w-5xl gap-4 px-4 py-6">
+                <aside class=move || format!("{} shrink-0", sidebar_width_class())>
+                    <div class="sticky top-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <a href="/" class="text-sm font-medium text-foreground">
+                                <Show when=move || !sidebar_collapsed.get() fallback=|| view! { "H" }>
+                                    "Hulunote"
+                                </Show>
+                            </a>
+
+                            <Button
+                                variant=ButtonVariant::Outline
+                                size=ButtonSize::Icon
+                                on:click=on_toggle_sidebar
+                                attr:title="Toggle sidebar"
+                                class="h-8 w-8"
+                            >
+                                <span class="text-xs text-muted-foreground">
+                                    {move || if sidebar_collapsed.get() { ">" } else { "<" }}
+                                </span>
+                            </Button>
+                        </div>
+
+                        <Show
+                            when=move || !sidebar_collapsed.get()
+                            fallback=|| view! {
+                                <Card>
+                                    <CardContent>
+                                        <div class="text-xs text-muted-foreground">"Sidebar collapsed"</div>
+                                    </CardContent>
+                                </Card>
+                            }
+                        >
+                            <Card>
+                                <CardContent class="p-3">
+                                    <div class="flex items-center gap-2">
+                                        <span class="sr-only">"Search"</span>
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            class="shrink-0 text-muted-foreground"
+                                            aria-hidden="true"
+                                        >
+                                            <circle cx="11" cy="11" r="8"></circle>
+                                            <path d="m21 21-4.3-4.3"></path>
+                                        </svg>
+
+                                        <div class="min-w-0 flex-1">
+                                            <Input
+                                                node_ref=search_ref
+                                                r#type="search"
+                                                placeholder="Search…"
+                                                bind_value=search_query
+                                                class="h-8 text-sm"
+                                                on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                                    if ev.key() == "Enter" {
+                                                        let q = search_query.get();
+                                                        navigate.with_value(|nav| {
+                                                            nav(&format!("/search?q={}", urlencoding::encode(&q)), Default::default());
+                                                        });
+                                                    }
+                                                }
+                                            />
+                                        </div>
+
+                                        <div class="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex">
+                                            <span class="rounded-md border border-border bg-surface px-2 py-1 font-mono text-[11px]">
+                                                "⌘K"
+                                            </span>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Show when=move || sidebar_show_recent_notes() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardHeader class="p-3">
+                                        <CardTitle class="text-sm">"Recent Notes"</CardTitle>
+                                    </CardHeader>
+                                    <CardContent class="p-3 pt-0">
+                                        <Show
+                                            when=move || !load_recent_notes().is_empty()
+                                            fallback=|| view! { <div class="text-sm text-muted-foreground">"No recent notes."</div> }
+                                        >
+                                            <div class="space-y-1">
+                                                {move || {
+                                                    let dbs = expect_context::<AppContext>().0.databases.get();
+                                                    load_recent_notes()
+                                                        .into_iter()
+                                                        .map(|n| {
+                                                            let db_id = n.db_id.clone();
+                                                            let db_id_href = db_id.clone();
+                                                            let note_id = n.note_id.clone();
+                                                            let title = n.title.clone();
+
+                                                            let db_name_opt = dbs
+                                                                .iter()
+                                                                .find(|d| d.id == db_id)
+                                                                .map(|d| d.name.clone());
+
+                                                            view! {
+                                                                <a
+                                                                    href=format!("/db/{}/note/{}", db_id_href, note_id)
+                                                                    class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                                >
+                                                                    <div class="truncate text-sm font-medium">{title}</div>
+                                                                    // Only show database name (never show raw id). Keep height stable.
+                                                                    <div class="min-h-[1rem] truncate text-xs text-muted-foreground">
+                                                                        {db_name_opt.unwrap_or_default()}
+                                                                    </div>
+                                                                </a>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
+                                            </div>
+                                        </Show>
+                                    </CardContent>
+                                </Card>
+                            </Show>
+
+                            <Show when=move || sidebar_show_databases() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardHeader class="flex flex-row items-center justify-end p-3">
+                                        <span class="sr-only">"Databases"</span>
+                                        <div class="flex items-center gap-2">
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                on:click=move |_| open_create_dialog()
+                                                attr:title="New database"
+                                                class="h-7 w-7"
+                                            >
+                                                <span class="text-xs text-muted-foreground">"+"</span>
+                                            </Button>
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Icon
+                                                on:click=move |_| load_databases()
+                                                attr:title="Refresh"
+                                                class="h-7 w-7"
+                                            >
+                                                <span class="text-xs text-muted-foreground">"↻"</span>
+                                            </Button>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent class="p-3 pt-0">
+                                        <Show when=move || db_error.get().is_some() fallback=|| ().into_view()>
+                                            {move || db_error.get().map(|e| view! {
+                                                <div class="mt-2 text-[11px] text-destructive">{e}</div>
+                                            })}
+                                        </Show>
+
+                                        <div class="mt-2 space-y-1">
+                                            <Show
+                                                when=move || !databases.get().is_empty()
+                                                fallback=move || view! {
+                                                    <div class="text-[11px] text-muted-foreground">
+                                                        {move || if db_loading.get() { "Loading..." } else { "No databases" }}
+                                                    </div>
+                                                }
+                                            >
+                                                {move || {
+                                                    let selected = current_db_id.get();
+                                                    let allow_highlight = pathname().starts_with("/db/");
+                                                    let show_actions = pathname() == "/";
+
+                                                    databases
+                                                        .get()
+                                                        .into_iter()
+                                                        .map(|db| {
+                                                            let is_selected = allow_highlight
+                                                                && selected.as_deref() == Some(db.id.as_str());
+                                                            let variant = if is_selected {
+                                                                ButtonVariant::Accent
+                                                            } else {
+                                                                ButtonVariant::Ghost
+                                                            };
+
+                                                            let id_href = db.id.clone();
+                                                            let name_label = db.name.clone();
+                                                            let name_for_rename = db.name.clone();
+                                                            let name_for_delete = db.name.clone();
+                                                            let id = db.id.clone();
+
+                                                            view! {
+                                                                <div class="group flex min-w-0 items-center gap-2">
+                                                                    <Button
+                                                                        variant=variant
+                                                                        size=ButtonSize::Sm
+                                                                        class="min-w-0 flex-1 justify-start"
+                                                                        attr:aria-current=move || {
+                                                                            if is_selected { Some("page") } else { None }
+                                                                        }
+                                                                        href=format!("/db/{}", id_href)
+                                                                    >
+                                                                        <span class="min-w-0 flex-1 truncate">{name_label}</span>
+                                                                    </Button>
+
+                                                                    <Show when=move || show_actions fallback=|| ().into_view()>
+                                                                        <div class="hidden shrink-0 items-center gap-1 group-hover:flex">
+                                                                            <Button
+                                                                                variant=ButtonVariant::Ghost
+                                                                                size=ButtonSize::Icon
+                                                                                class="h-7 w-7"
+                                                                                attr:title="Rename"
+                                                                                on:click={
+                                                                                    let id = id.clone();
+                                                                                    let name = name_for_rename.clone();
+                                                                                    move |ev: web_sys::MouseEvent| {
+                                                                                        ev.stop_propagation();
+                                                                                        on_open_rename_db(id.clone(), name.clone());
+                                                                                    }
+                                                                                }
+                                                                            >
+                                                                                <svg
+                                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                                    width="16"
+                                                                                    height="16"
+                                                                                    viewBox="0 0 24 24"
+                                                                                    fill="none"
+                                                                                    stroke="currentColor"
+                                                                                    stroke-width="2"
+                                                                                    stroke-linecap="round"
+                                                                                    stroke-linejoin="round"
+                                                                                    class="text-muted-foreground"
+                                                                                    aria-hidden="true"
+                                                                                >
+                                                                                    <path d="M12 20h9" />
+                                                                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                                                </svg>
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant=ButtonVariant::Ghost
+                                                                                size=ButtonSize::Icon
+                                                                                class="h-7 w-7 text-destructive"
+                                                                                attr:title="Delete"
+                                                                                on:click={
+                                                                                    let id = id.clone();
+                                                                                    let name = name_for_delete.clone();
+                                                                                    move |ev: web_sys::MouseEvent| {
+                                                                                        ev.stop_propagation();
+                                                                                        on_open_delete_db(id.clone(), name.clone());
+                                                                                    }
+                                                                                }
+                                                                            >
+                                                                                <svg
+                                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                                    width="16"
+                                                                                    height="16"
+                                                                                    viewBox="0 0 24 24"
+                                                                                    fill="none"
+                                                                                    stroke="currentColor"
+                                                                                    stroke-width="2"
+                                                                                    stroke-linecap="round"
+                                                                                    stroke-linejoin="round"
+                                                                                    aria-hidden="true"
+                                                                                >
+                                                                                    <path d="M3 6h18" />
+                                                                                    <path d="M8 6V4h8v2" />
+                                                                                    <path d="M19 6l-1 14H6L5 6" />
+                                                                                    <path d="M10 11v6" />
+                                                                                    <path d="M14 11v6" />
+                                                                                </svg>
+                                                                            </Button>
+                                                                        </div>
+                                                                    </Show>
+                                                                </div>
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
+                                            </Show>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </Show>
+
+                            <Show when=move || sidebar_show_pages() fallback=|| ().into_view()>
+                                <Card>
+                                    <CardContent class="p-3">
+                                        <span class="sr-only">"Pages"</span>
+                                        <div class="space-y-1">
+                                            {move || {
+                                                let db_id = current_db_id.get().unwrap_or_default();
+
+                                                // Utility links
+                                                let mut out: Vec<AnyView> = vec![];
+                                                if !db_id.trim().is_empty() {
+                                                    out.push(
+                                                        view! {
+                                                            <a
+                                                                href=format!("/db/{}/unreferenced", db_id)
+                                                                class="block rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface-hover"
+                                                            >
+                                                                "Unreferenced Pages"
+                                                            </a>
+                                                        }
+                                                        .into_any(),
+                                                    );
+
+                                                    // Divider
+                                                    out.push(view! { <div class="h-px w-full bg-border" /> }.into_any());
+                                                }
+
+                                                let q = search_query.get().trim().to_lowercase();
+                                                let notes = expect_context::<AppContext>().0.notes.get();
+
+                                                // Highlight current note if we are on /db/:db_id/note/:note_id
+                                                let p = pathname();
+                                                let prefix = format!("/db/{}/note/", db_id);
+                                                let current_note_id = p
+                                                    .strip_prefix(&prefix)
+                                                    .unwrap_or("")
+                                                    .split('/')
+                                                    .next()
+                                                    .unwrap_or("");
+
+                                                let note_views = notes
+                                                    .into_iter()
+                                                    .filter(|n| n.database_id == db_id)
+                                                    .filter(|n| {
+                                                        if q.is_empty() {
+                                                            true
+                                                        } else {
+                                                            n.title.to_lowercase().contains(&q)
+                                                        }
+                                                    })
+                                                    .map(|n| {
+                                                        let is_selected = n.id == current_note_id;
+                                                        let variant = if is_selected {
+                                                            ButtonVariant::Accent
+                                                        } else {
+                                                            ButtonVariant::Ghost
+                                                        };
+                                                        let id = n.id.clone();
+                                                        view! {
+                                                            <Button
+                                                                variant=variant
+                                                                size=ButtonSize::Sm
+                                                                class="w-full justify-start"
+                                                                attr:aria-current=move || if is_selected { Some("page") } else { None }
+                                                                href=format!("/db/{}/note/{}", db_id, id)
+                                                            >
+                                                                {n.title}
+                                                            </Button>
+                                                        }
+                                                        .into_any()
+                                                    })
+                                                    .collect::<Vec<_>>();
+
+                                                out.extend(note_views);
+                                                out
+                                            }}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </Show>
+
+                            <Card>
+                                <CardContent class="p-3">
+                                    <span class="sr-only">"Account"</span>
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        on:click=on_logout
+                                        class="w-full"
+                                    >
+                                        "Sign out"
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        </Show>
+                    </div>
+                </aside>
+
+                <main class="min-w-0 flex-1">
+                    <div class="mb-4 flex items-center justify-between gap-3">
+                        <nav class="min-w-0" aria-label="Breadcrumb">
+                            {move || {
+                                use leptos::prelude::IntoAny;
+
+                                let p = pathname();
+
+                                // Home
+                                if p == "/" {
+                                    return view! { <div class="truncate text-sm font-medium"></div> }
+                                        .into_any();
+                                }
+
+                                // DB / Note
+                                if p.starts_with("/db/") {
+                                    let db_name = current_db_name()
+                                        .unwrap_or_else(|| "Database".to_string());
+
+                                    // If note route, show All databases > db > note
+                                    if let Some(rest) = p.strip_prefix("/db/") {
+                                        if let Some((db_id, tail)) = rest.split_once('/') {
+                                            if let Some(_note_rest) = tail.strip_prefix("note/") {
+                                                // Note route: do NOT show note title in breadcrumbs.
+                                                return view! {
+                                                    <div class="flex min-w-0 items-center gap-2 text-sm">
+                                                        <a
+                                                            href="/"
+                                                            class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                        >
+                                                            "All databases"
+                                                        </a>
+                                                        <span class="text-muted-foreground">"›"</span>
+                                                        <a
+                                                            href=format!("/db/{}", db_id)
+                                                            class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                        >
+                                                            {db_name}
+                                                        </a>
+                                                    </div>
+                                                }
+                                                .into_any();
+                                            }
+
+                                            // DB home: All databases > db
+                                            return view! {
+                                                <div class="flex min-w-0 items-center gap-2 text-sm">
+                                                    <a
+                                                        href="/"
+                                                        class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                                    >
+                                                        "All databases"
+                                                    </a>
+                                                    <span class="text-muted-foreground">"›"</span>
+                                                    <div class="min-w-0 truncate font-medium">{db_name}</div>
+                                                </div>
+                                            }
+                                            .into_any();
+                                        }
+                                    }
+
+                                    // Fallback DB home
+                                    return view! {
+                                        <div class="flex min-w-0 items-center gap-2 text-sm">
+                                            <a
+                                                href="/"
+                                                class="min-w-0 truncate font-medium text-foreground hover:underline"
+                                            >
+                                                "All databases"
+                                            </a>
+                                            <span class="text-muted-foreground">"›"</span>
+                                            <div class="min-w-0 truncate font-medium">{db_name}</div>
+                                        </div>
+                                    }
+                                    .into_any();
+                                }
+
+                                // Fallback
+                                view! { <div class="truncate text-sm font-medium">"Hulunote"</div> }.into_any()
+                            }}
+                        </nav>
+
+                        <div class="flex shrink-0 items-center gap-2"></div>
+                    </div>
+                    {children()}
+                </main>
+
+                <Show when=move || create_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium">"New database"</div>
+                                <div class="text-xs text-muted-foreground">
+                                    "Create a new database (max 5)."
+                                </div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Name"</Label>
+                                    <Input bind_value=create_name class="h-8 text-sm" placeholder="My Notebook" />
+                                </div>
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Description"</Label>
+                                    <Input bind_value=create_desc class="h-8 text-sm" placeholder="Optional" />
+                                </div>
+
+                                <Show when=move || create_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || create_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || create_loading.get()
+                                        on:click=move |_| create_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || create_loading.get()
+                                        on:click=move |_| submit_create_database()
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || create_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if create_loading.get() { "Creating..." } else { "Create" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+
+                <Show when=move || rename_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium">"Rename database"</div>
+                                <div class="text-xs text-muted-foreground">"Only the name can be updated (backend limitation)."</div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"New name"</Label>
+                                    <Input bind_value=rename_value class="h-8 text-sm" />
+                                </div>
+
+                                <Show when=move || rename_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || rename_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || rename_loading.get()
+                                        on:click=move |_| rename_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || rename_loading.get()
+                                        on:click=on_submit_rename_db
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || rename_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if rename_loading.get() { "Saving..." } else { "Save" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+
+                <Show when=move || delete_open.get() fallback=|| ().into_view()>
+                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                        <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                            <div class="mb-3 space-y-1">
+                                <div class="text-sm font-medium text-destructive">"Delete database"</div>
+                                <div class="text-xs text-muted-foreground">
+                                    "Type the database name to confirm deletion."
+                                </div>
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                                    {move || delete_db_name.get()}
+                                </div>
+
+                                <div class="space-y-1">
+                                    <Label class="text-xs">"Confirm name"</Label>
+                                    <Input bind_value=delete_confirm class="h-8 text-sm" placeholder="Type name exactly" />
+                                </div>
+
+                                <Show when=move || delete_error.get().is_some() fallback=|| ().into_view()>
+                                    {move || delete_error.get().map(|e| view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    })}
+                                </Show>
+
+                                <div class="flex items-center justify-end gap-2 pt-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        attr:disabled=move || delete_loading.get()
+                                        on:click=move |_| delete_open.set(false)
+                                    >
+                                        "Cancel"
+                                    </Button>
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        size=ButtonSize::Sm
+                                        class="border-destructive/40 text-destructive"
+                                        attr:disabled=move || delete_loading.get()
+                                        on:click=on_submit_delete_db
+                                    >
+                                        <span class="inline-flex items-center gap-2">
+                                            <Show when=move || delete_loading.get() fallback=|| ().into_view()>
+                                                <Spinner />
+                                            </Show>
+                                            {move || if delete_loading.get() { "Deleting..." } else { "Delete" }}
+                                        </span>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Show>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn RootAuthed(children: ChildrenFn) -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let is_authenticated = move || app_state.0.api_client.get().is_authenticated();
+
+    // Store children so the view macro sees an `Fn` (not an `FnOnce`).
+    let children = StoredValue::new(children);
+
+    view! {
+        <Show when=is_authenticated fallback=move || view! { <LoginPage /> }>
+            <AppLayout>
+                {move || children.with_value(|c| c())}
+            </AppLayout>
+        </Show>
+    }
+}
+
+#[component]
+pub fn RootPage() -> impl IntoView {
+    view! {
+        <RootAuthed>
+            <HomeRecentsPage />
+        </RootAuthed>
+    }
+}
+
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct DbRouteParams {
+    pub db_id: Option<String>,
+}
+
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct NoteRouteParams {
+    pub db_id: Option<String>,
+    pub note_id: Option<String>,
+}
+
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct UnreferencedRouteParams {
+    pub db_id: Option<String>,
+}
+
+#[component]
+pub fn NotePage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<NoteRouteParams>();
+    let navigate = StoredValue::new(use_navigate());
+
+    // Use closures so params access happens inside a reactive tracking context.
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+
+    let note_id = move || {
+        params
+            .get()
+            .ok()
+            .and_then(|p| p.note_id)
+            .unwrap_or_default()
+    };
+
+    let title_value: RwSignal<String> = RwSignal::new(String::new());
+    // Track which note the title_value currently belongs to.
+    let title_note_id: RwSignal<String> = RwSignal::new(String::new());
+
+    // Optional: focus a specific nav by id (from backlinks click).
+    let query = use_query_map();
+    let focus_nav = move || query.get().get("focus_nav").unwrap_or_default();
+    let focused_nav_id: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Draft note (Roam-style): open by title without creating until first input/Enter.
+    // Route: `/db/:db_id/note?title=...` (same NotePage UI shell).
+    let draft_title = move || query.get().get("title").unwrap_or_default();
+    let is_draft_mode = move || {
+        let id = note_id();
+        id.trim().is_empty() && !draft_title().trim().is_empty()
+    };
+
+    let draft_title_value: RwSignal<String> = RwSignal::new(String::new());
+    let draft_value: RwSignal<String> = RwSignal::new(String::new());
+    let draft_ref: NodeRef<html::Input> = NodeRef::new();
+    let draft_loading: RwSignal<bool> = RwSignal::new(false);
+    let draft_creating: RwSignal<bool> = RwSignal::new(false);
+    let draft_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Initialize draft title input from query param when in draft mode.
+    Effect::new(move |_| {
+        if !is_draft_mode() {
+            return;
+        }
+        let t = draft_title();
+        if !t.trim().is_empty() && draft_title_value.get().trim().is_empty() {
+            draft_title_value.set(t);
+        }
+    });
+
+    let focus_draft = move || {
+        if draft_creating.get_untracked() {
+            return;
+        }
+        if let Some(el) = draft_ref.get_untracked() {
+            let _ = el.focus();
+            let v = el.value();
+            let pos = v.len() as u32;
+            let _ = el.set_selection_range(pos, pos);
+        }
+    };
+
+    // Keep global selected DB in sync when entering a note route directly (e.g. from Home recents).
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            return;
+        }
+
+        if app_state.0.current_database_id.get() != Some(db.clone()) {
+            app_state.0.current_database_id.set(Some(db.clone()));
+
+            // Persist selection for future sessions.
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+            {
+                let _ = storage.set_item(CURRENT_DB_KEY, &db);
+            }
+        }
+    });
+
+    let saving: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Phase 7: backlinks (MVP)
+    let all_db_navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
+    let all_db_navs_loading: RwSignal<bool> = RwSignal::new(false);
+    let all_db_navs_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let all_db_navs_req_id: RwSignal<u64> = RwSignal::new(0);
+
+    // If a focus_nav is provided (e.g. from backlinks click), scroll it into view and highlight it.
+    Effect::new(move |_| {
+        let id = focus_nav();
+        if id.trim().is_empty() {
+            focused_nav_id.set(None);
+            return;
+        }
+
+        focused_nav_id.set(Some(id.clone()));
+
+        // Clear highlight after a short delay.
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                focused_nav_id.set(None);
+            })
+            .as_ref()
+            .unchecked_ref(),
+            1800,
+        );
+
+        // Defer: outline might still be rendering.
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                let doc = window().document().unwrap();
+                let el_id = format!("nav-{}", id);
+                if let Some(el) = doc.get_element_by_id(&el_id) {
+                    el.scroll_into_view();
+                }
+            })
+            .as_ref()
+            .unchecked_ref(),
+            0,
+        );
+    });
+
+    // Ensure notes for this DB are loaded when deep-linking directly into a note page.
+    // This prevents recent-note title from falling back to note_id.
+    Effect::new(move |_| {
+        let db = db_id();
+        let id = note_id();
+        if db.trim().is_empty() || id.trim().is_empty() {
+            return;
+        }
+
+        let already_loaded_db =
+            app_state.0.notes_last_loaded_db_id.get().as_deref() == Some(db.as_str());
+        let has_note = app_state.0.notes.get().into_iter().any(|n| n.id == id);
+        let is_loading = app_state.0.notes_loading.get();
+
+        if (!already_loaded_db || !has_note) && !is_loading {
+            // Kick off a load with stale-response protection.
+            app_state.0.notes_last_loaded_db_id.set(Some(db.clone()));
+
+            let req_id = app_state
+                .0
+                .notes_request_id
+                .get_untracked()
+                .saturating_add(1);
+            app_state.0.notes_request_id.set(req_id);
+
+            app_state.0.notes_loading.set(true);
+            app_state.0.notes_error.set(None);
+
+            let api_client = app_state.0.api_client.get_untracked();
+            spawn_local(async move {
+                let result = api_client.get_all_note_list(&db).await;
+
+                // Ignore stale responses.
+                if app_state.0.notes_request_id.get_untracked() != req_id {
+                    return;
+                }
+
+                match result {
+                    Ok(notes) => {
+                        app_state.0.notes.set(notes);
+                    }
+                    Err(e) => {
+                        if e == "Unauthorized" {
+                            let mut c = app_state.0.api_client.get_untracked();
+                            c.logout();
+                            app_state.0.api_client.set(c);
+                            app_state.0.current_user.set(None);
+                            let _ = window().location().set_href("/login");
+                        } else {
+                            app_state.0.notes_error.set(Some(e));
+                        }
+                    }
+                }
+                app_state.0.notes_loading.set(false);
+            });
+        }
+    });
+
+    // Phase 7: load all navs in current DB for backlink computation.
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            all_db_navs.set(vec![]);
+            return;
+        }
+
+        // Request id for stale-response protection.
+        let rid = all_db_navs_req_id.get_untracked().saturating_add(1);
+        all_db_navs_req_id.set(rid);
+
+        all_db_navs_loading.set(true);
+        all_db_navs_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let result = api_client.get_all_navs(&db).await;
+
+            // Ignore stale responses.
+            if all_db_navs_req_id.get_untracked() != rid {
+                return;
+            }
+
+            match result {
+                Ok(navs) => all_db_navs.set(navs),
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        all_db_navs_error.set(Some(e));
+                    }
+                }
+            }
+
+            all_db_navs_loading.set(false);
+        });
+    });
+
+    // Keep local edit state in sync with loaded notes + write recent note.
+    Effect::new(move |_| {
+        let id = note_id();
+        let db = db_id();
+        if id.trim().is_empty() || db.trim().is_empty() {
+            return;
+        }
+
+        if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
+            // If we navigated to a different note, sync title input immediately.
+            if title_note_id.get() != id {
+                title_note_id.set(id.clone());
+                title_value.set(n.title.clone());
+            } else if title_value.get().trim().is_empty() {
+                // Only overwrite local input when it's empty (avoid clobbering user typing).
+                title_value.set(n.title.clone());
+            }
+
+            // Phase 5.5: recent notes (local)
+            write_recent_note(&db, &id, &n.title);
+        } else {
+            // Fallback: at least record ids.
+            write_recent_note(&db, &id, &id);
+        }
+
+        // Keep recent DB fresh too.
+        if let Some(d) = app_state.0.databases.get().into_iter().find(|d| d.id == db) {
+            write_recent_db(&d.id, &d.name);
+        } else {
+            write_recent_db(&db, &db);
+        }
+    });
+
+    let save_title = move || {
+        if saving.get_untracked() {
+            return;
+        }
+        let id = note_id();
+        let db = db_id();
+        let new_title = title_value.get_untracked();
+        if id.trim().is_empty() {
+            return;
+        }
+        if new_title.trim().is_empty() {
+            error.set(Some("Title cannot be empty".to_string()));
+            return;
+        }
+
+        saving.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.update_note_title(&id, &new_title).await {
+                Ok(_) => {
+                    // Refresh notes list.
+                    let c = app_state.0.api_client.get_untracked();
+                    if let Ok(notes) = c.get_all_note_list(&db).await {
+                        app_state.0.notes.set(notes);
+                    }
+                    app_state.0.api_client.set(c);
+                }
+                Err(e) => {
+                    error.set(Some(e));
+                }
+            }
+            saving.set(false);
+        });
+    };
+
+    let _current_note = move || {
+        let id = note_id();
+        app_state.0.notes.get().into_iter().find(|n| n.id == id)
+    };
+
+    // Draft: if note already exists for the draft title, jump to it; otherwise allow editing.
+    Effect::new(move |_| {
+        if !is_draft_mode() {
+            return;
+        }
+
+        let db = db_id();
+        let t = draft_title_value.get();
+        if db.trim().is_empty() || t.trim().is_empty() {
+            return;
+        }
+
+        draft_loading.set(true);
+        draft_error.set(None);
+
+        let t_norm = normalize_roam_page_title(&t);
+        let api_client = app_state.0.api_client.get_untracked();
+        let navigate2 = navigate;
+        spawn_local(async move {
+            match api_client.get_all_note_list(&db).await {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes.clone());
+                    if let Some(n) = notes.into_iter().find(|n| {
+                        n.database_id == db && normalize_roam_page_title(&n.title) == t_norm
+                    }) {
+                        navigate2.with_value(|nav| {
+                            nav(
+                                &format!("/db/{}/note/{}", db, n.id),
+                                leptos_router::NavigateOptions::default(),
+                            );
+                        });
+                        return;
+                    }
+
+                    let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+                        wasm_bindgen::closure::Closure::once_into_js(move || {
+                            focus_draft();
+                        })
+                        .as_ref()
+                        .unchecked_ref(),
+                        0,
+                    );
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        draft_error.set(Some(e));
+                    }
+                }
+            }
+            draft_loading.set(false);
+        });
+    });
+
+    let app_state_for_draft = app_state.clone();
+
+    let create_note_and_first_nav_draft = StoredValue::new(move |initial_content: String| {
+        if draft_creating.get_untracked() {
+            return;
+        }
+
+        let db = db_id();
+        let t = draft_title_value.get_untracked();
+        if db.trim().is_empty() || t.trim().is_empty() {
+            draft_error.set(Some("Title cannot be empty".to_string()));
+            return;
+        }
+
+        draft_creating.set(true);
+        draft_error.set(None);
+
+        let api_client = app_state_for_draft.0.api_client.get_untracked();
+        let app_state2 = app_state_for_draft.clone();
+        let draft_value2 = draft_value;
+        let title_norm = normalize_roam_page_title(&t);
+        let navigate2 = navigate;
+
+        spawn_local(async move {
+            // If exists, navigate.
+            let find_existing_id = |notes: &[Note]| {
+                notes
+                    .iter()
+                    .find(|n| {
+                        n.database_id == db && normalize_roam_page_title(&n.title) == title_norm
+                    })
+                    .map(|n| n.id.clone())
+            };
+
+            if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
+                navigate2.with_value(|nav| {
+                    nav(
+                        &format!("/db/{}/note/{}", db, id),
+                        leptos_router::NavigateOptions::default(),
+                    );
+                });
+                draft_creating.set(false);
+                return;
+            }
+
+            if let Ok(notes) = api_client.get_all_note_list(&db).await {
+                app_state2.0.notes.set(notes.clone());
+                if let Some(id) = find_existing_id(&notes) {
+                    navigate2.with_value(|nav| {
+                        nav(
+                            &format!("/db/{}/note/{}", db, id),
+                            leptos_router::NavigateOptions::default(),
+                        );
+                    });
+                    draft_creating.set(false);
+                    return;
+                }
+            }
+
+            // Create note.
+            let note = match api_client.create_note(&db, &t).await {
+                Ok(n) => n,
+                Err(e) => {
+                    draft_creating.set(false);
+                    draft_error.set(Some(e));
+                    return;
+                }
+            };
+
+            app_state2.0.notes.update(|xs| {
+                if !xs.iter().any(|x| x.id == note.id) {
+                    xs.insert(0, note.clone());
+                }
+            });
+
+            // Create first nav.
+            let root = "00000000-0000-0000-0000-000000000000";
+            let create_req = CreateOrUpdateNavRequest {
+                note_id: note.id.clone(),
+                id: None,
+                parid: Some(root.to_string()),
+                content: Some(initial_content.clone()),
+                order: Some(0.0),
+                is_display: Some(true),
+                is_delete: Some(false),
+                properties: None,
+            };
+
+            let nav_id = match api_client.upsert_nav(create_req).await {
+                Ok(resp) => resp
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                Err(e) => {
+                    draft_creating.set(false);
+                    draft_error.set(Some(e));
+                    return;
+                }
+            };
+
+            if !nav_id.trim().is_empty() {
+                let content_now = draft_value2.get_untracked();
+                if content_now != initial_content {
+                    let save_req = CreateOrUpdateNavRequest {
+                        note_id: note.id.clone(),
+                        id: Some(nav_id.clone()),
+                        parid: None,
+                        content: Some(content_now),
+                        order: None,
+                        is_display: None,
+                        is_delete: None,
+                        properties: None,
+                    };
+                    let _ = api_client.upsert_nav(save_req).await;
+                }
+            }
+
+            let url = if nav_id.trim().is_empty() {
+                format!("/db/{}/note/{}", db, note.id)
+            } else {
+                format!("/db/{}/note/{}?focus_nav={}", db, note.id, nav_id)
+            };
+
+            navigate2.with_value(|nav| {
+                nav(&url, leptos_router::NavigateOptions::default());
+            });
+
+            draft_creating.set(false);
+        });
+    });
+
+    view! {
+        <>
+            <Show when=move || is_draft_mode() fallback=|| ().into_view()>
+                <div class="space-y-3">
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2">
+                            <Input
+                                bind_value=draft_title_value
+                                class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                                placeholder="Untitled"
+                            />
+
+                            <div class="h-5 w-5 shrink-0">
+                                <Show when=move || draft_creating.get() fallback=|| ().into_view()>
+                                    <div class="h-5 w-5"><Spinner /></div>
+                                </Show>
+                            </div>
+                        </div>
+
+                        <Show when=move || draft_error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                draft_error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
+                        <div class="rounded-md border bg-card p-3">
+                            <div class="text-xs text-muted-foreground">"Outline"</div>
+
+                            <div class="mt-2 flex items-center gap-2">
+                                <div class="text-muted-foreground">"•"</div>
+                                <input
+                                    node_ref=draft_ref
+                                    class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    placeholder="Start typing…"
+                                    value=move || draft_value.get()
+                                    on:input=move |ev: web_sys::Event| {
+                                        if let Some(t) = ev
+                                            .target()
+                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                        {
+                                            let v = t.value();
+                                            draft_value.set(v.clone());
+                                            if !v.is_empty() && !draft_creating.get_untracked() {
+                                                create_note_and_first_nav_draft.with_value(|f| f(v));
+                                            }
+                                        }
+                                    }
+                                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                        if ev.key() == "Enter" {
+                                            ev.prevent_default();
+                                            let v = draft_value.get_untracked();
+                                            create_note_and_first_nav_draft.with_value(|f| f(v));
+                                        }
+                                    }
+                                />
+                            </div>
+
+                            <Show when=move || draft_loading.get() fallback=|| ().into_view()>
+                                <div class="mt-2 text-xs text-muted-foreground">"Checking if page exists…"</div>
+                            </Show>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+
+            <Show when=move || !is_draft_mode() fallback=|| ().into_view()>
+                <div class="space-y-3">
+            <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                    <Input
+                        bind_value=title_value
+                        class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                        placeholder="Untitled"
+                        on:blur=move |_| save_title()
+                        on:keydown=move |ev: web_sys::KeyboardEvent| {
+                            if ev.key() == "Enter" {
+                                ev.prevent_default();
+                                save_title();
+
+                                // UX: pressing Enter should commit and exit the title field.
+                                if let Some(t) = ev
+                                    .target()
+                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                {
+                                    let _ = t.blur();
+                                }
+                            }
+                        }
+                    />
+
+                    // Reserve space to avoid layout shift/flicker.
+                    <div class="h-5 w-5 shrink-0">
+                        <Show when=move || saving.get() fallback=|| ().into_view()>
+                            <div class="h-5 w-5">
+                                <Spinner />
+                            </div>
+                        </Show>
+                    </div>
+                </div>
+
+                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                    {move || error.get().map(|e| view! {
+                        <Alert class="border-destructive/30">
+                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                        </Alert>
+                    })}
+                </Show>
+
+                <OutlineEditor note_id=note_id focused_nav_id=focused_nav_id />
+
+                <div class="mt-4 rounded-md border bg-card p-3">
+                    <div class="text-xs text-muted-foreground">"Backlinks"</div>
+
+                    <Show when=move || !all_db_navs_loading.get() fallback=move || view! {
+                        <div class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                            <Spinner />
+                            "Loading backlinks…"
+                        </div>
+                    }>
+                        <Show when=move || all_db_navs_error.get().is_none() fallback=move || view! {
+                            <div class="mt-2 text-xs text-destructive">
+                                {move || all_db_navs_error.get().unwrap_or_default()}
+                            </div>
+                        }>
+                            {move || {
+                                let title = title_value.get();
+                                let title = title.trim().to_string();
+                                if title.is_empty() {
+                                    return view! {
+                                        <div class="mt-2 text-sm text-muted-foreground">"Rename the page title to enable backlinks."</div>
+                                    }
+                                    .into_any();
+                                }
+
+                                let current_note_id = note_id();
+
+                                // Build index for parent-chain rendering.
+                                let all_navs = all_db_navs.get();
+                                let mut nav_by_id: std::collections::HashMap<String, Nav> =
+                                    std::collections::HashMap::with_capacity(all_navs.len());
+                                for n in all_navs.iter() {
+                                    nav_by_id.insert(n.id.clone(), n.clone());
+                                }
+
+                                // Collect matching references (note_id -> list of (nav_id, content)).
+                                let mut refs: std::collections::BTreeMap<String, Vec<(String, String)>> =
+                                    std::collections::BTreeMap::new();
+
+                                for nav in all_navs.into_iter() {
+                                    if nav.is_delete {
+                                        continue;
+                                    }
+                                    if nav.note_id == current_note_id {
+                                        continue;
+                                    }
+
+                                    let links = extract_wiki_links(&nav.content);
+                                    if links.into_iter().any(|l| l == title) {
+                                        refs.entry(nav.note_id.clone())
+                                            .or_default()
+                                            .push((nav.id.clone(), nav.content.clone()));
+                                    }
+                                }
+
+                                if refs.is_empty() {
+                                    return view! {
+                                        <div class="mt-2 text-sm text-muted-foreground">"No backlinks yet."</div>
+                                    }
+                                    .into_any();
+                                }
+
+                                let db = db_id();
+                                let notes = app_state.0.notes.get();
+
+                                view! {
+                                    <div class="mt-2 space-y-2">
+                                        {refs
+                                            .into_iter()
+                                            .map(|(note_id, items)| {
+                                                let note = notes.iter().find(|n| n.id == note_id).cloned();
+                                                let note_title = note
+                                                    .as_ref()
+                                                    .map(|n| n.title.clone())
+                                                    .unwrap_or_else(|| note_id.clone());
+                                                let note_href = format!("/db/{}/note/{}", db, note_id);
+
+                                                view! {
+                                                    <div class="rounded-md border border-border bg-background p-2">
+                                                        <a
+                                                            href=note_href
+                                                            class="block truncate text-sm font-medium hover:underline"
+                                                        >
+                                                            {note_title}
+                                                        </a>
+
+                                                        <div class="mt-1 space-y-1">
+                                                            {items
+                                                                .into_iter()
+                                                                .map(|(nav_id, content)| {
+                                                                    let href = format!(
+                                                                        "/db/{}/note/{}?focus_nav={}",
+                                                                        db,
+                                                                        note_id,
+                                                                        urlencoding::encode(&nav_id)
+                                                                    );
+
+                                                                    // Parent chain (context) for this nav.
+                                                                    let mut chain: Vec<String> = vec![];
+                                                                    let mut cur = nav_by_id.get(&nav_id).cloned();
+                                                                    let root = "00000000-0000-0000-0000-000000000000".to_string();
+                                                                    let mut guard = 0;
+                                                                    while let Some(n) = cur {
+                                                                        guard += 1;
+                                                                        if guard > 32 {
+                                                                            break;
+                                                                        }
+                                                                        if n.parid == root {
+                                                                            break;
+                                                                        }
+                                                                        if let Some(p) = nav_by_id.get(&n.parid) {
+                                                                            let c = p.content.trim().to_string();
+                                                                            if !c.is_empty() {
+                                                                                chain.push(c);
+                                                                            }
+                                                                            cur = Some(p.clone());
+                                                                        } else {
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    chain.reverse();
+
+                                                                    let chain_display = if chain.is_empty() {
+                                                                        String::new()
+                                                                    } else {
+                                                                        // Keep it short.
+                                                                        let max = 3usize;
+                                                                        let mut s = String::new();
+                                                                        if chain.len() > max {
+                                                                            s.push_str("… ");
+                                                                        }
+                                                                        for (i, part) in chain
+                                                                            .into_iter()
+                                                                            .rev()
+                                                                            .take(max)
+                                                                            .collect::<Vec<_>>()
+                                                                            .into_iter()
+                                                                            .rev()
+                                                                            .enumerate()
+                                                                        {
+                                                                            if i > 0 {
+                                                                                s.push_str(" › ");
+                                                                            }
+                                                                            s.push_str(&part);
+                                                                        }
+                                                                        s
+                                                                    };
+
+                                                                    let chain_display_for_show = chain_display.clone();
+                                                                    view! {
+                                                                        <a
+                                                                            href=href
+                                                                            class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
+                                                                        >
+                                                                            <Show
+                                                                                when=move || !chain_display_for_show.is_empty()
+                                                                                fallback=|| ().into_view()
+                                                                            >
+                                                                                <div class="mb-1 truncate text-[11px] text-muted-foreground">{chain_display.clone()}</div>
+                                                                            </Show>
+                                                                            <span class="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{content}</span>
+                                                                        </a>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </div>
+                                                    </div>
+                                                }
+                                            })
+                                            .collect_view()}
+                                    </div>
+                                }
+                                .into_any()
+                            }}
+                        </Show>
+                    </Show>
+                </div>
+            </div>
+        </div>
+            </Show>
+        </>
+    }
+}
+
+#[component]
+pub fn DbHomePage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<DbRouteParams>();
+    let navigate = StoredValue::new(use_navigate());
+    let location = use_location();
+    let pathname = move || location.pathname.get();
+
+    let rename_open: RwSignal<bool> = RwSignal::new(false);
+
+    // Phase 5: create note (non-paginated)
+    let create_note_loading: RwSignal<bool> = RwSignal::new(false);
+    let create_note_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let rename_value: RwSignal<String> = RwSignal::new(String::new());
+    let rename_loading: RwSignal<bool> = RwSignal::new(false);
+    let rename_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let delete_open: RwSignal<bool> = RwSignal::new(false);
+    let delete_confirm: RwSignal<String> = RwSignal::new(String::new());
+    let delete_loading: RwSignal<bool> = RwSignal::new(false);
+    let delete_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Params are reactive; read tracked in effects/views, and read untracked in event handlers.
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+    let db_id_untracked = move || {
+        params
+            .get_untracked()
+            .ok()
+            .and_then(|p| p.db_id)
+            .unwrap_or_default()
+    };
+
+    let persist_current_db = move |id: &str| {
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.set_item(CURRENT_DB_KEY, id);
+        }
+    };
+
+    // Notes loading guards (avoid duplicate loads + ignore stale responses).
+    // Store guard state on AppState so it survives route changes.
+    let load_notes_for_sv = StoredValue::new(move |id: String, force: bool| {
+        if id.trim().is_empty() {
+            return;
+        }
+
+        if !force {
+            let already_loaded = app_state
+                .0
+                .notes_last_loaded_db_id
+                .get_untracked()
+                .as_deref()
+                == Some(id.as_str());
+            let has_error = app_state.0.notes_error.get_untracked().is_some();
+            let is_loading = app_state.0.notes_loading.get_untracked();
+
+            if already_loaded && !has_error && !is_loading {
+                return;
+            }
+        }
+
+        app_state.0.notes_last_loaded_db_id.set(Some(id.clone()));
+
+        let req_id = app_state
+            .0
+            .notes_request_id
+            .get_untracked()
+            .saturating_add(1);
+        app_state.0.notes_request_id.set(req_id);
+
+        app_state.0.notes_loading.set(true);
+        app_state.0.notes_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let result = api_client.get_all_note_list(&id).await;
+
+            // Ignore stale responses.
+            if app_state.0.notes_request_id.get_untracked() != req_id {
+                return;
+            }
+
+            match result {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        app_state.0.notes_error.set(Some(e));
+                        app_state.0.notes.set(vec![]);
+                    }
+                }
+            }
+            app_state.0.notes_loading.set(false);
+        });
+    });
+
+    // Keep global selection in sync with URL + write recent DB.
+    Effect::new(move |_| {
+        let id = db_id();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        if app_state.0.current_database_id.get() != Some(id.clone()) {
+            app_state.0.current_database_id.set(Some(id.clone()));
+            persist_current_db(&id);
+        }
+
+        // Phase 5.5: recent databases (local)
+        if let Some(d) = app_state.0.databases.get().into_iter().find(|d| d.id == id) {
+            write_recent_db(&d.id, &d.name);
+        } else {
+            // Fallback: keep at least the id.
+            write_recent_db(&id, &id);
+        }
+    });
+
+    // Phase 5 (non-paginated): load notes for current database.
+    Effect::new(move |_| {
+        load_notes_for_sv.with_value(|f| {
+            f(db_id(), false);
+        });
+    });
+
+    // UX: when user enters /db/:db_id, auto-open the first note.
+    // This makes the main area show a note immediately and enables Pages highlight.
+    Effect::new(move |_| {
+        let id = db_id();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        let p = pathname();
+        if p != format!("/db/{}", id) {
+            return;
+        }
+
+        if app_state.0.notes_loading.get() {
+            return;
+        }
+
+        let mut notes = app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .filter(|n| n.database_id == id)
+            .collect::<Vec<_>>();
+
+        if notes.is_empty() {
+            return;
+        }
+
+        // Prefer most recently updated (lexicographic works for ISO-ish timestamps).
+        notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        let first_id = notes[0].id.clone();
+
+        // Use replace=true so browser Back goes to the previous page (e.g. Home),
+        // instead of bouncing between /db/:db_id and /db/:db_id/note/:note_id.
+        navigate.with_value(|nav| {
+            nav(
+                &format!("/db/{}/note/{}", id, first_id),
+                leptos_router::NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                },
+            );
+        });
+    });
+
+    let db = move || {
+        let id = db_id();
+        app_state.0.databases.get().into_iter().find(|d| d.id == id)
+    };
+
+    let refresh_databases = move || {
+        let mut c = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match c.get_database_list().await {
+                Ok(dbs) => {
+                    app_state.0.databases.set(dbs);
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                        return;
+                    }
+                }
+            }
+            app_state.0.api_client.set(c);
+        });
+    };
+
+    let _refresh_databases = move || {
+        let mut c = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            if let Ok(dbs) = c.get_database_list().await {
+                app_state.0.databases.set(dbs);
+            }
+            app_state.0.api_client.set(c);
+        });
+    };
+
+    let _on_open_rename = move |_: web_sys::MouseEvent| {
+        rename_error.set(None);
+        if let Some(d) = db() {
+            rename_value.set(d.name);
+        }
+        rename_open.set(true);
+    };
+
+    let on_submit_rename = move |_| {
+        if rename_loading.get_untracked() {
+            return;
+        }
+        let id = db_id();
+        let new_name = rename_value.get_untracked();
+        if new_name.trim().is_empty() {
+            rename_error.set(Some("Name cannot be empty".to_string()));
+            return;
+        }
+        let api_client = app_state.0.api_client.get_untracked();
+
+        rename_loading.set(true);
+        rename_error.set(None);
+
+        spawn_local(async move {
+            match api_client.rename_database(&id, &new_name).await {
+                Ok(_) => {
+                    refresh_databases();
+                    rename_open.set(false);
+                }
+                Err(e) => rename_error.set(Some(e)),
+            }
+            rename_loading.set(false);
+        });
+    };
+
+    let _on_open_delete = move |_: web_sys::MouseEvent| {
+        delete_confirm.set(String::new());
+        delete_error.set(None);
+        delete_open.set(true);
+    };
+
+    let on_submit_delete = move |_| {
+        if delete_loading.get_untracked() {
+            return;
+        }
+
+        let id = db_id();
+        let name = db().map(|d| d.name).unwrap_or_default();
+        let confirm = delete_confirm.get_untracked();
+        if confirm.trim() != name.trim() {
+            delete_error.set(Some(
+                "Type the database name to confirm deletion".to_string(),
+            ));
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        delete_loading.set(true);
+        delete_error.set(None);
+
+        spawn_local(async move {
+            match api_client.delete_database_by_id(&id).await {
+                Ok(_) => {
+                    // Reload DBs and navigate to the first remaining DB (or /).
+                    let mut c = app_state.0.api_client.get_untracked();
+                    if let Ok(dbs) = c.get_database_list().await {
+                        app_state.0.databases.set(dbs.clone());
+                        if let Some(first) = dbs.first() {
+                            app_state.0.current_database_id.set(Some(first.id.clone()));
+                            persist_current_db(&first.id);
+                            navigate.with_value(|nav| {
+                                nav(&format!("/db/{}", first.id), Default::default());
+                            });
+                        } else {
+                            app_state.0.current_database_id.set(None);
+                            persist_current_db("");
+                            navigate.with_value(|nav| {
+                                nav("/", Default::default());
+                            });
+                        }
+                    }
+                    app_state.0.api_client.set(c);
+                    delete_open.set(false);
+                }
+                Err(e) => delete_error.set(Some(e)),
+            }
+            delete_loading.set(false);
+        });
+    };
+
+    let is_auto_opening_note = move || {
+        let id = db_id();
+        let p = pathname();
+        if id.trim().is_empty() {
+            return false;
+        }
+        if p != format!("/db/{}", id) {
+            return false;
+        }
+
+        // If notes are loading, or we already have notes for this DB, we're about to auto-navigate.
+        let has_notes = app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .any(|n| n.database_id == id);
+
+        app_state.0.notes_loading.get() || has_notes
+    };
+
+    view! {
+        <Show
+            when=move || !is_auto_opening_note()
+            fallback=move || view! {
+                <div class="flex h-[40vh] items-center justify-center">
+                    <Spinner />
+                </div>
+            }
+        >
+            <div class="space-y-3">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="space-y-1">
+                        <h1 class="text-xl font-semibold">
+                            {move || db().map(|d| d.name).unwrap_or_else(|| "Database".to_string())}
+                        </h1>
+                        <p class="text-xs text-muted-foreground">{move || format!("db_id: {}", db_id())}</p>
+                    </div>
+
+                    <div class="flex items-center gap-2"></div>
+                </div>
+
+            <Card>
+                <CardContent>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="text-sm font-medium">"Notes"</div>
+                        <Button
+                            variant=ButtonVariant::Outline
+                            size=ButtonSize::Sm
+                            attr:disabled=move || create_note_loading.get()
+                            on:click=move |_| {
+                                if create_note_loading.get_untracked() {
+                                    return;
+                                }
+
+                                create_note_loading.set(true);
+                                create_note_error.set(None);
+
+                                let id = db_id_untracked();
+                                let title = next_available_daily_note_title(&app_state.0.notes.get_untracked());
+                                let api_client = app_state.0.api_client.get_untracked();
+                                let load_notes_for_sv = load_notes_for_sv;
+
+                                spawn_local(async move {
+                                    match api_client.create_note(&id, &title).await {
+                                        Ok(note) => {
+                                            // Refresh list then navigate to note.
+                                            load_notes_for_sv.with_value(|f| {
+                                                f(id.clone(), true);
+                                            });
+                                            navigate.with_value(|nav| {
+                                                nav(
+                                                    &format!("/db/{}/note/{}", id, note.id),
+                                                    Default::default(),
+                                                );
+                                            });
+                                        }
+                                        Err(e) => {
+                                            if e == "Unauthorized" {
+                                                let mut c = app_state.0.api_client.get_untracked();
+                                                c.logout();
+                                                app_state.0.api_client.set(c);
+                                                app_state.0.current_user.set(None);
+                                                let _ = window().location().set_href("/login");
+                                            } else {
+                                                create_note_error.set(Some(e));
+                                            }
+                                        }
+                                    }
+                                    create_note_loading.set(false);
+                                });
+                            }
+                            attr:title="New note"
+                        >
+                            {move || if create_note_loading.get() { "Creating..." } else { "New" }}
+                        </Button>
+                    </div>
+
+                    <div class="mt-3 space-y-2">
+                        <Show when=move || create_note_error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                create_note_error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
+                        <Show
+                            when=move || !app_state.0.notes_loading.get()
+                            fallback=move || view! {
+                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Spinner />
+                                    "Loading notes…"
+                                </div>
+                            }
+                        >
+                            <Show
+                                when=move || app_state.0.notes_error.get().is_none()
+                                fallback=move || view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">
+                                            {move || app_state.0.notes_error.get().unwrap_or_default()}
+                                        </AlertDescription>
+                                    </Alert>
+                                }
+                            >
+                                <Show
+                                    when=move || !app_state.0.notes.get().is_empty()
+                                    fallback=move || view! {
+                                        <div class="text-sm text-muted-foreground">"No notes yet."</div>
+                                    }
+                                >
+                                    <div class="space-y-1">
+                                        {move || {
+                                            app_state
+                                                .0
+                                                .notes
+                                                .get()
+                                                .into_iter()
+                                                .map(|n| {
+                                                    view! {
+                                                        <a
+                                                            href=format!("/db/{}/note/{}", db_id(), n.id)
+                                                            class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                        >
+                                                            <div class="min-w-0">
+                                                                <div class="truncate text-sm font-medium">{n.title}</div>
+                                                                <div class="truncate text-xs text-muted-foreground">{n.updated_at}</div>
+                                                            </div>
+                                                        </a>
+                                                    }
+                                                })
+                                                .collect_view()
+                                        }}
+                                    </div>
+                                </Show>
+                            </Show>
+                        </Show>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Show when=move || rename_open.get() fallback=|| ().into_view()>
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                    <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                        <div class="mb-3 space-y-1">
+                            <div class="text-sm font-medium">"Rename database"</div>
+                            <div class="text-xs text-muted-foreground">"Only the name can be updated (backend limitation)."</div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="space-y-1">
+                                <Label class="text-xs">"New name"</Label>
+                                <Input bind_value=rename_value class="h-8 text-sm" />
+                            </div>
+
+                            <Show when=move || rename_error.get().is_some() fallback=|| ().into_view()>
+                                {move || rename_error.get().map(|e| view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                    </Alert>
+                                })}
+                            </Show>
+
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || rename_loading.get()
+                                    on:click=move |_| rename_open.set(false)
+                                >
+                                    "Cancel"
+                                </Button>
+                                <Button
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || rename_loading.get()
+                                    on:click=on_submit_rename
+                                >
+                                    <span class="inline-flex items-center gap-2">
+                                        <Show when=move || rename_loading.get() fallback=|| ().into_view()>
+                                            <Spinner />
+                                        </Show>
+                                        {move || if rename_loading.get() { "Saving..." } else { "Save" }}
+                                    </span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+
+            <Show when=move || delete_open.get() fallback=|| ().into_view()>
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
+                    <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
+                        <div class="mb-3 space-y-1">
+                            <div class="text-sm font-medium">"Delete database"</div>
+                            <div class="text-xs text-muted-foreground">
+                                {move || {
+                                    let name = db().map(|d| d.name).unwrap_or_default();
+                                    format!("Type '{}' to confirm.", name)
+                                }}
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <Input bind_value=delete_confirm class="h-8 text-sm" />
+
+                            <Show when=move || delete_error.get().is_some() fallback=|| ().into_view()>
+                                {move || delete_error.get().map(|e| view! {
+                                    <Alert class="border-destructive/30">
+                                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                    </Alert>
+                                })}
+                            </Show>
+
+                            <div class="flex items-center justify-end gap-2 pt-2">
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || delete_loading.get()
+                                    on:click=move |_| delete_open.set(false)
+                                >
+                                    "Cancel"
+                                </Button>
+                                <Button
+                                    size=ButtonSize::Sm
+                                    attr:disabled=move || delete_loading.get()
+                                    on:click=on_submit_delete
+                                >
+                                    <span class="inline-flex items-center gap-2">
+                                        <Show when=move || delete_loading.get() fallback=|| ().into_view()>
+                                            <Spinner />
+                                        </Show>
+                                        {move || if delete_loading.get() { "Deleting..." } else { "Delete" }}
+                                    </span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+        </div>
+        </Show>
+    }
+}
+
+#[component]
+pub fn SearchPage() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let query = use_query_map();
+
+    let q = move || query.get().get("q").unwrap_or_default();
+    let q_lower = move || q().trim().to_lowercase();
+
+    let matched_dbs = move || {
+        let q = q_lower();
+        if q.is_empty() {
+            return vec![];
+        }
+        app_state
+            .0
+            .databases
+            .get()
+            .into_iter()
+            .filter(|d| d.name.to_lowercase().contains(&q))
+            .collect::<Vec<_>>()
+    };
+
+    let matched_notes = move || {
+        let q = q_lower();
+        if q.is_empty() {
+            return vec![];
+        }
+        let db_id = app_state.0.current_database_id.get().unwrap_or_default();
+        if db_id.trim().is_empty() {
+            return vec![];
+        }
+
+        app_state
+            .0
+            .notes
+            .get()
+            .into_iter()
+            .filter(|n| n.database_id == db_id)
+            .filter(|n| n.title.to_lowercase().contains(&q))
+            .collect::<Vec<_>>()
+    };
+
+    view! {
+        <div class="space-y-4">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Search"</h1>
+                <p class="text-xs text-muted-foreground">{move || format!("q = {}", q())}</p>
+            </div>
+
+            <Show
+                when=move || !q_lower().is_empty()
+                fallback=|| view! {
+                    <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                        "Type a query in the sidebar search box and press Enter."
+                    </div>
+                }
+            >
+                <div class="space-y-4">
+                    <Card>
+                        <CardHeader class="p-3">
+                            <CardTitle class="text-sm">"Databases"</CardTitle>
+                        </CardHeader>
+                        <CardContent class="p-3 pt-0">
+                            <Show
+                                when=move || !matched_dbs().is_empty()
+                                fallback=|| view! { <div class="text-sm text-muted-foreground">"No matching databases."</div> }
+                            >
+                                <div class="space-y-1">
+                                    {move || {
+                                        matched_dbs()
+                                            .into_iter()
+                                            .map(|db| {
+                                                let id = db.id.clone();
+                                                let id_href = id.clone();
+                                                let name = db.name.clone();
+                                                view! {
+                                                    <a
+                                                        href=format!("/db/{}", id_href)
+                                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                    >
+                                                        <div class="truncate text-sm font-medium">{name}</div>
+                                                        <div class="truncate text-xs text-muted-foreground">{id}</div>
+                                                    </a>
+                                                }
+                                            })
+                                            .collect_view()
+                                    }}
+                                </div>
+                            </Show>
+                        </CardContent>
+                    </Card>
+
+                    <div class="h-px w-full bg-border" />
+
+                    <Card>
+                        <CardHeader class="p-3">
+                            <CardTitle class="text-sm">"Notes (current DB)"</CardTitle>
+                        </CardHeader>
+                        <CardContent class="p-3 pt-0">
+                            <Show
+                                when=move || !matched_notes().is_empty()
+                                fallback=move || view! {
+                                    <div class="text-sm text-muted-foreground">
+                                        {move || {
+                                            if app_state.0.current_database_id.get().is_none() {
+                                                "Select a database first."
+                                            } else {
+                                                "No matching notes in current DB."
+                                            }
+                                        }}
+                                    </div>
+                                }
+                            >
+                                <div class="space-y-1">
+                                    {move || {
+                                        let db_id = app_state.0.current_database_id.get().unwrap_or_default();
+                                        matched_notes()
+                                            .into_iter()
+                                            .map(|n| {
+                                                let id = n.id.clone();
+                                                let title = n.title.clone();
+                                                view! {
+                                                    <a
+                                                        href=format!("/db/{}/note/{}", db_id, id)
+                                                        class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                    >
+                                                        <div class="truncate text-sm font-medium">{title}</div>
+                                                    </a>
+                                                }
+                                            })
+                                            .collect_view()
+                                    }}
+                                </div>
+                            </Show>
+                        </CardContent>
+                    </Card>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+pub fn SettingsPage() -> impl IntoView {
+    view! {
+        <div class="space-y-3">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Settings"</h1>
+                <p class="text-xs text-muted-foreground">"Phase 3 placeholder"</p>
+            </div>
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                "Appearance/editor/account settings will be implemented in later phases."
+            </div>
+        </div>
+    }
+}
+
+#[component]
+pub fn UnreferencedPages() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<UnreferencedRouteParams>();
+
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Use stable local caches so the view doesn't depend on global notes state.
+    let notes: RwSignal<Vec<Note>> = RwSignal::new(vec![]);
+    let navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
+
+    // Load notes + navs for this DB.
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            notes.set(vec![]);
+            navs.set(vec![]);
+            return;
+        }
+
+        // Keep global selected DB in sync.
+        if app_state.0.current_database_id.get() != Some(db.clone()) {
+            app_state.0.current_database_id.set(Some(db.clone()));
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+            {
+                let _ = storage.set_item(CURRENT_DB_KEY, &db);
+            }
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let notes_res = api_client.get_all_note_list(&db).await;
+            let navs_res = api_client.get_all_navs(&db).await;
+
+            match (notes_res, navs_res) {
+                (Ok(ns), Ok(vs)) => {
+                    notes.set(ns);
+                    navs.set(vs);
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        error.set(Some(e));
+                    }
+                }
+            }
+
+            loading.set(false);
+        });
+    });
+
+    let unreferenced = move || {
+        let ns = notes.get();
+        let vs = navs.get();
+
+        let mut referenced_titles: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for nav in vs.into_iter() {
+            if nav.is_delete {
+                continue;
+            }
+            for t in extract_wiki_links(&nav.content) {
+                referenced_titles.insert(normalize_roam_page_title(&t));
+            }
+        }
+
+        let mut out: Vec<Note> = ns
+            .into_iter()
+            .filter(|n| {
+                let t = normalize_roam_page_title(&n.title);
+                !referenced_titles.contains(&t)
+            })
+            .collect();
+
+        out.sort_by(|a, b| a.title.cmp(&b.title));
+        out
+    };
+
+    view! {
+        <div class="space-y-4">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Unreferenced Pages"</h1>
+                <p class="text-xs text-muted-foreground">{move || format!("db_id = {}", db_id())}</p>
+            </div>
+
+            <Show when=move || !loading.get() fallback=move || view! {
+                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner />
+                    "Loading…"
+                </div>
+            }>
+                <Show when=move || error.get().is_none() fallback=move || view! {
+                    <Alert class="border-destructive/30">
+                        <AlertDescription class="text-destructive text-xs">
+                            {move || error.get().unwrap_or_default()}
+                        </AlertDescription>
+                    </Alert>
+                }>
+                    <Show when=move || !unreferenced().is_empty() fallback=|| view! {
+                        <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                            "No unreferenced pages."
+                        </div>
+                    }>
+                        <div class="space-y-1">
+                            {move || {
+                                let db = db_id();
+                                unreferenced()
+                                    .into_iter()
+                                    .map(|n| {
+                                        let href = format!("/db/{}/note/{}", db, n.id);
+                                        view! {
+                                            <a
+                                                href=href
+                                                class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                            >
+                                                <div class="truncate text-sm font-medium">{n.title}</div>
+                                            </a>
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                    </Show>
+                </Show>
+            </Show>
+        </div>
+    }
+}
