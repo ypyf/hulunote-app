@@ -2188,16 +2188,8 @@ pub fn NotePage() -> impl IntoView {
 
                 {move || {
                     if all_db_navs_loading.get() {
-                        return view! {
-                            <div class="mt-4 rounded-md border bg-card p-3">
-                                <div class="text-xs text-muted-foreground">"Backlinks"</div>
-                                <div class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Spinner />
-                                    "Loading backlinks…"
-                                </div>
-                            </div>
-                        }
-                        .into_any();
+                        // Avoid showing a loading card/spinner; only render backlinks once they exist.
+                        return ().into_view().into_any();
                     }
 
                     if let Some(err) = all_db_navs_error.get() {
