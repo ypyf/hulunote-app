@@ -731,7 +731,7 @@ pub fn OutlineNode(
                                                                     let title_preview_title = title_raw.clone();
 
                                                                     let title_for_click = title_raw.clone();
-                                                                    let title_for_title = title_for_click.clone();
+                                                                    let _title_for_title = title_for_click.clone();
 
                                                                     // Avoid moving `app_state` into one handler and breaking the other.
                                                                     let app_state_hover = app_state.clone();
@@ -871,7 +871,7 @@ pub fn OutlineNode(
                                                                             <a
                                                                                 class="text-primary underline underline-offset-2 hover:text-primary/80"
                                                                                 href="#"
-                                                                                title=move || format!("Open page: {}", title_for_title)
+                                                                                title=""
                                                                                 on:mousedown=move |ev: web_sys::MouseEvent| {
                                                                                     // Only handle left click.
                                                                                     // Right click should open context menu, not navigate.
