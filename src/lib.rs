@@ -2702,6 +2702,10 @@ pub fn NotePage() -> impl IntoView {
     // Track which note the title_value currently belongs to.
     let title_note_id: RwSignal<String> = RwSignal::new(String::new());
 
+    // Optional: focus a specific nav by id (from backlinks click).
+    let query = use_query_map();
+    let focus_nav = move || query.get().get("focus_nav").unwrap_or_default();
+
     // Keep global selected DB in sync when entering a note route directly (e.g. from Home recents).
     Effect::new(move |_| {
         let db = db_id();
@@ -2728,6 +2732,28 @@ pub fn NotePage() -> impl IntoView {
     let all_db_navs_loading: RwSignal<bool> = RwSignal::new(false);
     let all_db_navs_error: RwSignal<Option<String>> = RwSignal::new(None);
     let all_db_navs_req_id: RwSignal<u64> = RwSignal::new(0);
+
+    // If a focus_nav is provided (e.g. from backlinks click), scroll it into view.
+    Effect::new(move |_| {
+        let id = focus_nav();
+        if id.trim().is_empty() {
+            return;
+        }
+
+        // Defer: outline might still be rendering.
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                let doc = window().document().unwrap();
+                let el_id = format!("nav-{}", id);
+                if let Some(el) = doc.get_element_by_id(&el_id) {
+                    el.scroll_into_view();
+                }
+            })
+            .as_ref()
+            .unchecked_ref(),
+            0,
+        );
+    });
 
     // Ensure notes for this DB are loaded when deep-linking directly into a note page.
     // This prevents recent-note title from falling back to note_id.
@@ -2975,7 +3001,10 @@ pub fn NotePage() -> impl IntoView {
                                 }
 
                                 let current_note_id = note_id();
-                                let mut ref_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+                                // Collect matching references (note_id -> list of (nav_id, content)).
+                                let mut refs: std::collections::BTreeMap<String, Vec<(String, String)>> =
+                                    std::collections::BTreeMap::new();
 
                                 for nav in all_db_navs.get().into_iter() {
                                     if nav.is_delete {
@@ -2984,13 +3013,16 @@ pub fn NotePage() -> impl IntoView {
                                     if nav.note_id == current_note_id {
                                         continue;
                                     }
+
                                     let links = extract_wiki_links(&nav.content);
                                     if links.into_iter().any(|l| l == title) {
-                                        ref_ids.insert(nav.note_id);
+                                        refs.entry(nav.note_id.clone())
+                                            .or_default()
+                                            .push((nav.id.clone(), nav.content.clone()));
                                     }
                                 }
 
-                                if ref_ids.is_empty() {
+                                if refs.is_empty() {
                                     return view! {
                                         <div class="mt-2 text-sm text-muted-foreground">"No backlinks yet."</div>
                                     }
@@ -3001,22 +3033,50 @@ pub fn NotePage() -> impl IntoView {
                                 let notes = app_state.0.notes.get();
 
                                 view! {
-                                    <div class="mt-2 space-y-1">
-                                        {ref_ids
+                                    <div class="mt-2 space-y-2">
+                                        {refs
                                             .into_iter()
-                                            .filter_map(|id| {
-                                                let n = notes.iter().find(|n| n.id == id).cloned();
-                                                n.map(|n| {
-                                                    let href = format!("/db/{}/note/{}", db, n.id);
-                                                    view! {
+                                            .map(|(note_id, items)| {
+                                                let note = notes.iter().find(|n| n.id == note_id).cloned();
+                                                let note_title = note
+                                                    .as_ref()
+                                                    .map(|n| n.title.clone())
+                                                    .unwrap_or_else(|| note_id.clone());
+                                                let note_href = format!("/db/{}/note/{}", db, note_id);
+
+                                                view! {
+                                                    <div class="rounded-md border border-border bg-background p-2">
                                                         <a
-                                                            href=href
-                                                            class="block rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface-hover"
+                                                            href=note_href
+                                                            class="block truncate text-sm font-medium hover:underline"
                                                         >
-                                                            <div class="truncate font-medium">{n.title}</div>
+                                                            {note_title}
                                                         </a>
-                                                    }
-                                                })
+
+                                                        <div class="mt-1 space-y-1">
+                                                            {items
+                                                                .into_iter()
+                                                                .map(|(nav_id, content)| {
+                                                                    let href = format!(
+                                                                        "/db/{}/note/{}?focus_nav={}",
+                                                                        db,
+                                                                        note_id,
+                                                                        urlencoding::encode(&nav_id)
+                                                                    );
+
+                                                                    view! {
+                                                                        <a
+                                                                            href=href
+                                                                            class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover"
+                                                                        >
+                                                                            <span class="line-clamp-2 whitespace-pre-wrap">{content}</span>
+                                                                        </a>
+                                                                    }
+                                                                })
+                                                                .collect_view()}
+                                                        </div>
+                                                    </div>
+                                                }
                                             })
                                             .collect_view()}
                                     </div>
@@ -3299,6 +3359,7 @@ pub fn OutlineNode(
                     <div>
                         <div style=move || format!("padding-left: {}px", indent_px)>
                             <div
+                                id=move || format!("nav-{}", nav_id_sv.get_value())
                                 class=move || {
                                     let id = nav_id_sv.get_value();
                                     let is_editing = editing_id.get().as_deref() == Some(id.as_str());
