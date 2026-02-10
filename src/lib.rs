@@ -2705,6 +2705,7 @@ pub fn NotePage() -> impl IntoView {
     // Optional: focus a specific nav by id (from backlinks click).
     let query = use_query_map();
     let focus_nav = move || query.get().get("focus_nav").unwrap_or_default();
+    let focused_nav_id: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Keep global selected DB in sync when entering a note route directly (e.g. from Home recents).
     Effect::new(move |_| {
@@ -2733,12 +2734,25 @@ pub fn NotePage() -> impl IntoView {
     let all_db_navs_error: RwSignal<Option<String>> = RwSignal::new(None);
     let all_db_navs_req_id: RwSignal<u64> = RwSignal::new(0);
 
-    // If a focus_nav is provided (e.g. from backlinks click), scroll it into view.
+    // If a focus_nav is provided (e.g. from backlinks click), scroll it into view and highlight it.
     Effect::new(move |_| {
         let id = focus_nav();
         if id.trim().is_empty() {
+            focused_nav_id.set(None);
             return;
         }
+
+        focused_nav_id.set(Some(id.clone()));
+
+        // Clear highlight after a short delay.
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                focused_nav_id.set(None);
+            })
+            .as_ref()
+            .unchecked_ref(),
+            1800,
+        );
 
         // Defer: outline might still be rendering.
         let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -2974,7 +2988,7 @@ pub fn NotePage() -> impl IntoView {
                     })}
                 </Show>
 
-                <OutlineEditor note_id=note_id />
+                <OutlineEditor note_id=note_id focused_nav_id=focused_nav_id />
 
                 <div class="mt-4 rounded-md border bg-card p-3">
                     <div class="text-xs text-muted-foreground">"Backlinks"</div>
@@ -3158,7 +3172,10 @@ pub fn NotePage() -> impl IntoView {
 }
 
 #[component]
-pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'static) -> impl IntoView {
+pub fn OutlineEditor(
+    note_id: impl Fn() -> String + Clone + Send + Sync + 'static,
+    focused_nav_id: RwSignal<Option<String>>,
+) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
 
     let navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
@@ -3282,6 +3299,7 @@ pub fn OutlineEditor(note_id: impl Fn() -> String + Clone + Send + Sync + 'stati
                                                 editing_value=editing_value
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
+                                                focused_nav_id=focused_nav_id
                                             />
                                         }
                                     }
@@ -3306,6 +3324,7 @@ pub fn OutlineNode(
     editing_value: RwSignal<String>,
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Input>,
+    focused_nav_id: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let navigate = leptos_router::hooks::use_navigate();
@@ -3411,6 +3430,7 @@ pub fn OutlineNode(
                                         editing_value=editing_value
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
+                                        focused_nav_id=focused_nav_id
                                     />
                                 }
                             }
@@ -3429,8 +3449,13 @@ pub fn OutlineNode(
                                 class=move || {
                                     let id = nav_id_sv.get_value();
                                     let is_editing = editing_id.get().as_deref() == Some(id.as_str());
+                                    let is_focused = focused_nav_id.get().as_deref() == Some(id.as_str());
+
                                     if is_editing {
                                         "outline-row outline-row--editing flex items-center gap-2 py-1"
+                                    } else if is_focused {
+                                        // Temporary highlight when jumping from backlinks.
+                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-primary/10 ring-1 ring-primary/30"
                                     } else {
                                         "outline-row flex items-center gap-2 py-1"
                                     }
