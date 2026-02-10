@@ -3002,11 +3002,19 @@ pub fn NotePage() -> impl IntoView {
 
                                 let current_note_id = note_id();
 
+                                // Build index for parent-chain rendering.
+                                let all_navs = all_db_navs.get();
+                                let mut nav_by_id: std::collections::HashMap<String, Nav> =
+                                    std::collections::HashMap::with_capacity(all_navs.len());
+                                for n in all_navs.iter() {
+                                    nav_by_id.insert(n.id.clone(), n.clone());
+                                }
+
                                 // Collect matching references (note_id -> list of (nav_id, content)).
                                 let mut refs: std::collections::BTreeMap<String, Vec<(String, String)>> =
                                     std::collections::BTreeMap::new();
 
-                                for nav in all_db_navs.get().into_iter() {
+                                for nav in all_navs.into_iter() {
                                     if nav.is_delete {
                                         continue;
                                     }
@@ -3064,12 +3072,70 @@ pub fn NotePage() -> impl IntoView {
                                                                         urlencoding::encode(&nav_id)
                                                                     );
 
+                                                                    // Parent chain (context) for this nav.
+                                                                    let mut chain: Vec<String> = vec![];
+                                                                    let mut cur = nav_by_id.get(&nav_id).cloned();
+                                                                    let root = "00000000-0000-0000-0000-000000000000".to_string();
+                                                                    let mut guard = 0;
+                                                                    while let Some(n) = cur {
+                                                                        guard += 1;
+                                                                        if guard > 32 {
+                                                                            break;
+                                                                        }
+                                                                        if n.parid == root {
+                                                                            break;
+                                                                        }
+                                                                        if let Some(p) = nav_by_id.get(&n.parid) {
+                                                                            let c = p.content.trim().to_string();
+                                                                            if !c.is_empty() {
+                                                                                chain.push(c);
+                                                                            }
+                                                                            cur = Some(p.clone());
+                                                                        } else {
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    chain.reverse();
+
+                                                                    let chain_display = if chain.is_empty() {
+                                                                        String::new()
+                                                                    } else {
+                                                                        // Keep it short.
+                                                                        let max = 3usize;
+                                                                        let mut s = String::new();
+                                                                        if chain.len() > max {
+                                                                            s.push_str("… ");
+                                                                        }
+                                                                        for (i, part) in chain
+                                                                            .into_iter()
+                                                                            .rev()
+                                                                            .take(max)
+                                                                            .collect::<Vec<_>>()
+                                                                            .into_iter()
+                                                                            .rev()
+                                                                            .enumerate()
+                                                                        {
+                                                                            if i > 0 {
+                                                                                s.push_str(" › ");
+                                                                            }
+                                                                            s.push_str(&part);
+                                                                        }
+                                                                        s
+                                                                    };
+
+                                                                    let chain_display_for_show = chain_display.clone();
                                                                     view! {
                                                                         <a
                                                                             href=href
-                                                                            class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-surface-hover"
+                                                                            class="block rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors hover:bg-surface-hover"
                                                                         >
-                                                                            <span class="line-clamp-2 whitespace-pre-wrap">{content}</span>
+                                                                            <Show
+                                                                                when=move || !chain_display_for_show.is_empty()
+                                                                                fallback=|| ().into_view()
+                                                                            >
+                                                                                <div class="mb-1 truncate text-[11px] text-muted-foreground">{chain_display.clone()}</div>
+                                                                            </Show>
+                                                                            <span class="line-clamp-2 whitespace-pre-wrap text-muted-foreground">{content}</span>
                                                                         </a>
                                                                     }
                                                                 })
