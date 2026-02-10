@@ -689,8 +689,8 @@ pub fn OutlineNode(
                                     if is_editing {
                                         "outline-row outline-row--editing flex items-center gap-2 py-1"
                                     } else if is_dragging && is_drag_source {
-                                        // Highlight the dragged row itself (subtle).
-                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-muted/50"
+                                        // Make the dragged row semi-transparent (keep content visible).
+                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-muted/30 opacity-40"
                                     } else if is_dragging && is_drag_over {
                                         // Highlight drop target only while dragging.
                                         "outline-row flex items-center gap-2 py-1 rounded-md bg-muted ring-1 ring-ring/40"
@@ -742,6 +742,10 @@ pub fn OutlineNode(
                                 }
                                 on:drop=move |ev: web_sys::DragEvent| {
                                     ev.prevent_default();
+
+                                    // Drop completes the drag: clear drag state immediately so UI restores.
+                                    dragging_nav_id.set(None);
+                                    drag_over_nav_id.set(None);
 
                                     let dragged_id = ev
                                         .data_transfer()
