@@ -139,6 +139,27 @@ fn apply_nav_content(navs: &mut [Nav], nav_id: &str, content: &str) -> bool {
     }
 }
 
+fn is_tmp_nav_id(id: &str) -> bool {
+    id.starts_with("tmp-")
+}
+
+fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
+    format!("tmp-{now_ms}-{rand}")
+}
+
+fn swap_tmp_nav_id(navs: &mut [Nav], tmp_id: &str, real_id: &str) -> bool {
+    if let Some(n) = navs.iter_mut().find(|n| n.id == tmp_id) {
+        n.id = real_id.to_string();
+        true
+    } else {
+        false
+    }
+}
+
+fn get_nav_content(navs: &[Nav], nav_id: &str) -> Option<String> {
+    navs.iter().find(|n| n.id == nav_id).map(|n| n.content.clone())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginRequest {
     pub email: String,
@@ -3056,7 +3077,10 @@ pub fn OutlineNode(
                                                 // If the input is already being torn down (e.g. Enter triggers a state
                                                 // change and the blur fires late), we may not be able to recover ids.
                                                 // In that case, don't send an invalid request.
-                                                if nav_id_now.trim().is_empty() || note_id_now.trim().is_empty() {
+                                                if nav_id_now.trim().is_empty()
+                                                    || note_id_now.trim().is_empty()
+                                                    || is_tmp_nav_id(&nav_id_now)
+                                                {
                                                     return;
                                                 }
 
@@ -3665,7 +3689,7 @@ pub fn OutlineNode(
                                                         note_id: note_id_now.clone(),
                                                         id: Some(nav_id_now.clone()),
                                                         parid: None,
-                                                        content: Some(current_content),
+                                                        content: Some(current_content.clone()),
                                                         order: None,
                                                         is_display: None,
                                                         is_delete: None,
@@ -3699,8 +3723,29 @@ pub fn OutlineNode(
                                                         me.same_deep_order + 1.0
                                                     };
 
-                                                    // Keep the current input mounted while we create the next node.
-                                                    // This avoids an extra unmount/remount cycle (and reduces perceived lag).
+                                                    // Optimistic UI: insert a temporary node locally and start editing it
+                                                    // immediately. Replace its id once the backend returns the real id.
+
+                                                    let tmp_id = make_tmp_nav_id(
+                                                        js_sys::Date::now() as u64,
+                                                        (js_sys::Math::random() * 1e9) as u64,
+                                                    );
+
+                                                    navs.update(|xs| {
+                                                        xs.push(Nav {
+                                                            id: tmp_id.clone(),
+                                                            note_id: note_id_now.clone(),
+                                                            parid: parid.clone(),
+                                                            same_deep_order: new_order,
+                                                            content: String::new(),
+                                                            is_display: true,
+                                                            is_delete: false,
+                                                        });
+                                                    });
+
+                                                    editing_id.set(Some(tmp_id.clone()));
+                                                    editing_value.set(String::new());
+                                                    target_cursor_col.set(Some(0));
 
                                                     spawn_local(async move {
                                                         let _ = api_client.upsert_nav(save_req).await;
@@ -3724,23 +3769,36 @@ pub fn OutlineNode(
                                                                 .to_string();
 
                                                             if !new_id.trim().is_empty() {
-                                                                navs.update(|xs| {
-                                                                    xs.push(Nav {
-                                                                        id: new_id.clone(),
-                                                                        note_id: note_id_now.clone(),
-                                                                        parid: parid.clone(),
-                                                                        same_deep_order: new_order,
-                                                                        content: String::new(),
-                                                                        is_display: true,
-                                                                        is_delete: false,
-                                                                    });
+                                                                // Swap tmp id -> real id.
+                                                                let content_now = get_nav_content(
+                                                                    &navs.get_untracked(),
+                                                                    &tmp_id,
+                                                                )
+                                                                .unwrap_or_default();
 
-                                                                    // Keep navs unsorted: children are sorted per-parent at render
-                                                                    // time and in keyboard navigation.
+                                                                navs.update(|xs| {
+                                                                    let _ = swap_tmp_nav_id(xs, &tmp_id, &new_id);
                                                                 });
-                                                                editing_id.set(Some(new_id));
-                                                                editing_value.set(String::new());
-                                                                target_cursor_col.set(Some(0));
+
+                                                                // If still editing the tmp node, switch to the real id.
+                                                                if editing_id.get_untracked().as_deref() == Some(tmp_id.as_str()) {
+                                                                    editing_id.set(Some(new_id.clone()));
+                                                                }
+
+                                                                // Persist current content (if user typed before backend returned).
+                                                                if !content_now.is_empty() {
+                                                                    let save_req = CreateOrUpdateNavRequest {
+                                                                        note_id: note_id_now.clone(),
+                                                                        id: Some(new_id),
+                                                                        parid: None,
+                                                                        content: Some(content_now),
+                                                                        order: None,
+                                                                        is_display: None,
+                                                                        is_delete: None,
+                                                                        properties: None,
+                                                                    };
+                                                                    let _ = api_client.upsert_nav(save_req).await;
+                                                                }
                                                             }
                                                         }
                                                     });
@@ -4715,6 +4773,65 @@ mod tests {
 
         assert!(!apply_nav_content(&mut navs, "missing", "new"));
         assert_eq!(navs[0].content, "old");
+    }
+
+    #[test]
+    fn test_is_tmp_nav_id() {
+        assert!(is_tmp_nav_id("tmp-1-2"));
+        assert!(!is_tmp_nav_id("real"));
+    }
+
+    #[test]
+    fn test_make_tmp_nav_id_is_deterministic() {
+        assert_eq!(make_tmp_nav_id(123, 456), "tmp-123-456");
+    }
+
+    #[test]
+    fn test_swap_tmp_nav_id_updates_id() {
+        let mut navs = vec![Nav {
+            id: "tmp-1-2".to_string(),
+            note_id: "n".to_string(),
+            parid: "root".to_string(),
+            same_deep_order: 1.0,
+            content: "".to_string(),
+            is_display: true,
+            is_delete: false,
+        }];
+
+        assert!(swap_tmp_nav_id(&mut navs, "tmp-1-2", "real"));
+        assert_eq!(navs[0].id, "real");
+    }
+
+    #[test]
+    fn test_swap_tmp_nav_id_returns_false_when_missing() {
+        let mut navs = vec![Nav {
+            id: "x".to_string(),
+            note_id: "n".to_string(),
+            parid: "root".to_string(),
+            same_deep_order: 1.0,
+            content: "".to_string(),
+            is_display: true,
+            is_delete: false,
+        }];
+
+        assert!(!swap_tmp_nav_id(&mut navs, "tmp-1-2", "real"));
+        assert_eq!(navs[0].id, "x");
+    }
+
+    #[test]
+    fn test_get_nav_content_returns_value() {
+        let navs = vec![Nav {
+            id: "a".to_string(),
+            note_id: "n".to_string(),
+            parid: "root".to_string(),
+            same_deep_order: 1.0,
+            content: "hello".to_string(),
+            is_display: true,
+            is_delete: false,
+        }];
+
+        assert_eq!(get_nav_content(&navs, "a"), Some("hello".to_string()));
+        assert_eq!(get_nav_content(&navs, "missing"), None);
     }
 
     // NOTE: database list parsing is intentionally strict to the canonical contract.
