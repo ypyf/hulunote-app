@@ -468,6 +468,12 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let db_loading: RwSignal<bool> = RwSignal::new(false);
     let db_error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Avoid tight retry loops when backend is down.
+    // Backoff is reset once a request succeeds.
+    let db_retry_delay_ms: RwSignal<u32> = RwSignal::new(500);
+    let db_retry_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
+    let db_retry_tick: RwSignal<u64> = RwSignal::new(0);
+
     // Phase 4: database create dialog state
     let create_open: RwSignal<bool> = RwSignal::new(false);
     let create_name: RwSignal<String> = RwSignal::new(String::new());
@@ -717,6 +723,12 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             return;
         }
 
+        // Clear any scheduled retry; a manual/triggered call should run immediately.
+        if let Some(id) = db_retry_timer_id.get_untracked() {
+            let _ = window().clear_timeout_with_handle(id);
+            db_retry_timer_id.set(None);
+        }
+
         let mut api_client = app_state.0.api_client.get_untracked();
         if !api_client.is_authenticated() {
             return;
@@ -728,6 +740,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         spawn_local(async move {
             match api_client.get_database_list().await {
                 Ok(dbs) => {
+                    // Success: reset backoff.
+                    db_retry_delay_ms.set(500);
                     app_state.0.databases.set(dbs);
                     app_state.0.api_client.set(api_client);
                 }
@@ -738,8 +752,32 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        db_error.set(Some(e));
-                        app_state.0.api_client.set(api_client);
+                        // Failure: schedule retry with exponential backoff.
+                        let delay = db_retry_delay_ms.get_untracked().min(30_000);
+                        db_error.set(Some(format!(
+                            "Backend not reachable. Retrying in {:.1}s (or click ↻).\n{}",
+                            delay as f32 / 1000.0,
+                            e
+                        )));
+
+                        let next_delay = (delay.saturating_mul(2)).min(30_000);
+                        db_retry_delay_ms.set(next_delay);
+
+                        // Schedule the retry on the UI thread.
+                        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+                            db_retry_tick.update(|x| *x = x.saturating_add(1));
+                        });
+                        let id = window()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                cb.as_ref().unchecked_ref(),
+                                delay as i32,
+                            )
+                            .unwrap_or(0);
+                        db_retry_timer_id.set(Some(id));
+
+                        // NOTE: do not set api_client back into reactive state here.
+                        // On transient network failures it is unchanged, but setting it would
+                        // retrigger Effects that track `api_client.get()` and cause a tight loop.
                     }
                 }
             }
@@ -748,9 +786,22 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     };
 
     // Initial load when we enter the authenticated shell.
+    // Also used as the single place that triggers retries (via db_retry_tick) to avoid tight loops.
     Effect::new(move |_| {
+        let _tick = db_retry_tick.get();
+
         let authed = app_state.0.api_client.get().is_authenticated();
-        if authed && databases.get().is_empty() {
+        if !authed {
+            return;
+        }
+
+        // IMPORTANT: avoid tracking `db_loading` / `databases` here.
+        // Otherwise, failures would toggle signals and immediately re-trigger loads (tight loop).
+        if db_loading.get_untracked() {
+            return;
+        }
+
+        if databases.get_untracked().is_empty() {
             load_databases();
         }
     });
