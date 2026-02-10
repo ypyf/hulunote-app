@@ -2653,6 +2653,11 @@ pub struct NoteRouteParams {
     pub note_id: Option<String>,
 }
 
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct UnreferencedRouteParams {
+    pub db_id: Option<String>,
+}
+
 #[component]
 pub fn NotePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
@@ -5056,6 +5061,144 @@ pub fn SettingsPage() -> impl IntoView {
 }
 
 #[component]
+pub fn UnreferencedPages() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<UnreferencedRouteParams>();
+
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Use stable local caches so the view doesn't depend on global notes state.
+    let notes: RwSignal<Vec<Note>> = RwSignal::new(vec![]);
+    let navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
+
+    // Load notes + navs for this DB.
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            notes.set(vec![]);
+            navs.set(vec![]);
+            return;
+        }
+
+        // Keep global selected DB in sync.
+        if app_state.0.current_database_id.get() != Some(db.clone()) {
+            app_state.0.current_database_id.set(Some(db.clone()));
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                let _ = storage.set_item(CURRENT_DB_KEY, &db);
+            }
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let notes_res = api_client.get_all_note_list(&db).await;
+            let navs_res = api_client.get_all_navs(&db).await;
+
+            match (notes_res, navs_res) {
+                (Ok(ns), Ok(vs)) => {
+                    notes.set(ns);
+                    navs.set(vs);
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        error.set(Some(e));
+                    }
+                }
+            }
+
+            loading.set(false);
+        });
+    });
+
+    let unreferenced = move || {
+        let ns = notes.get();
+        let vs = navs.get();
+
+        let mut referenced_titles: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for nav in vs.into_iter() {
+            if nav.is_delete {
+                continue;
+            }
+            for t in extract_wiki_links(&nav.content) {
+                referenced_titles.insert(normalize_roam_page_title(&t));
+            }
+        }
+
+        let mut out: Vec<Note> = ns
+            .into_iter()
+            .filter(|n| {
+                let t = normalize_roam_page_title(&n.title);
+                !referenced_titles.contains(&t)
+            })
+            .collect();
+
+        out.sort_by(|a, b| a.title.cmp(&b.title));
+        out
+    };
+
+    view! {
+        <div class="space-y-4">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">"Unreferenced Pages"</h1>
+                <p class="text-xs text-muted-foreground">{move || format!("db_id = {}", db_id())}</p>
+            </div>
+
+            <Show when=move || !loading.get() fallback=move || view! {
+                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner />
+                    "Loading…"
+                </div>
+            }>
+                <Show when=move || error.get().is_none() fallback=move || view! {
+                    <Alert class="border-destructive/30">
+                        <AlertDescription class="text-destructive text-xs">
+                            {move || error.get().unwrap_or_default()}
+                        </AlertDescription>
+                    </Alert>
+                }>
+                    <Show when=move || !unreferenced().is_empty() fallback=|| view! {
+                        <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
+                            "No unreferenced pages."
+                        </div>
+                    }>
+                        <div class="space-y-1">
+                            {move || {
+                                let db = db_id();
+                                unreferenced()
+                                    .into_iter()
+                                    .map(|n| {
+                                        let href = format!("/db/{}/note/{}", db, n.id);
+                                        view! {
+                                            <a
+                                                href=href
+                                                class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                            >
+                                                <div class="truncate text-sm font-medium">{n.title}</div>
+                                            </a>
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                    </Show>
+                </Show>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     provide_context(AppContext(AppState::new()));
 
@@ -5075,6 +5218,11 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("db/:db_id/note/:note_id") view=move || view! {
                     <RootAuthed>
                         <NotePage />
+                    </RootAuthed>
+                } />
+                <Route path=path!("db/:db_id/unreferenced") view=move || view! {
+                    <RootAuthed>
+                        <UnreferencedPages />
                     </RootAuthed>
                 } />
                 <Route path=path!("search") view=move || view! {
