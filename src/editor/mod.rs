@@ -805,8 +805,12 @@ pub fn OutlineNode(
                                                         // Persist to backend only if content changed since we entered edit mode.
                                                         let should_save = editing_snapshot
                                                             .get_untracked()
-                                                            .map(|(id, original)| id == current_id && original != current_content)
-                                                            .unwrap_or(true);
+                                                            .filter(|(id, _)| id == &current_id)
+                                                            .map(|(_id, original)| original != current_content)
+                                                            .unwrap_or_else(|| {
+                                                                // Fallback: compare against current nav content.
+                                                                get_nav_content(&navs.get_untracked(), &current_id).unwrap_or_default() != current_content
+                                                            });
 
                                                         if should_save {
                                                             let api_client = app_state.0.api_client.get_untracked();
@@ -1280,6 +1284,17 @@ pub fn OutlineNode(
                                                     return;
                                                 }
 
+                                                // Persist to backend only if content changed since we entered edit mode.
+                                                // IMPORTANT: compute this before clearing the snapshot.
+                                                let should_save = editing_snapshot
+                                                    .get_untracked()
+                                                    .filter(|(id, _)| id == &nav_id_now)
+                                                    .map(|(_id, original)| original != new_content)
+                                                    .unwrap_or_else(|| {
+                                                        // Fallback: compare against current nav content.
+                                                        get_nav_content(&navs.get_untracked(), &nav_id_now).unwrap_or_default() != new_content
+                                                    });
+
                                                 // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
                                                     editing_id.set(None);
@@ -1289,12 +1304,6 @@ pub fn OutlineNode(
                                                 navs.update(|xs| {
                                                     let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                 });
-
-                                                // Persist to backend only if content changed since we entered edit mode.
-                                                let should_save = editing_snapshot
-                                                    .get_untracked()
-                                                    .map(|(id, original)| id == nav_id_now && original != new_content)
-                                                    .unwrap_or(true);
 
                                                 if should_save {
                                                     let api_client = app_state.0.api_client.get_untracked();
@@ -1403,8 +1412,12 @@ pub fn OutlineNode(
                                                     // Persist to backend only if content changed since we entered edit mode.
                                                     let should_save = editing_snapshot
                                                         .get_untracked()
-                                                        .map(|(id, original)| id == nav_id_now && original != current_content)
-                                                        .unwrap_or(true);
+                                                        .filter(|(id, _)| id == nav_id_now)
+                                                        .map(|(_id, original)| original != current_content)
+                                                        .unwrap_or_else(|| {
+                                                            // Fallback: compare against current nav content.
+                                                            get_nav_content(&navs.get_untracked(), nav_id_now).unwrap_or_default() != current_content
+                                                        });
 
                                                     if should_save {
                                                         let api_client = app_state.0.api_client.get_untracked();
