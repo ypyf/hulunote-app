@@ -198,6 +198,29 @@ pub(crate) fn backfill_content_request(
     })
 }
 
+pub(crate) fn is_ancestor_of(all: &[Nav], ancestor_id: &str, node_id: &str) -> bool {
+    if ancestor_id == node_id {
+        return true;
+    }
+
+    // Walk up the parent chain from node_id to root.
+    let mut cur = node_id;
+    for _ in 0..2048 {
+        let Some(n) = all.iter().find(|n| n.id == cur) else {
+            return false;
+        };
+        if n.parid == ancestor_id {
+            return true;
+        }
+        if n.parid.trim().is_empty() {
+            return false;
+        }
+        cur = &n.parid;
+    }
+
+    false
+}
+
 pub(crate) fn compute_reorder_target(
     all: &[Nav],
     dragged_id: &str,
@@ -723,12 +746,40 @@ pub fn OutlineNode(
                                     drag_over_nav_id.set(None);
                                 }
                                 on:dragenter=move |ev: web_sys::DragEvent| {
+                                    let target_id = nav_id_sv.get_value();
+                                    let dragged_id = dragging_nav_id.get_untracked().unwrap_or_default();
+
+                                    // Disallow dropping a node into its own subtree.
+                                    if !dragged_id.trim().is_empty()
+                                        && is_ancestor_of(&navs.get_untracked(), &dragged_id, &target_id)
+                                    {
+                                        drag_over_nav_id.set(None);
+                                        if let Some(dt) = ev.data_transfer() {
+                                            dt.set_drop_effect("none");
+                                        }
+                                        return;
+                                    }
+
                                     ev.prevent_default();
-                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
+                                    drag_over_nav_id.set(Some(target_id));
                                 }
                                 on:dragover=move |ev: web_sys::DragEvent| {
+                                    let target_id = nav_id_sv.get_value();
+                                    let dragged_id = dragging_nav_id.get_untracked().unwrap_or_default();
+
+                                    // Disallow dropping a node into its own subtree.
+                                    if !dragged_id.trim().is_empty()
+                                        && is_ancestor_of(&navs.get_untracked(), &dragged_id, &target_id)
+                                    {
+                                        drag_over_nav_id.set(None);
+                                        if let Some(dt) = ev.data_transfer() {
+                                            dt.set_drop_effect("none");
+                                        }
+                                        return;
+                                    }
+
                                     ev.prevent_default();
-                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
+                                    drag_over_nav_id.set(Some(target_id));
                                     if let Some(dt) = ev.data_transfer() {
                                         dt.set_drop_effect("move");
                                     }
@@ -743,20 +794,23 @@ pub fn OutlineNode(
                                 on:drop=move |ev: web_sys::DragEvent| {
                                     ev.prevent_default();
 
-                                    // Drop completes the drag: clear drag state immediately so UI restores.
-                                    dragging_nav_id.set(None);
-                                    drag_over_nav_id.set(None);
-
-                                    let dragged_id = ev
-                                        .data_transfer()
-                                        .and_then(|dt| dt.get_data("text/plain").ok())
-                                        .unwrap_or_default();
+                                    // Read dragged_id before clearing drag state.
+                                    let dragged_id = dragging_nav_id.get_untracked().unwrap_or_default();
                                     if dragged_id.trim().is_empty() {
+                                        return;
+                                    }
+
+                                    // Disallow dropping a node into its own subtree.
+                                    if is_ancestor_of(&navs.get_untracked(), &dragged_id, &nav_id_sv.get_value()) {
                                         return;
                                     }
                                     if is_tmp_nav_id(&dragged_id) {
                                         return;
                                     }
+
+                                    // Drop completes the drag: clear drag state immediately so UI restores.
+                                    dragging_nav_id.set(None);
+                                    drag_over_nav_id.set(None);
 
                                     let target_id = nav_id_sv.get_value();
                                     if dragged_id == target_id {
