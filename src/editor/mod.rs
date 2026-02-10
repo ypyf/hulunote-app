@@ -1011,7 +1011,7 @@ pub fn OutlineNode(
                                                                             </a>
 
                                                                             <Show when=move || preview_open.get()>
-                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border border-border bg-background text-foreground p-3 text-xs shadow-lg">
+                                                                                <div class="absolute left-0 top-full mt-1 w-[28rem] max-w-[90vw] rounded-md border border-border bg-popover text-popover-foreground p-3 text-xs shadow-lg">
                                                                                     <div class="font-medium truncate">{title_preview_title.clone()}</div>
                                                                                     <Show when=move || preview_loading.get() fallback=|| ().into_view()>
                                                                                         <div class="mt-2 text-muted-foreground">"Loading…"</div>
