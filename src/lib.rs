@@ -2297,6 +2297,26 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                         <div class="space-y-1">
                                             {move || {
                                                 let db_id = current_db_id.get().unwrap_or_default();
+
+                                                // Utility links
+                                                let mut out: Vec<AnyView> = vec![];
+                                                if !db_id.trim().is_empty() {
+                                                    out.push(
+                                                        view! {
+                                                            <a
+                                                                href=format!("/db/{}/unreferenced", db_id)
+                                                                class="block rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface-hover"
+                                                            >
+                                                                "Unreferenced Pages"
+                                                            </a>
+                                                        }
+                                                        .into_any(),
+                                                    );
+
+                                                    // Divider
+                                                    out.push(view! { <div class="h-px w-full bg-border" /> }.into_any());
+                                                }
+
                                                 let q = search_query.get().trim().to_lowercase();
                                                 let notes = expect_context::<AppContext>().0.notes.get();
 
@@ -2310,7 +2330,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                     .next()
                                                     .unwrap_or("");
 
-                                                notes
+                                                let note_views = notes
                                                     .into_iter()
                                                     .filter(|n| n.database_id == db_id)
                                                     .filter(|n| {
@@ -2339,8 +2359,12 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                 {n.title}
                                                             </Button>
                                                         }
+                                                        .into_any()
                                                     })
-                                                    .collect_view()
+                                                    .collect::<Vec<_>>();
+
+                                                out.extend(note_views);
+                                                out
                                             }}
                                         </div>
                                     </CardContent>
