@@ -23,8 +23,7 @@
   --border: 30 32 35;               /* color-border: #1E2023 */
   --border-strong: 42 45 51;        /* color-border-strong: #2A2D33 */
 
-  /* Rust/UI style-token aliases (use `--color-*` tokens inside generated components).
-     Goal: generated Rust/UI components can rely on these tokens without per-component edits. */
+  /* Token aliases */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
@@ -44,7 +43,7 @@
   --color-input: var(--surface-hover);
   --color-ring: var(--ring);
 
-  /* Semantic / shadcn-style tokens (commonly used by Rust/UI components) */
+  /* Semantic tokens */
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-foreground);
   --color-secondary: var(--secondary);
@@ -66,9 +65,7 @@
   --accent-soft: rgba(113, 112, 255, 0.16); /* more visible hover fill */
   --ring: rgba(113, 112, 255, 0.45);        /* color-ring */
 
-  /* (color-* aliases defined above) */
-
-  /* Semantic colors used by Rust/UI component variants (shadcn-ish) */
+  /* Component semantic colors */
   --secondary: 18 19 22;                /* surface-hover */
   --secondary-foreground: 247 248 248;  /* foreground */
 
@@ -95,12 +92,9 @@ body {
 }
 
 /*
-  Outline row hover highlight (Roam-ish):
-  - delayed highlight on hover-in (~500ms)
+  Outline row hover highlight:
+  - subtle background on hover
   - smooth fade in/out
-
-  Tailwind's `delay-*` applies to both directions; we want delay only on hover-in,
-  so we implement it in CSS.
 */
 .outline-row {
   border-radius: var(--radius-md);

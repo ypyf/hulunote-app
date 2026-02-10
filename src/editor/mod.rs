@@ -268,7 +268,7 @@ pub fn OutlineEditor(
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    // Wiki links: opening a missing page does not hit the backend (Roam-style navigation).
+    // Wiki links: opening a missing page does not hit the backend (client-side navigation).
 
     // Editing state
     let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
@@ -276,7 +276,7 @@ pub fn OutlineEditor(
     let target_cursor_col: RwSignal<Option<u32>> = RwSignal::new(None);
     let editing_ref: NodeRef<html::Input> = NodeRef::new();
 
-    // Autocomplete for `[[...]]` (Roam-style)
+    // Autocomplete for `[[...]]` (wiki-style)
     // - Data source is fixed: existing notes + titles extracted from all nav contents in current DB.
     // - Supports creating new titles (insert text even if no existing note).
     let ac_open: RwSignal<bool> = RwSignal::new(false);
@@ -398,7 +398,7 @@ pub fn OutlineEditor(
                 })}
             </Show>
 
-            // (Roam-style) opening missing pages does not show an error banner here.
+            // Opening missing pages does not show an error banner here.
 
             <div class=move || {
                 if editing_id.get().is_some() {
@@ -1367,7 +1367,7 @@ pub fn OutlineNode(
                                                     }
                                                 }
 
-                                                // Helpers for Roam-style navigation
+                                                // Helpers for wiki-style navigation
 
                                                 let save_current = |nav_id_now: &str, note_id_now: &str| {
                                                     let current_content = editing_value.get_untracked();
@@ -1654,7 +1654,7 @@ pub fn OutlineNode(
 
                                                         let all = navs.get_untracked();
 
-                                                        // Roam-ish behavior: if node has children and is collapsed, expand.
+                                                        // If the current node has children and is collapsed, expand it.
                                                         // If expanded, move into first child.
                                                         let mut children = all
                                                             .iter()
@@ -1675,7 +1675,7 @@ pub fn OutlineNode(
 
                                                             if !is_display {
                                                                 // Expand current node AND descend into first child.
-                                                                // This matches Roam's feel: Right at end opens and goes deeper.
+                                                                // ArrowRight at end expands and moves into the child branch.
                                                                 navs.update(|xs| {
                                                                     if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
                                                                         x.is_display = true;
@@ -1710,7 +1710,7 @@ pub fn OutlineNode(
                                                             return;
                                                         }
 
-                                                        // Strict Roam behavior: if there are no children, ArrowRight does not move to a sibling.
+                                                        // If there are no children, ArrowRight does not move to a sibling.
                                                         return;
                                                     }
                                                 }
