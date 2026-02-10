@@ -369,6 +369,96 @@ fn next_available_daily_note_title(existing_notes: &[Note]) -> String {
     next_available_daily_note_title_for_date(&today_yyyymmdd_local(), existing_notes)
 }
 
+// --- Phase 7: Bidirectional links (wiki-style) ---
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum WikiToken {
+    Text(String),
+    Link(String),
+}
+
+/// Parse `[[Wiki Links]]` from plain text.
+///
+/// Rules (MVP):
+/// - Only `[[...]]` is recognized.
+/// - No nesting; the first `]]` closes the link.
+/// - Unclosed `[[` is treated as plain text.
+fn parse_wiki_tokens(input: &str) -> Vec<WikiToken> {
+    let mut out: Vec<WikiToken> = Vec::new();
+    let mut i = 0;
+    let bytes = input.as_bytes();
+
+    while i < bytes.len() {
+        // Find next `[[`
+        let mut start = None;
+        let mut j = i;
+        while j + 1 < bytes.len() {
+            if bytes[j] == b'[' && bytes[j + 1] == b'[' {
+                start = Some(j);
+                break;
+            }
+            j += 1;
+        }
+
+        let Some(link_start) = start else {
+            if i < bytes.len() {
+                out.push(WikiToken::Text(input[i..].to_string()));
+            }
+            break;
+        };
+
+        if link_start > i {
+            out.push(WikiToken::Text(input[i..link_start].to_string()));
+        }
+
+        // Find closing `]]`
+        let mut end = None;
+        let mut k = link_start + 2;
+        while k + 1 < bytes.len() {
+            if bytes[k] == b']' && bytes[k + 1] == b']' {
+                end = Some(k);
+                break;
+            }
+            k += 1;
+        }
+
+        let Some(link_end) = end else {
+            // Unclosed link: treat the rest as text.
+            out.push(WikiToken::Text(input[link_start..].to_string()));
+            break;
+        };
+
+        let label = input[link_start + 2..link_end].to_string();
+        out.push(WikiToken::Link(label));
+        i = link_end + 2;
+    }
+
+    out
+}
+
+fn extract_wiki_links(input: &str) -> Vec<String> {
+    parse_wiki_tokens(input)
+        .into_iter()
+        .filter_map(|t| match t {
+            WikiToken::Link(s) => {
+                // Roam-style: treat the title inside [[...]] as-is (case-sensitive, whitespace-sensitive).
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn normalize_roam_page_title(s: &str) -> String {
+    // Roam-style uniqueness key (MVP): exact string.
+    // Note: Roam historically treats leading/trailing whitespace as distinct (see issue #378).
+    s.to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SignupRequest {
     pub email: String,
@@ -787,6 +877,31 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
             }
         }
         out
+    }
+
+    pub async fn get_all_navs(&self, database_id: &str) -> Result<Vec<Nav>, String> {
+        let client = reqwest::Client::new();
+        let req = client.post(format!("{}/hulunote/get-all-navs", self.base_url));
+        let req = Self::with_auth_headers(req, self.get_auth_token());
+
+        let payload = serde_json::json!({
+            "database-id": database_id,
+            // Backend accepts it; use 0 to mean "no incremental sync" (MVP).
+            "backend-ts": 0,
+        });
+
+        let res = req.json(&payload).send().await.map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            Ok(Self::parse_nav_list_response(data))
+        } else if res.status().as_u16() == 401 {
+            Err("Unauthorized".to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Failed to get all navs ({status}): {body}"))
+        }
     }
 
     pub async fn get_note_navs(&self, note_id: &str) -> Result<Vec<Nav>, String> {
@@ -2579,6 +2694,12 @@ pub fn NotePage() -> impl IntoView {
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Phase 7: backlinks (MVP)
+    let all_db_navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
+    let all_db_navs_loading: RwSignal<bool> = RwSignal::new(false);
+    let all_db_navs_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let all_db_navs_req_id: RwSignal<u64> = RwSignal::new(0);
+
     // Ensure notes for this DB are loaded when deep-linking directly into a note page.
     // This prevents recent-note title from falling back to note_id.
     Effect::new(move |_| {
@@ -2635,6 +2756,49 @@ pub fn NotePage() -> impl IntoView {
                 app_state.0.notes_loading.set(false);
             });
         }
+    });
+
+    // Phase 7: load all navs in current DB for backlink computation.
+    Effect::new(move |_| {
+        let db = db_id();
+        if db.trim().is_empty() {
+            all_db_navs.set(vec![]);
+            return;
+        }
+
+        // Request id for stale-response protection.
+        let rid = all_db_navs_req_id.get_untracked().saturating_add(1);
+        all_db_navs_req_id.set(rid);
+
+        all_db_navs_loading.set(true);
+        all_db_navs_error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let result = api_client.get_all_navs(&db).await;
+
+            // Ignore stale responses.
+            if all_db_navs_req_id.get_untracked() != rid {
+                return;
+            }
+
+            match result {
+                Ok(navs) => all_db_navs.set(navs),
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        all_db_navs_error.set(Some(e));
+                    }
+                }
+            }
+
+            all_db_navs_loading.set(false);
+        });
     });
 
     // Keep local edit state in sync with loaded notes + write recent note.
@@ -2756,6 +2920,83 @@ pub fn NotePage() -> impl IntoView {
                 </Show>
 
                 <OutlineEditor note_id=note_id />
+
+                <div class="mt-4 rounded-md border bg-card p-3">
+                    <div class="text-xs text-muted-foreground">"Backlinks"</div>
+
+                    <Show when=move || !all_db_navs_loading.get() fallback=move || view! {
+                        <div class="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                            <Spinner />
+                            "Loading backlinks…"
+                        </div>
+                    }>
+                        <Show when=move || all_db_navs_error.get().is_none() fallback=move || view! {
+                            <div class="mt-2 text-xs text-destructive">
+                                {move || all_db_navs_error.get().unwrap_or_default()}
+                            </div>
+                        }>
+                            {move || {
+                                let title = title_value.get();
+                                let title = title.trim().to_string();
+                                if title.is_empty() {
+                                    return view! {
+                                        <div class="mt-2 text-sm text-muted-foreground">"Rename the page title to enable backlinks."</div>
+                                    }
+                                    .into_any();
+                                }
+
+                                let current_note_id = note_id();
+                                let mut ref_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+                                for nav in all_db_navs.get().into_iter() {
+                                    if nav.is_delete {
+                                        continue;
+                                    }
+                                    if nav.note_id == current_note_id {
+                                        continue;
+                                    }
+                                    let links = extract_wiki_links(&nav.content);
+                                    if links.into_iter().any(|l| l == title) {
+                                        ref_ids.insert(nav.note_id);
+                                    }
+                                }
+
+                                if ref_ids.is_empty() {
+                                    return view! {
+                                        <div class="mt-2 text-sm text-muted-foreground">"No backlinks yet."</div>
+                                    }
+                                    .into_any();
+                                }
+
+                                let db = db_id();
+                                let notes = app_state.0.notes.get();
+
+                                view! {
+                                    <div class="mt-2 space-y-1">
+                                        {ref_ids
+                                            .into_iter()
+                                            .filter_map(|id| {
+                                                let n = notes.iter().find(|n| n.id == id).cloned();
+                                                n.map(|n| {
+                                                    let href = format!("/db/{}/note/{}", db, n.id);
+                                                    view! {
+                                                        <a
+                                                            href=href
+                                                            class="block rounded-md border border-border bg-background px-3 py-2 text-sm transition-colors hover:bg-surface-hover"
+                                                        >
+                                                            <div class="truncate font-medium">{n.title}</div>
+                                                        </a>
+                                                    }
+                                                })
+                                            })
+                                            .collect_view()}
+                                    </div>
+                                }
+                                .into_any()
+                            }}
+                        </Show>
+                    </Show>
+                </div>
             </div>
         </div>
     }
@@ -2912,6 +3153,7 @@ pub fn OutlineNode(
     editing_ref: NodeRef<html::Input>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
+    let navigate = leptos_router::hooks::use_navigate();
 
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
@@ -2922,6 +3164,8 @@ pub fn OutlineNode(
 
     let nav_id_sv = StoredValue::new(nav_id.clone());
     let note_id_sv = StoredValue::new(note_id.clone());
+    let app_state_sv = StoredValue::new(app_state.clone());
+    let navigate_sv = StoredValue::new(navigate.clone());
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
 
@@ -3142,6 +3386,9 @@ pub fn OutlineNode(
 
                                         let id_for_click = nav_id_sv.get_value();
 
+                                        // navigate provided by component scope
+                                        let tokens = parse_wiki_tokens(&content_display);
+
                                         return view! {
                                             <div
                                                 class="cursor-text whitespace-pre-wrap min-h-[20px]"
@@ -3195,7 +3442,114 @@ pub fn OutlineNode(
                                                     cb.forget();
                                                 }
                                             >
-                                                {content_display}
+                                                {{
+                                                    let app_state_for_tokens = app_state_sv.get_value();
+                                                    let navigate_for_tokens = navigate_sv.get_value();
+
+                                                    tokens
+                                                        .into_iter()
+                                                        .map(move |t| {
+                                                            let app_state = app_state_for_tokens.clone();
+                                                            let navigate = navigate_for_tokens.clone();
+                                                            match t {
+                                                                WikiToken::Text(s) => {
+                                                                    view! { <span>{s}</span> }.into_any()
+                                                                }
+                                                                WikiToken::Link(label) => {
+                                                                    let title_raw = label;
+                                                                    if title_raw.is_empty() {
+                                                                        return view! { <span>"[[]]"</span> }.into_any();
+                                                                    }
+
+                                                                    let title_for_click = title_raw.clone();
+                                                                    let title_for_title = title_for_click.clone();
+                                                                    view! {
+                                                                        <a
+                                                                            class="text-primary underline underline-offset-2 hover:text-primary/80"
+                                                                            href="#"
+                                                                            title=move || format!("Open page: {}", title_for_title)
+                                                                            on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                                // Prevent switching into edit mode.
+                                                                                ev.prevent_default();
+                                                                                ev.stop_propagation();
+
+                                                                                let title = title_for_click.clone();
+                                                                                let title_norm = normalize_roam_page_title(&title);
+
+                                                                                let db_id = app_state
+                                                                                    .0
+                                                                                    .current_database_id
+                                                                                    .get_untracked()
+                                                                                    .unwrap_or_default();
+                                                                                if db_id.trim().is_empty() {
+                                                                                    return;
+                                                                                }
+
+                                                                                let api_client = app_state.0.api_client.get_untracked();
+                                                                                let navigate2 = navigate.clone();
+                                                                                let app_state2 = app_state.clone();
+                                                                                spawn_local(async move {
+                                                                                    let find_existing_id = |notes: &[Note]| {
+                                                                                        notes
+                                                                                            .iter()
+                                                                                            .find(|n| {
+                                                                                                n.database_id == db_id
+                                                                                                    && normalize_roam_page_title(&n.title)
+                                                                                                        == title_norm
+                                                                                            })
+                                                                                            .map(|n| n.id.clone())
+                                                                                    };
+
+                                                                                    // 1) Try local notes first.
+                                                                                    if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
+                                                                                        navigate2(
+                                                                                            &format!("/db/{}/note/{}", db_id, id),
+                                                                                            leptos_router::NavigateOptions::default(),
+                                                                                        );
+                                                                                        return;
+                                                                                    }
+
+                                                                                    // 2) Refresh notes list for this DB, then try again.
+                                                                                    if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
+                                                                                        app_state2.0.notes.set(notes.clone());
+                                                                                        if let Some(id) = find_existing_id(&notes) {
+                                                                                            navigate2(
+                                                                                                &format!("/db/{}/note/{}", db_id, id),
+                                                                                                leptos_router::NavigateOptions::default(),
+                                                                                            );
+                                                                                            return;
+                                                                                        }
+                                                                                    }
+
+                                                                                    // 3) Still not found: create-and-open.
+                                                                                    match api_client.create_note(&db_id, &title).await {
+                                                                                        Ok(note) => {
+                                                                                            app_state2.0.notes.update(|xs| {
+                                                                                                if !xs.iter().any(|x| x.id == note.id) {
+                                                                                                    xs.push(note.clone());
+                                                                                                }
+                                                                                            });
+                                                                                            navigate2(
+                                                                                                &format!("/db/{}/note/{}", db_id, note.id),
+                                                                                                leptos_router::NavigateOptions::default(),
+                                                                                            );
+                                                                                        }
+                                                                                        Err(_e) => {
+                                                                                            // Silent fail (MVP): keep UI stable.
+                                                                                        }
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        >
+                                                                            "[["{title_raw}"]]"
+                                                                        </a>
+                                                                    }
+                                                                    .into_any()
+                                                                }
+                                                            }
+                                                        })
+                                                        .collect_view()
+                                                }}
                                             </div>
                                         }
                                         .into_any();
