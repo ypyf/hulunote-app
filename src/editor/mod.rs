@@ -1974,9 +1974,9 @@ pub fn OutlineNode(
                                                                         <div
                                                                             class=move || {
                                                                                 if selected() {
-                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 bg-muted"
+                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 bg-accent text-accent-foreground"
                                                                                 } else {
-                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 hover:bg-muted"
+                                                                                    "flex cursor-pointer items-center justify-between rounded px-2 py-1 hover:bg-accent/60"
                                                                                 }
                                                                             }
                                                                             on:mousedown=move |ev: web_sys::MouseEvent| {
