@@ -775,7 +775,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             .unwrap_or(0);
                         db_retry_timer_id.set(Some(id));
 
-                        app_state.0.api_client.set(api_client);
+                        // NOTE: do not set api_client back into reactive state here.
+                        // On transient network failures it is unchanged, but setting it would
+                        // retrigger Effects that track `api_client.get()` and cause a tight loop.
                     }
                 }
             }
