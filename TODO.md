@@ -137,13 +137,13 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 
 ## Phase 7: Bidirectional Links
 
-- [ ] Implement `[[wiki-style]]` link parsing
-- [ ] Implement link detection in text
-- [ ] Implement link rendering (clickable)
-- [ ] Implement link navigation
-- [ ] Implement backlink panel
+- [x] Implement `[[wiki-style]]` link parsing
+- [x] Implement link detection in text
+- [x] Implement link rendering (clickable)
+- [x] Implement link navigation
+- [x] Implement backlink panel
 - [ ] Implement link preview (hover/tooltip)
-- [ ] Implement "Unreferenced Pages" view
+- [x] Implement "Unreferenced Pages" view
 - [ ] Handle link creation (type `[[`)
 - [ ] Handle link autocomplete
 

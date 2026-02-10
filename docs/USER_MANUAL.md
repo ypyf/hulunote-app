@@ -100,7 +100,7 @@ When editing a node:
 
 ## 3. Known limitations (current)
 
-- Drag-and-drop reordering is not implemented.
+- Drag-and-drop reordering is implemented, but has no visual drop indicators yet.
 - Multi-line nodes (textarea) / autosizing is not implemented.
 - Full Roam block operations (merge/split, block references) are out of scope.
 
