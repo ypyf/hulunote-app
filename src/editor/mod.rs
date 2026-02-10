@@ -276,6 +276,11 @@ pub fn OutlineEditor(
     // Snapshot of the content when we entered edit mode (id, content).
     // Used to avoid redundant backend saves when the user didn't change anything.
     let editing_snapshot: RwSignal<Option<(String, String)>> = RwSignal::new(None);
+
+    // Drag state (for highlighting drop targets only while dragging).
+    let dragging_nav_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let drag_over_nav_id: RwSignal<Option<String>> = RwSignal::new(None);
+
     let target_cursor_col: RwSignal<Option<u32>> = RwSignal::new(None);
     let editing_ref: NodeRef<html::Input> = NodeRef::new();
 
@@ -448,6 +453,8 @@ pub fn OutlineEditor(
                                                 editing_id=editing_id
                                                 editing_value=editing_value
                                                 editing_snapshot=editing_snapshot
+                                                dragging_nav_id=dragging_nav_id
+                                                drag_over_nav_id=drag_over_nav_id
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
@@ -474,6 +481,8 @@ pub fn OutlineNode(
     editing_id: RwSignal<Option<String>>,
     editing_value: RwSignal<String>,
     editing_snapshot: RwSignal<Option<(String, String)>>,
+    dragging_nav_id: RwSignal<Option<String>>,
+    drag_over_nav_id: RwSignal<Option<String>>,
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Input>,
     focused_nav_id: RwSignal<Option<String>>,
@@ -648,6 +657,8 @@ pub fn OutlineNode(
                                         editing_id=editing_id
                                         editing_value=editing_value
                                         editing_snapshot=editing_snapshot
+                                        dragging_nav_id=dragging_nav_id
+                                        drag_over_nav_id=drag_over_nav_id
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
@@ -671,24 +682,48 @@ pub fn OutlineNode(
                                     let is_editing = editing_id.get().as_deref() == Some(id.as_str());
                                     let _is_focused = focused_nav_id.get().as_deref() == Some(id.as_str());
 
+                                    let is_dragging = dragging_nav_id.get().is_some();
+                                    let is_drag_over = drag_over_nav_id.get().as_deref() == Some(id.as_str());
+
                                     if is_editing {
                                         "outline-row outline-row--editing flex items-center gap-2 py-1"
+                                    } else if is_dragging && is_drag_over {
+                                        // Highlight drop target only while dragging.
+                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-muted ring-1 ring-ring/40"
                                     } else {
-                                        // Keep the same styling for normal/focused rows (no highlight).
                                         "outline-row flex items-center gap-2 py-1"
                                     }
                                 }
                                 draggable="true"
                                 on:dragstart=move |ev: web_sys::DragEvent| {
+                                    dragging_nav_id.set(Some(nav_id_sv.get_value()));
+                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
+
                                     if let Some(dt) = ev.data_transfer() {
                                         let _ = dt.set_data("text/plain", &nav_id_sv.get_value());
                                         dt.set_drop_effect("move");
                                     }
                                 }
+                                on:dragend=move |_ev: web_sys::DragEvent| {
+                                    dragging_nav_id.set(None);
+                                    drag_over_nav_id.set(None);
+                                }
+                                on:dragenter=move |ev: web_sys::DragEvent| {
+                                    ev.prevent_default();
+                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
+                                }
                                 on:dragover=move |ev: web_sys::DragEvent| {
                                     ev.prevent_default();
+                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
                                     if let Some(dt) = ev.data_transfer() {
                                         dt.set_drop_effect("move");
+                                    }
+                                }
+                                on:dragleave=move |_ev: web_sys::DragEvent| {
+                                    // Best-effort: clear highlight when leaving this row.
+                                    // The next dragenter/dragover will set it again.
+                                    if drag_over_nav_id.get_untracked().as_deref() == Some(nav_id_sv.get_value().as_str()) {
+                                        drag_over_nav_id.set(None);
                                     }
                                 }
                                 on:drop=move |ev: web_sys::DragEvent| {
