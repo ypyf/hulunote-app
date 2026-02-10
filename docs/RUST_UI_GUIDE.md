@@ -50,6 +50,22 @@ This will add minimal dependencies and project files needed by Rust/UI.
 ui add button input card label alert spinner
 ```
 
+### Generated code location (ui_config.toml)
+
+`ui` uses `ui_config.toml` to decide where component code is generated.
+In this repo:
+
+- `base_path_components = "src/components"`
+- so generated components go to: `src/components/ui/`
+
+### Rule: treat generated components as read-only by default
+
+- Do **not** edit generated component source files unless we intentionally want to fork/maintain them.
+- Prefer fixing styling/behavior via:
+  - theme tokens (`style/tailwind.css` + `tailwind.config.js`), or
+  - composition/wrappers in app code.
+- If a generated component must be changed, document the reason and expect that `ui add` may overwrite/merge in the future.
+
 This writes component source code under `src/components/ui/`.
 
 ## Where to use components
