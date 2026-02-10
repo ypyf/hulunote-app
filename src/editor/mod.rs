@@ -1072,16 +1072,8 @@ pub fn OutlineNode(
                                                 }
 
                                                 if items.is_empty() {
-                                                    // First-time behavior: titles may still be loading.
-                                                    // Keep menu open and show a loading state instead of requiring a second input.
-                                                    if ac.titles_loading.get_untracked() {
-                                                        ac.ac_items.set(vec![]);
-                                                        ac.ac_index.set(0);
-                                                        ac.ac_open.set(true);
-                                                    } else {
-                                                        ac.ac_open.set(false);
-                                                        ac.ac_index.set(0);
-                                                    }
+                                                    ac.ac_open.set(false);
+                                                    ac.ac_index.set(0);
                                                     return;
                                                 }
 
@@ -1916,12 +1908,6 @@ pub fn OutlineNode(
                                                     let items = ac.ac_items.get();
                                                     let idx = ac.ac_index.get();
                                                     if items.is_empty() {
-                                                        if ac.titles_loading.get() {
-                                                            return view! {
-                                                                <div class="px-2 py-1 text-xs text-muted-foreground">"Loading…"</div>
-                                                            }
-                                                            .into_any();
-                                                        }
                                                         return ().into_any();
                                                     }
 
