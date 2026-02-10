@@ -181,6 +181,65 @@ fn backfill_content_request(
     })
 }
 
+fn compute_reorder_target(
+    all: &[Nav],
+    dragged_id: &str,
+    target_id: &str,
+    insert_after: bool,
+) -> Option<(String, f32)> {
+    if dragged_id == target_id {
+        return None;
+    }
+
+    let dragged = all.iter().find(|n| n.id == dragged_id)?;
+    let target = all.iter().find(|n| n.id == target_id)?;
+
+    let new_parid = target.parid.clone();
+
+    // Build siblings in target parent, excluding dragged node (since it will move).
+    let mut sibs = all
+        .iter()
+        .filter(|n| n.parid == new_parid && n.id != dragged_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    sibs.sort_by(|a, b| {
+        a.same_deep_order
+            .partial_cmp(&b.same_deep_order)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Find insertion index relative to target.
+    let tidx = sibs.iter().position(|n| n.id == target_id)?;
+    let insert_idx = if insert_after { tidx + 1 } else { tidx };
+
+    // Determine prev/next order bounds.
+    let prev_order = if insert_idx == 0 {
+        None
+    } else {
+        Some(sibs[insert_idx - 1].same_deep_order)
+    };
+
+    let next_order = if insert_idx >= sibs.len() {
+        None
+    } else {
+        Some(sibs[insert_idx].same_deep_order)
+    };
+
+    let new_order = match (prev_order, next_order) {
+        (Some(p), Some(n)) => (p + n) / 2.0,
+        (Some(p), None) => p + 1.0,
+        (None, Some(n)) => n - 1.0,
+        (None, None) => 0.0,
+    };
+
+    // No-op move detection: if staying in same parent and order is effectively unchanged, skip.
+    if dragged.parid == new_parid && (dragged.same_deep_order - new_order).abs() < f32::EPSILON {
+        return None;
+    }
+
+    Some((new_parid, new_order))
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginRequest {
     pub email: String,
@@ -2966,15 +3025,92 @@ pub fn OutlineNode(
                 view! {
                     <div>
                         <div style=move || format!("padding-left: {}px", indent_px)>
-                            <div class=move || {
-                                let id = nav_id_sv.get_value();
-                                let is_editing = editing_id.get().as_deref() == Some(id.as_str());
-                                if is_editing {
-                                    "outline-row outline-row--editing flex items-center gap-2 py-1"
-                                } else {
-                                    "outline-row flex items-center gap-2 py-1"
+                            <div
+                                class=move || {
+                                    let id = nav_id_sv.get_value();
+                                    let is_editing = editing_id.get().as_deref() == Some(id.as_str());
+                                    if is_editing {
+                                        "outline-row outline-row--editing flex items-center gap-2 py-1"
+                                    } else {
+                                        "outline-row flex items-center gap-2 py-1"
+                                    }
                                 }
-                            }>
+                                draggable="true"
+                                on:dragstart=move |ev: web_sys::DragEvent| {
+                                    if let Some(dt) = ev.data_transfer() {
+                                        let _ = dt.set_data("text/plain", &nav_id_sv.get_value());
+                                        dt.set_drop_effect("move");
+                                    }
+                                }
+                                on:dragover=move |ev: web_sys::DragEvent| {
+                                    ev.prevent_default();
+                                    if let Some(dt) = ev.data_transfer() {
+                                        dt.set_drop_effect("move");
+                                    }
+                                }
+                                on:drop=move |ev: web_sys::DragEvent| {
+                                    ev.prevent_default();
+
+                                    let dragged_id = ev
+                                        .data_transfer()
+                                        .and_then(|dt| dt.get_data("text/plain").ok())
+                                        .unwrap_or_default();
+                                    if dragged_id.trim().is_empty() {
+                                        return;
+                                    }
+                                    if is_tmp_nav_id(&dragged_id) {
+                                        return;
+                                    }
+
+                                    let target_id = nav_id_sv.get_value();
+                                    if dragged_id == target_id {
+                                        return;
+                                    }
+
+                                    // Decide before/after by cursor position inside target row.
+                                    let insert_after = ev
+                                        .current_target()
+                                        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                                        .map(|el| el.get_bounding_client_rect())
+                                        .map(|rect| {
+                                            let mid = rect.top() + rect.height() / 2.0;
+                                            (ev.client_y() as f64) >= mid
+                                        })
+                                        .unwrap_or(true);
+
+                                    let note_id_now = note_id_sv.get_value();
+                                    let all = navs.get_untracked();
+                                    let Some((new_parid, new_order)) =
+                                        compute_reorder_target(&all, &dragged_id, &target_id, insert_after)
+                                    else {
+                                        return;
+                                    };
+
+                                    // Update local state.
+                                    navs.update(|xs| {
+                                        if let Some(x) = xs.iter_mut().find(|x| x.id == dragged_id) {
+                                            x.parid = new_parid.clone();
+                                            x.same_deep_order = new_order;
+                                        }
+                                    });
+
+                                    // Persist to backend.
+                                    let api_client = app_state.0.api_client.get_untracked();
+                                    let req = CreateOrUpdateNavRequest {
+                                        note_id: note_id_now,
+                                        id: Some(dragged_id),
+                                        parid: Some(new_parid),
+                                        content: None,
+                                        order: Some(new_order),
+                                        is_display: None,
+                                        is_delete: None,
+                                        properties: None,
+                                    };
+                                    spawn_local(async move {
+                                        let _ = api_client.upsert_nav(req).await;
+                                    });
+                                }
+                            >
                             <button
                                 class=bullet_class
                                 on:click=move |ev| on_toggle_cb.run(ev)
@@ -4864,6 +5000,91 @@ mod tests {
         assert_eq!(req.content.as_deref(), Some("hello"));
         assert!(req.parid.is_none());
         assert!(req.order.is_none());
+    }
+
+    #[test]
+    fn test_compute_reorder_target_moves_across_parent_before_target() {
+        let all = vec![
+            Nav {
+                id: "d".to_string(),
+                note_id: "n".to_string(),
+                parid: "p1".to_string(),
+                same_deep_order: 10.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "t".to_string(),
+                note_id: "n".to_string(),
+                parid: "p2".to_string(),
+                same_deep_order: 5.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "u".to_string(),
+                note_id: "n".to_string(),
+                parid: "p2".to_string(),
+                same_deep_order: 9.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+        ];
+
+        let (parid, order) = compute_reorder_target(&all, "d", "t", false)
+            .expect("should compute reorder target");
+        assert_eq!(parid, "p2");
+        assert!(order < 5.0);
+    }
+
+    #[test]
+    fn test_compute_reorder_target_moves_within_parent_after_target_between() {
+        let all = vec![
+            Nav {
+                id: "a".to_string(),
+                note_id: "n".to_string(),
+                parid: "p".to_string(),
+                same_deep_order: 1.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "d".to_string(),
+                note_id: "n".to_string(),
+                parid: "p".to_string(),
+                same_deep_order: 2.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "t".to_string(),
+                note_id: "n".to_string(),
+                parid: "p".to_string(),
+                same_deep_order: 3.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+            Nav {
+                id: "b".to_string(),
+                note_id: "n".to_string(),
+                parid: "p".to_string(),
+                same_deep_order: 10.0,
+                content: "".to_string(),
+                is_display: true,
+                is_delete: false,
+            },
+        ];
+
+        let (parid, order) = compute_reorder_target(&all, "d", "t", true)
+            .expect("should compute reorder target");
+        assert_eq!(parid, "p");
+        assert!(order > 3.0 && order < 10.0);
     }
 
     // NOTE: database list parsing is intentionally strict to the canonical contract.

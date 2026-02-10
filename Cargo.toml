@@ -44,6 +44,10 @@ features = [
   "Location",
   "Storage",
   "console",
+
+  "DragEvent",
+  "DataTransfer",
+  "DomRect",
 ]
 
 [dev-dependencies]
