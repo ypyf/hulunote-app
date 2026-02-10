@@ -36,11 +36,11 @@ mod wasm_tests {
         c.save_to_storage();
 
         let c2 = ApiClient::load_from_storage();
-        assert_eq!(c2.get_token().map(|s| s.as_str()), Some("t1"));
+        assert_eq!(c2.get_auth_token().as_deref(), Some("t1"));
 
         ApiClient::clear_storage();
         let c3 = ApiClient::load_from_storage();
-        assert!(c3.get_token().is_none());
+        assert!(c3.get_auth_token().is_none());
     }
 
     #[wasm_bindgen_test]
@@ -151,7 +151,7 @@ mod tests {
     fn test_api_client_no_refresh_token_support() {
         // hulunote-rust does not expose refresh tokens.
         let client = ApiClient::new("http://localhost:6689".to_string());
-        assert!(client.get_token().is_none());
+        assert!(client.get_auth_token().is_none());
     }
 
     #[test]

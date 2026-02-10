@@ -208,12 +208,6 @@ impl ApiClient {
     pub fn set_token(&mut self, token: String) {
         self.token = Some(token);
     }
-
-    #[allow(dead_code)]
-    pub fn get_token(&self) -> Option<&String> {
-        self.token.as_ref()
-    }
-
     pub(crate) fn get_auth_token(&self) -> Option<String> {
         self.token.clone()
     }
