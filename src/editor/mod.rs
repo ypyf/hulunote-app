@@ -939,7 +939,7 @@ pub fn OutlineNode(
                                                                             <button
                                                                                 id=preview_trigger_id
                                                                                 type="button"
-                                                                                class="text-primary underline underline-offset-2 hover:text-primary/80"
+                                                                                class="cursor-pointer text-primary underline underline-offset-2 hover:text-primary/80"
                                                                                 style=format!("anchor-name: {}", preview_anchor_name)
                                                                                 on:mouseenter=move |_ev: web_sys::MouseEvent| {
                                                                                     // Lazy-load preview data.
