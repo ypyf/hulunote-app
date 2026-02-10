@@ -372,45 +372,6 @@ pub fn OutlineEditor(
         }
     });
 
-    // When navigating autocomplete with ArrowUp/ArrowDown, keep the selected row visible.
-    // (handled inside OutlineNode so the scroll container NodeRef is in scope)
-    /* Effect::new(move |_| {
-        let ac = ac_sv.get_value();
-        if !ac.ac_open.get() {
-            return;
-        }
-
-        let idx = ac.ac_index.get();
-
-        // Wait a tick so the selected row is rendered before scrolling.
-        let ac2 = ac.clone();
-        let list_el = ac_list_ref.get();
-        let _ = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                Closure::once_into_js(move || {
-                    let Some(list_el) = list_el else {
-                        return;
-                    };
-
-                    let selector = format!("[data-ac-idx=\"{}\"]", idx);
-                    let Ok(Some(selected)) = list_el.query_selector(&selector) else {
-                        return;
-                    };
-
-                    // If menu closed between scheduling and running, do nothing.
-                    if !ac2.ac_open.get_untracked() {
-                        return;
-                    }
-
-                    selected.scroll_into_view();
-                })
-                .as_ref()
-                .unchecked_ref(),
-                0,
-            );
-    }); */
-
     // Provide autocomplete context to OutlineNode.
     provide_context(AutocompleteCtx {
         ac_open,
@@ -514,7 +475,6 @@ pub fn OutlineNode(
     let app_state = expect_context::<AppContext>();
     let ac = expect_context::<AutocompleteCtx>();
     let navigate = leptos_router::hooks::use_navigate();
-    let ac_list_ref: NodeRef<html::Div> = NodeRef::new();
 
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
@@ -530,43 +490,6 @@ pub fn OutlineNode(
     let navigate_sv = StoredValue::new(navigate.clone());
 
     let nav = move || navs.get().into_iter().find(|n| n.id == nav_id_for_nav);
-
-    // When navigating autocomplete with ArrowUp/ArrowDown, keep the selected row visible.
-    Effect::new(move |_| {
-        if !ac.ac_open.get() {
-            return;
-        }
-
-        let idx = ac.ac_index.get();
-        let list_el = ac_list_ref.get();
-        let ac2 = ac.clone();
-
-        // Wait a tick so the selected row is rendered before scrolling.
-        let _ = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                Closure::once_into_js(move || {
-                    let Some(list_el) = list_el else {
-                        return;
-                    };
-
-                    // If menu closed between scheduling and running, do nothing.
-                    if !ac2.ac_open.get_untracked() {
-                        return;
-                    }
-
-                    let selector = format!("[data-ac-idx=\"{}\"]", idx);
-                    let Ok(Some(selected)) = list_el.query_selector(&selector) else {
-                        return;
-                    };
-
-                    selected.scroll_into_view();
-                })
-                .as_ref()
-                .unchecked_ref(),
-                0,
-            );
-    });
 
     let on_toggle = Callback::new(move |_| {
         let Some(n) = navs
@@ -2038,7 +1961,7 @@ pub fn OutlineNode(
                                                     }
 
                                                     view! {
-                                                        <div node_ref=ac_list_ref class="max-h-64 overflow-auto">
+                                                        <div class="max-h-64 overflow-auto">
                                                             {items
                                                                 .into_iter()
                                                                 .enumerate()
@@ -2049,7 +1972,6 @@ pub fn OutlineNode(
 
                                                                     view! {
                                                                         <div
-                                                                            attr:data-ac-idx=i
                                                                             class=move || {
                                                                                 if selected() {
                                                                                     "flex cursor-pointer items-center justify-between rounded px-2 py-1 bg-accent text-accent-foreground"
