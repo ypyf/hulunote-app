@@ -1532,6 +1532,8 @@ pub fn NotePage() -> impl IntoView {
     };
 
     let title_value: RwSignal<String> = RwSignal::new(String::new());
+    // Original title snapshot for the current note (used to avoid redundant saves).
+    let title_original: RwSignal<String> = RwSignal::new(String::new());
     // Track which note the title_value currently belongs to.
     let title_note_id: RwSignal<String> = RwSignal::new(String::new());
 
@@ -1754,9 +1756,11 @@ pub fn NotePage() -> impl IntoView {
             if title_note_id.get() != id {
                 title_note_id.set(id.clone());
                 title_value.set(n.title.clone());
+                title_original.set(n.title.clone());
             } else if title_value.get().trim().is_empty() {
                 // Only overwrite local input when it's empty (avoid clobbering user typing).
                 title_value.set(n.title.clone());
+                title_original.set(n.title.clone());
             }
 
             // Phase 5.5: recent notes (local)
@@ -1789,6 +1793,11 @@ pub fn NotePage() -> impl IntoView {
             return;
         }
 
+        // Avoid redundant saves when the user didn't change anything.
+        if new_title == title_original.get_untracked() {
+            return;
+        }
+
         saving.set(true);
         error.set(None);
 
@@ -1796,6 +1805,9 @@ pub fn NotePage() -> impl IntoView {
         spawn_local(async move {
             match api_client.update_note_title(&id, &new_title).await {
                 Ok(_) => {
+                    // Mark new title as saved.
+                    title_original.set(new_title.clone());
+
                     // Refresh notes list.
                     let c = app_state.0.api_client.get_untracked();
                     if let Ok(notes) = c.get_all_note_list(&db).await {
