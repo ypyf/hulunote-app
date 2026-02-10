@@ -7,11 +7,11 @@ pub fn Separator(
     #[prop(into, optional)] class: String,
     // children: Children,
 ) -> impl IntoView {
-    let merged_class = Memo::new(move |_| {
+    let merged_class = move || {
         let orientation = orientation.get();
         let separator = SeparatorClass { orientation };
         separator.with_class(class.clone())
-    });
+    };
 
     view! { <div class=merged_class role="separator" /> }
 }
