@@ -69,6 +69,12 @@ Tests are treated as executable design constraints.
 
 ---
 
+## Writing & Documentation Guidelines
+
+- Avoid brand/business references in code, comments, and docs; describe behavior and implementation neutrally.
+
+---
+
 ## UI Rule (Rust/UI)
 
 We use Rust/UI (rust-ui.com) for a Tailwind component-library style.
@@ -76,9 +82,14 @@ We use Rust/UI (rust-ui.com) for a Tailwind component-library style.
 Rules:
 
 - Compose pages using Rust/UI components only (copy/paste registry components). Do not reinvent styling per page.
+- Prefer Tailwind **semantic utilities** (`bg-muted`, `text-muted-foreground`, `border-border`, etc.) over bespoke class strings.
 - Theme must come from Rust/UI CSS variables (`--background`, `--foreground`, `--primary`, etc.) and `.dark` overrides.
-- Do NOT hardcode colors (no hex) or introduce a separate token system that conflicts with Rust/UI theme variables.
-- If the UI looks wrong, fix it by adjusting the Rust/UI theme variables, not by adding page-level CSS.
+- **Avoid hardcoding** presentation values in components:
+  - No hex colors
+  - No `rgb(...)` / `rgba(...)` literals
+  - Avoid inline `style=` for colors/spacing/radius/shadows (use tokens/utilities)
+- Avoid introducing a parallel token system. If a new token is truly needed, add it in the theme layer and map it to the existing semantic tokens.
+- If the UI looks wrong, fix it by adjusting theme tokens (e.g. in `style/tailwind.css`), not by adding page-level CSS.
 
 ---
 
