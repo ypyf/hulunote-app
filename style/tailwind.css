@@ -34,8 +34,8 @@
   --color-popover: var(--surface-hover);
   --color-popover-foreground: var(--foreground);
 
-  /* Make `muted` a visible selection/background surface (slightly lighter than base surface). */
-  --color-muted: var(--surface-hover);
+  /* Muted surface. */
+  --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
 
   /* Borders / inputs */
