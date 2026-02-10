@@ -273,6 +273,9 @@ pub fn OutlineEditor(
     // Editing state
     let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
     let editing_value: RwSignal<String> = RwSignal::new(String::new());
+    // Snapshot of the content when we entered edit mode (id, content).
+    // Used to avoid redundant backend saves when the user didn't change anything.
+    let editing_snapshot: RwSignal<Option<(String, String)>> = RwSignal::new(None);
     let target_cursor_col: RwSignal<Option<u32>> = RwSignal::new(None);
     let editing_ref: NodeRef<html::Input> = NodeRef::new();
 
@@ -444,6 +447,7 @@ pub fn OutlineEditor(
                                                 note_id=nid
                                                 editing_id=editing_id
                                                 editing_value=editing_value
+                                                editing_snapshot=editing_snapshot
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
@@ -469,6 +473,7 @@ pub fn OutlineNode(
     note_id: String,
     editing_id: RwSignal<Option<String>>,
     editing_value: RwSignal<String>,
+    editing_snapshot: RwSignal<Option<(String, String)>>,
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Input>,
     focused_nav_id: RwSignal<Option<String>>,
@@ -637,6 +642,7 @@ pub fn OutlineNode(
                                         note_id=nid
                                         editing_id=editing_id
                                         editing_value=editing_value
+                                        editing_snapshot=editing_snapshot
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
@@ -796,22 +802,29 @@ pub fn OutlineNode(
                                                             let _ = apply_nav_content(xs, &current_id, &current_content);
                                                         });
 
-                                                        // Persist to backend.
-                                                        let api_client = app_state.0.api_client.get_untracked();
-                                                        let note_id_now = note_id_sv.get_value();
-                                                        let req = CreateOrUpdateNavRequest {
-                                                            note_id: note_id_now,
-                                                            id: Some(current_id.clone()),
-                                                            parid: None,
-                                                            content: Some(current_content),
-                                                            order: None,
-                                                            is_display: None,
-                                                            is_delete: None,
-                                                            properties: None,
-                                                        };
-                                                        spawn_local(async move {
-                                                            let _ = api_client.upsert_nav(req).await;
-                                                        });
+                                                        // Persist to backend only if content changed since we entered edit mode.
+                                                        let should_save = editing_snapshot
+                                                            .get_untracked()
+                                                            .map(|(id, original)| id == current_id && original != current_content)
+                                                            .unwrap_or(true);
+
+                                                        if should_save {
+                                                            let api_client = app_state.0.api_client.get_untracked();
+                                                            let note_id_now = note_id_sv.get_value();
+                                                            let req = CreateOrUpdateNavRequest {
+                                                                note_id: note_id_now,
+                                                                id: Some(current_id.clone()),
+                                                                parid: None,
+                                                                content: Some(current_content),
+                                                                order: None,
+                                                                is_display: None,
+                                                                is_delete: None,
+                                                                properties: None,
+                                                            };
+                                                            spawn_local(async move {
+                                                                let _ = api_client.upsert_nav(req).await;
+                                                            });
+                                                        }
                                                     }
 
                                                     // Defer the actual switch so the current input can unmount cleanly.
@@ -819,10 +832,12 @@ pub fn OutlineNode(
                                                     let next_value = content_for_click.clone();
                                                     let editing_id = editing_id;
                                                     let editing_value = editing_value;
+                                                    let editing_snapshot = editing_snapshot;
 
                                                     let cb = Closure::<dyn FnMut()>::new(move || {
                                                         editing_id.set(Some(id.clone()));
                                                         editing_value.set(next_value.clone());
+                                                        editing_snapshot.set(Some((id.clone(), next_value.clone())));
                                                     });
                                                     let _ = window()
                                                         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -1268,26 +1283,35 @@ pub fn OutlineNode(
                                                 // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
                                                     editing_id.set(None);
+                                                    editing_snapshot.set(None);
                                                 }
 
                                                 navs.update(|xs| {
                                                     let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                 });
 
-                                                let api_client = app_state.0.api_client.get_untracked();
-                                                let req = CreateOrUpdateNavRequest {
-                                                    note_id: note_id_now,
-                                                    id: Some(nav_id_now.clone()),
-                                                    parid: None,
-                                                    content: Some(new_content),
-                                                    order: None,
-                                                    is_display: None,
-                                                    is_delete: None,
-                                                    properties: None,
-                                                };
-                                                spawn_local(async move {
-                                                    let _ = api_client.upsert_nav(req).await;
-                                                });
+                                                // Persist to backend only if content changed since we entered edit mode.
+                                                let should_save = editing_snapshot
+                                                    .get_untracked()
+                                                    .map(|(id, original)| id == nav_id_now && original != new_content)
+                                                    .unwrap_or(true);
+
+                                                if should_save {
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    let req = CreateOrUpdateNavRequest {
+                                                        note_id: note_id_now,
+                                                        id: Some(nav_id_now.clone()),
+                                                        parid: None,
+                                                        content: Some(new_content),
+                                                        order: None,
+                                                        is_display: None,
+                                                        is_delete: None,
+                                                        properties: None,
+                                                    };
+                                                    spawn_local(async move {
+                                                        let _ = api_client.upsert_nav(req).await;
+                                                    });
+                                                }
                                             }
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
@@ -1376,21 +1400,29 @@ pub fn OutlineNode(
                                                         }
                                                     });
 
-                                                    let api_client = app_state.0.api_client.get_untracked();
-                                                    let save_req = CreateOrUpdateNavRequest {
-                                                        note_id: note_id_now.to_string(),
-                                                        id: Some(nav_id_now.to_string()),
-                                                        parid: None,
-                                                        content: Some(current_content),
-                                                        order: None,
-                                                        is_display: None,
-                                                        is_delete: None,
-                                                        properties: None,
-                                                    };
+                                                    // Persist to backend only if content changed since we entered edit mode.
+                                                    let should_save = editing_snapshot
+                                                        .get_untracked()
+                                                        .map(|(id, original)| id == nav_id_now && original != current_content)
+                                                        .unwrap_or(true);
 
-                                                    spawn_local(async move {
-                                                        let _ = api_client.upsert_nav(save_req).await;
-                                                    });
+                                                    if should_save {
+                                                        let api_client = app_state.0.api_client.get_untracked();
+                                                        let save_req = CreateOrUpdateNavRequest {
+                                                            note_id: note_id_now.to_string(),
+                                                            id: Some(nav_id_now.to_string()),
+                                                            parid: None,
+                                                            content: Some(current_content),
+                                                            order: None,
+                                                            is_display: None,
+                                                            is_delete: None,
+                                                            properties: None,
+                                                        };
+
+                                                        spawn_local(async move {
+                                                            let _ = api_client.upsert_nav(save_req).await;
+                                                        });
+                                                    }
                                                 };
 
                                                 fn visible_preorder(all: &[Nav]) -> Vec<String> {
@@ -1504,7 +1536,7 @@ pub fn OutlineNode(
                                                         note_id: note_id_now,
                                                         id: Some(nav_id_now.clone()),
                                                         parid: None,
-                                                        content: Some(current_content),
+                                                        content: Some(current_content.clone()),
                                                         order: Some(new_order),
                                                         is_display: None,
                                                         is_delete: None,
@@ -1515,7 +1547,8 @@ pub fn OutlineNode(
                                                     });
 
                                                     // Keep editing current node.
-                                                    editing_id.set(Some(nav_id_now));
+                                                    editing_id.set(Some(nav_id_now.clone()));
+                                                    editing_snapshot.set(Some((nav_id_now, current_content)));
                                                     return;
                                                 }
 
@@ -1547,8 +1580,9 @@ pub fn OutlineNode(
 
                                                     if let Some(next_id) = next_id {
                                                         if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
-                                                            editing_id.set(Some(next_id));
+                                                            editing_id.set(Some(next_id.clone()));
                                                             editing_value.set(next_nav.content.clone());
+                                                            editing_snapshot.set(Some((next_id, next_nav.content.clone())));
                                                         }
                                                     }
 
@@ -1611,6 +1645,7 @@ pub fn OutlineNode(
                                                                 if let Some(parent) = all.iter().find(|n| n.id == me.parid) {
                                                                     editing_id.set(Some(parent.id.clone()));
                                                                     editing_value.set(parent.content.clone());
+                                                                    editing_snapshot.set(Some((parent.id.clone(), parent.content.clone())));
                                                                     target_cursor_col.set(Some(parent.content.encode_utf16().count() as u32));
                                                                 }
                                                             }
@@ -1642,6 +1677,7 @@ pub fn OutlineNode(
                                                         let target = last_visible_descendant(&all, &prev);
                                                         editing_id.set(Some(target.id.clone()));
                                                         editing_value.set(target.content.clone());
+                                                        editing_snapshot.set(Some((target.id.clone(), target.content.clone())));
                                                         target_cursor_col.set(Some(target.content.encode_utf16().count() as u32));
                                                         return;
                                                     }
@@ -1698,6 +1734,7 @@ pub fn OutlineNode(
 
                                                                 editing_id.set(Some(first_child.id.clone()));
                                                                 editing_value.set(first_child.content.clone());
+                                                                editing_snapshot.set(Some((first_child.id.clone(), first_child.content.clone())));
                                                                 target_cursor_col.set(Some(0));
                                                                 return;
                                                             }
@@ -1705,6 +1742,7 @@ pub fn OutlineNode(
                                                             // Move into first child.
                                                             editing_id.set(Some(first_child.id.clone()));
                                                             editing_value.set(first_child.content.clone());
+                                                            editing_snapshot.set(Some((first_child.id.clone(), first_child.content.clone())));
                                                             target_cursor_col.set(Some(0));
                                                             return;
                                                         }
@@ -1783,7 +1821,7 @@ pub fn OutlineNode(
                                                             note_id: note_id_now,
                                                             id: Some(nav_id_now.clone()),
                                                             parid: Some(new_parid),
-                                                            content: Some(current_content),
+                                                            content: Some(current_content.clone()),
                                                             order: Some(new_order),
                                                             is_display: None,
                                                             is_delete: None,
@@ -1839,7 +1877,7 @@ pub fn OutlineNode(
                                                             note_id: note_id_now,
                                                             id: Some(nav_id_now.clone()),
                                                             parid: Some(new_parid),
-                                                            content: Some(current_content),
+                                                            content: Some(current_content.clone()),
                                                             order: Some(new_order),
                                                             is_display: None,
                                                             is_delete: None,
@@ -1852,7 +1890,8 @@ pub fn OutlineNode(
                                                     }
 
                                                     // Keep editing current node.
-                                                    editing_id.set(Some(nav_id_now));
+                                                    editing_id.set(Some(nav_id_now.clone()));
+                                                    editing_snapshot.set(Some((nav_id_now, current_content)));
                                                     return;
                                                 }
 
@@ -1996,6 +2035,7 @@ pub fn OutlineNode(
 
                                                     editing_id.set(Some(tmp_id.clone()));
                                                     editing_value.set(String::new());
+                                                    editing_snapshot.set(Some((tmp_id.clone(), String::new())));
                                                     target_cursor_col.set(Some(0));
 
                                                     spawn_local(async move {
@@ -2034,6 +2074,7 @@ pub fn OutlineNode(
                                                                 // If still editing the tmp node, switch to the real id.
                                                                 if editing_id.get_untracked().as_deref() == Some(tmp_id.as_str()) {
                                                                     editing_id.set(Some(new_id.clone()));
+                                                                    editing_snapshot.set(Some((new_id.clone(), content_now.clone())));
                                                                 }
 
                                                                 // Persist current content (if user typed before backend returned).
