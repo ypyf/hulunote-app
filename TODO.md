@@ -122,6 +122,7 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 - [x] Implement node creation (Enter)
   - Create next sibling
   - Order strategy: **midpoint order** between current and next sibling (`same_deep_order`)
+  - Performance: keep editor mounted during create; avoid global list sorting
 - [x] Implement indentation (Tab/Shift+Tab)
   - Tab: become child of previous sibling (update `parid`, recompute `order`)
   - Shift+Tab: become sibling of parent (update `parid`, recompute `order`)
