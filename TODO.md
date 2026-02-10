@@ -90,46 +90,46 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 >
 ### 6.1 Data model alignment (must-do)
 
-- [ ] Update hulunote-app `Nav` model to match the canonical Nav fields:
+- [x] Update hulunote-app `Nav` model to match the canonical Nav fields (minimum set used by editor):
   - `id`
   - `parid`
   - `same-deep-order` (f32)
   - `content`
   - `is-display` (collapse/expand)
   - `is-delete` (soft delete)
-  - `note-id` / `database-id` + timestamps
-- [ ] Add helpers:
+  - `note-id`
+- [x] Add helpers (implemented inline in editor):
   - Build parent→children index (tree)
   - Collect “visible navs” in display order (for keyboard navigation)
 
 ### 6.2 API integration
 
-- [ ] Connect to `POST /hulunote/get-note-navs` (response key: `nav-list`)
-- [ ] Connect to `POST /hulunote/create-or-update-nav`
+- [x] Connect to `POST /hulunote/get-note-navs` (response key: `nav-list`)
+- [x] Connect to `POST /hulunote/create-or-update-nav`
   - Update fields supported: `content`, `parid`, `order`, `is-display`, `is-delete`, `properties`
 
 ### 6.3 Rendering (read-only first)
 
-- [ ] Implement outline tree component (recursive rendering)
-- [ ] Implement collapse/expand UI
+- [x] Implement outline tree component (recursive rendering)
+- [x] Implement collapse/expand UI
   - Persist collapse state via `is-display` (write-back to backend)
-- [ ] Implement node selection (focus/active row)
+- [x] Implement node selection (focus/active row) *(current: active row = editing row highlight)*
 
 ### 6.4 Editing MVP (write)
 
-- [ ] Implement inline node editing (single-line input)
-  - Save on blur / Ctrl+Enter (choose one consistent rule)
-- [ ] Implement node creation (Enter)
+- [x] Implement inline node editing (single-line input)
+  - Save on blur (current)
+- [x] Implement node creation (Enter)
   - Create next sibling
   - Order strategy: **midpoint order** between current and next sibling (`same_deep_order`)
-- [ ] Implement indentation (Tab/Shift+Tab)
+- [x] Implement indentation (Tab/Shift+Tab)
   - Tab: become child of previous sibling (update `parid`, recompute `order`)
   - Shift+Tab: become sibling of parent (update `parid`, recompute `order`)
 
 ### 6.5 Advanced editor behavior (post-MVP)
 
-- [ ] Keyboard navigation (Up/Down/Left/Right) based on “visible navs”
-- [ ] Node deletion (Backspace/Delete on empty)
+- [x] Keyboard navigation (Up/Down/Left/Right) based on “visible navs”
+- [x] Node deletion (Backspace/Delete on empty)
   - Use soft delete: set `is-delete: true`
 - [ ] Drag-and-drop reordering (requires stable order + drop targets)
 - [ ] Node moving (Alt+Up/Down) (order adjust only)
