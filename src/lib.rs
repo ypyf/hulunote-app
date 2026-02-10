@@ -14,8 +14,8 @@ use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use leptos_router::params::Params;
 use leptos_router::path;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 
 // Needed for `#[wasm_bindgen(start)]` on the wasm entrypoint.
 #[cfg(all(target_arch = "wasm32", not(test)))]
@@ -157,7 +157,9 @@ fn swap_tmp_nav_id(navs: &mut [Nav], tmp_id: &str, real_id: &str) -> bool {
 }
 
 fn get_nav_content(navs: &[Nav], nav_id: &str) -> Option<String> {
-    navs.iter().find(|n| n.id == nav_id).map(|n| n.content.clone())
+    navs.iter()
+        .find(|n| n.id == nav_id)
+        .map(|n| n.content.clone())
 }
 
 fn backfill_content_request(
@@ -577,7 +579,7 @@ impl ApiClient {
             .map_err(|e| e.to_string())
     }
 
-fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
+    fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
         // Canonical contract: `get-database-list` returns `database-list` with namespaced keys.
         let list = data
             .get("database-list")
@@ -609,9 +611,7 @@ fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
         out
     }
 
-
-
-fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
+    fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
         // Canonical contract: `get-all-note-list` returns `note-list` with namespaced keys.
         let list = data
             .get("note-list")
@@ -643,8 +643,6 @@ fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
 
         out
     }
-
-
 
     pub async fn get_all_note_list(&self, database_id: &str) -> Result<Vec<Note>, String> {
         let client = reqwest::Client::new();
@@ -766,7 +764,7 @@ fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
         }
     }
 
-fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
+    fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
         // Canonical contract: create-note returns a note object.
         // Some deployments wrap it as {"note": {...}}, others return the note object directly.
         let v = data.get("note").cloned().unwrap_or(data);
@@ -812,8 +810,6 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
             updated_at,
         })
     }
-
-
 
     pub async fn create_note(&self, database_id: &str, title: &str) -> Result<Note, String> {
         let client = reqwest::Client::new();
@@ -937,7 +933,11 @@ fn parse_create_note_response(data: serde_json::Value) -> Option<Note> {
         let req = client.post(format!("{}/hulunote/create-or-update-nav", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
 
-        let res = req.json(&req_body).send().await.map_err(|e| e.to_string())?;
+        let res = req
+            .json(&req_body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
 
         if res.status().is_success() {
             res.json().await.map_err(|e| e.to_string())
@@ -2682,15 +2682,11 @@ pub struct UnreferencedRouteParams {
     pub db_id: Option<String>,
 }
 
-#[derive(Params, PartialEq, Clone, Debug)]
-pub struct PageByTitleRouteParams {
-    pub db_id: Option<String>,
-}
-
 #[component]
 pub fn NotePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let params = leptos_router::hooks::use_params::<NoteRouteParams>();
+    let navigate = StoredValue::new(use_navigate());
 
     // Use closures so params access happens inside a reactive tracking context.
     let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
@@ -2711,6 +2707,44 @@ pub fn NotePage() -> impl IntoView {
     let query = use_query_map();
     let focus_nav = move || query.get().get("focus_nav").unwrap_or_default();
     let focused_nav_id: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Draft note (Roam-style): open by title without creating until first input/Enter.
+    // Route: `/db/:db_id/note?title=...` (same NotePage UI shell).
+    let draft_title = move || query.get().get("title").unwrap_or_default();
+    let is_draft_mode = move || {
+        let id = note_id();
+        id.trim().is_empty() && !draft_title().trim().is_empty()
+    };
+
+    let draft_title_value: RwSignal<String> = RwSignal::new(String::new());
+    let draft_value: RwSignal<String> = RwSignal::new(String::new());
+    let draft_ref: NodeRef<html::Input> = NodeRef::new();
+    let draft_loading: RwSignal<bool> = RwSignal::new(false);
+    let draft_creating: RwSignal<bool> = RwSignal::new(false);
+    let draft_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Initialize draft title input from query param when in draft mode.
+    Effect::new(move |_| {
+        if !is_draft_mode() {
+            return;
+        }
+        let t = draft_title();
+        if !t.trim().is_empty() && draft_title_value.get().trim().is_empty() {
+            draft_title_value.set(t);
+        }
+    });
+
+    let focus_draft = move || {
+        if draft_creating.get_untracked() {
+            return;
+        }
+        if let Some(el) = draft_ref.get_untracked() {
+            let _ = el.focus();
+            let v = el.value();
+            let pos = v.len() as u32;
+            let _ = el.set_selection_range(pos, pos);
+        }
+    };
 
     // Keep global selected DB in sync when entering a note route directly (e.g. from Home recents).
     Effect::new(move |_| {
@@ -2950,8 +2984,270 @@ pub fn NotePage() -> impl IntoView {
         app_state.0.notes.get().into_iter().find(|n| n.id == id)
     };
 
+    // Draft: if note already exists for the draft title, jump to it; otherwise allow editing.
+    Effect::new(move |_| {
+        if !is_draft_mode() {
+            return;
+        }
+
+        let db = db_id();
+        let t = draft_title_value.get();
+        if db.trim().is_empty() || t.trim().is_empty() {
+            return;
+        }
+
+        draft_loading.set(true);
+        draft_error.set(None);
+
+        let t_norm = normalize_roam_page_title(&t);
+        let api_client = app_state.0.api_client.get_untracked();
+        let navigate2 = navigate;
+        spawn_local(async move {
+            match api_client.get_all_note_list(&db).await {
+                Ok(notes) => {
+                    app_state.0.notes.set(notes.clone());
+                    if let Some(n) = notes.into_iter().find(|n| {
+                        n.database_id == db && normalize_roam_page_title(&n.title) == t_norm
+                    }) {
+                        navigate2.with_value(|nav| {
+                            nav(
+                                &format!("/db/{}/note/{}", db, n.id),
+                                leptos_router::NavigateOptions::default(),
+                            );
+                        });
+                        return;
+                    }
+
+                    let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+                        wasm_bindgen::closure::Closure::once_into_js(move || {
+                            focus_draft();
+                        })
+                        .as_ref()
+                        .unchecked_ref(),
+                        0,
+                    );
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        draft_error.set(Some(e));
+                    }
+                }
+            }
+            draft_loading.set(false);
+        });
+    });
+
+    let app_state_for_draft = app_state.clone();
+
+    let create_note_and_first_nav_draft = StoredValue::new(move |initial_content: String| {
+        if draft_creating.get_untracked() {
+            return;
+        }
+
+        let db = db_id();
+        let t = draft_title_value.get_untracked();
+        if db.trim().is_empty() || t.trim().is_empty() {
+            draft_error.set(Some("Title cannot be empty".to_string()));
+            return;
+        }
+
+        draft_creating.set(true);
+        draft_error.set(None);
+
+        let api_client = app_state_for_draft.0.api_client.get_untracked();
+        let app_state2 = app_state_for_draft.clone();
+        let draft_value2 = draft_value;
+        let title_norm = normalize_roam_page_title(&t);
+        let navigate2 = navigate;
+
+        spawn_local(async move {
+            // If exists, navigate.
+            let find_existing_id = |notes: &[Note]| {
+                notes
+                    .iter()
+                    .find(|n| {
+                        n.database_id == db && normalize_roam_page_title(&n.title) == title_norm
+                    })
+                    .map(|n| n.id.clone())
+            };
+
+            if let Some(id) = find_existing_id(&app_state2.0.notes.get_untracked()) {
+                navigate2.with_value(|nav| {
+                    nav(
+                        &format!("/db/{}/note/{}", db, id),
+                        leptos_router::NavigateOptions::default(),
+                    );
+                });
+                draft_creating.set(false);
+                return;
+            }
+
+            if let Ok(notes) = api_client.get_all_note_list(&db).await {
+                app_state2.0.notes.set(notes.clone());
+                if let Some(id) = find_existing_id(&notes) {
+                    navigate2.with_value(|nav| {
+                        nav(
+                            &format!("/db/{}/note/{}", db, id),
+                            leptos_router::NavigateOptions::default(),
+                        );
+                    });
+                    draft_creating.set(false);
+                    return;
+                }
+            }
+
+            // Create note.
+            let note = match api_client.create_note(&db, &t).await {
+                Ok(n) => n,
+                Err(e) => {
+                    draft_creating.set(false);
+                    draft_error.set(Some(e));
+                    return;
+                }
+            };
+
+            app_state2.0.notes.update(|xs| {
+                if !xs.iter().any(|x| x.id == note.id) {
+                    xs.insert(0, note.clone());
+                }
+            });
+
+            // Create first nav.
+            let root = "00000000-0000-0000-0000-000000000000";
+            let create_req = CreateOrUpdateNavRequest {
+                note_id: note.id.clone(),
+                id: None,
+                parid: Some(root.to_string()),
+                content: Some(initial_content.clone()),
+                order: Some(0.0),
+                is_display: Some(true),
+                is_delete: Some(false),
+                properties: None,
+            };
+
+            let nav_id = match api_client.upsert_nav(create_req).await {
+                Ok(resp) => resp
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                Err(e) => {
+                    draft_creating.set(false);
+                    draft_error.set(Some(e));
+                    return;
+                }
+            };
+
+            if !nav_id.trim().is_empty() {
+                let content_now = draft_value2.get_untracked();
+                if content_now != initial_content {
+                    let save_req = CreateOrUpdateNavRequest {
+                        note_id: note.id.clone(),
+                        id: Some(nav_id.clone()),
+                        parid: None,
+                        content: Some(content_now),
+                        order: None,
+                        is_display: None,
+                        is_delete: None,
+                        properties: None,
+                    };
+                    let _ = api_client.upsert_nav(save_req).await;
+                }
+            }
+
+            let url = if nav_id.trim().is_empty() {
+                format!("/db/{}/note/{}", db, note.id)
+            } else {
+                format!("/db/{}/note/{}?focus_nav={}", db, note.id, nav_id)
+            };
+
+            navigate2.with_value(|nav| {
+                nav(&url, leptos_router::NavigateOptions::default());
+            });
+
+            draft_creating.set(false);
+        });
+    });
+
     view! {
-        <div class="space-y-3">
+        <>
+            <Show when=move || is_draft_mode() fallback=|| ().into_view()>
+                <div class="space-y-3">
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2">
+                            <Input
+                                bind_value=draft_title_value
+                                class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                                placeholder="Untitled"
+                            />
+
+                            <div class="h-5 w-5 shrink-0">
+                                <Show when=move || draft_creating.get() fallback=|| ().into_view()>
+                                    <div class="h-5 w-5"><Spinner /></div>
+                                </Show>
+                            </div>
+                        </div>
+
+                        <Show when=move || draft_error.get().is_some() fallback=|| ().into_view()>
+                            {move || {
+                                draft_error.get().map(|e| {
+                                    view! {
+                                        <Alert class="border-destructive/30">
+                                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                                        </Alert>
+                                    }
+                                })
+                            }}
+                        </Show>
+
+                        <div class="rounded-md border bg-card p-3">
+                            <div class="text-xs text-muted-foreground">"Outline"</div>
+
+                            <div class="mt-2 flex items-center gap-2">
+                                <div class="text-muted-foreground">"•"</div>
+                                <input
+                                    node_ref=draft_ref
+                                    class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                                    placeholder="Start typing…"
+                                    value=move || draft_value.get()
+                                    on:input=move |ev: web_sys::Event| {
+                                        if let Some(t) = ev
+                                            .target()
+                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                        {
+                                            let v = t.value();
+                                            draft_value.set(v.clone());
+                                            if !v.is_empty() && !draft_creating.get_untracked() {
+                                                create_note_and_first_nav_draft.with_value(|f| f(v));
+                                            }
+                                        }
+                                    }
+                                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                        if ev.key() == "Enter" {
+                                            ev.prevent_default();
+                                            let v = draft_value.get_untracked();
+                                            create_note_and_first_nav_draft.with_value(|f| f(v));
+                                        }
+                                    }
+                                />
+                            </div>
+
+                            <Show when=move || draft_loading.get() fallback=|| ().into_view()>
+                                <div class="mt-2 text-xs text-muted-foreground">"Checking if page exists…"</div>
+                            </Show>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+
+            <Show when=move || !is_draft_mode() fallback=|| ().into_view()>
+                <div class="space-y-3">
             <div class="space-y-2">
                 <div class="flex items-center gap-2">
                     <Input
@@ -3173,6 +3469,8 @@ pub fn NotePage() -> impl IntoView {
                 </div>
             </div>
         </div>
+            </Show>
+        </>
     }
 }
 
@@ -3356,7 +3654,8 @@ pub fn OutlineNode(
         let Some(n) = navs
             .get_untracked()
             .into_iter()
-            .find(|n| n.id == nav_id_for_toggle) else {
+            .find(|n| n.id == nav_id_for_toggle)
+        else {
             return;
         };
 
@@ -3711,10 +4010,10 @@ pub fn OutlineNode(
                                                                                         }
                                                                                     }
 
-                                                                                    // 3) Still not found: open an empty page view (Roam-style).
+                                                                                    // 3) Still not found: open draft note view (Roam-style, no create on click).
                                                                                     navigate2(
                                                                                         &format!(
-                                                                                            "/db/{}/page?title={}",
+                                                                                            "/db/{}/note?title={}",
                                                                                             db_id,
                                                                                             urlencoding::encode(&title)
                                                                                         ),
@@ -5263,7 +5562,8 @@ pub fn UnreferencedPages() -> impl IntoView {
         // Keep global selected DB in sync.
         if app_state.0.current_database_id.get() != Some(db.clone()) {
             app_state.0.current_database_id.set(Some(db.clone()));
-            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
+            {
                 let _ = storage.set_item(CURRENT_DB_KEY, &db);
             }
         }
@@ -5302,7 +5602,8 @@ pub fn UnreferencedPages() -> impl IntoView {
         let ns = notes.get();
         let vs = navs.get();
 
-        let mut referenced_titles: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut referenced_titles: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
         for nav in vs.into_iter() {
             if nav.is_delete {
                 continue;
@@ -5376,93 +5677,6 @@ pub fn UnreferencedPages() -> impl IntoView {
 }
 
 #[component]
-pub fn PageByTitle() -> impl IntoView {
-    let app_state = expect_context::<AppContext>();
-    let params = leptos_router::hooks::use_params::<PageByTitleRouteParams>();
-    let query = use_query_map();
-    let navigate = StoredValue::new(use_navigate());
-
-    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
-    let title = move || query.get().get("title").unwrap_or_default();
-
-    let loading: RwSignal<bool> = RwSignal::new(false);
-    let error: RwSignal<Option<String>> = RwSignal::new(None);
-
-    // If the note exists, jump to it. Otherwise, show an empty page view.
-    Effect::new(move |_| {
-        let db = db_id();
-        let t = title();
-        if db.trim().is_empty() || t.trim().is_empty() {
-            return;
-        }
-
-        // Keep global selected DB in sync.
-        if app_state.0.current_database_id.get() != Some(db.clone()) {
-            app_state.0.current_database_id.set(Some(db.clone()));
-            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-                let _ = storage.set_item(CURRENT_DB_KEY, &db);
-            }
-        }
-
-        loading.set(true);
-        error.set(None);
-
-        let api_client = app_state.0.api_client.get_untracked();
-        spawn_local(async move {
-            match api_client.get_all_note_list(&db).await {
-                Ok(notes) => {
-                    // Update global notes cache.
-                    app_state.0.notes.set(notes.clone());
-
-                    if let Some(n) = notes.into_iter().find(|n| n.database_id == db && n.title == t) {
-                        navigate.with_value(|nav| {
-                            nav(
-                                &format!("/db/{}/note/{}", db, n.id),
-                                leptos_router::NavigateOptions::default(),
-                            );
-                        });
-                    }
-                }
-                Err(e) => {
-                    if e == "Unauthorized" {
-                        let mut c = app_state.0.api_client.get_untracked();
-                        c.logout();
-                        app_state.0.api_client.set(c);
-                        app_state.0.current_user.set(None);
-                        let _ = window().location().set_href("/login");
-                    } else {
-                        error.set(Some(e));
-                    }
-                }
-            }
-            loading.set(false);
-        });
-    });
-
-    view! {
-        <div class="space-y-4">
-            <div class="space-y-1">
-                <h1 class="text-xl font-semibold">{move || title()}</h1>
-            </div>
-
-            // Keep layout stable: no loading indicator/spinner here.
-            <div class="min-h-[28px]">
-                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
-                    {move || error.get().map(|e| view! {
-                        <Alert class="border-destructive/30">
-                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
-                        </Alert>
-                    })}
-                </Show>
-            </div>
-
-            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground min-h-[120px]">
-            </div>
-        </div>
-    }
-}
-
-#[component]
 pub fn App() -> impl IntoView {
     provide_context(AppContext(AppState::new()));
 
@@ -5479,6 +5693,11 @@ pub fn App() -> impl IntoView {
                         <DbHomePage />
                     </RootAuthed>
                 } />
+                <Route path=path!("db/:db_id/note") view=move || view! {
+                    <RootAuthed>
+                        <NotePage />
+                    </RootAuthed>
+                } />
                 <Route path=path!("db/:db_id/note/:note_id") view=move || view! {
                     <RootAuthed>
                         <NotePage />
@@ -5487,11 +5706,6 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("db/:db_id/unreferenced") view=move || view! {
                     <RootAuthed>
                         <UnreferencedPages />
-                    </RootAuthed>
-                } />
-                <Route path=path!("db/:db_id/page") view=move || view! {
-                    <RootAuthed>
-                        <PageByTitle />
                     </RootAuthed>
                 } />
                 <Route path=path!("search") view=move || view! {
@@ -5805,8 +6019,8 @@ mod tests {
             },
         ];
 
-        let (parid, order) = compute_reorder_target(&all, "d", "t", false)
-            .expect("should compute reorder target");
+        let (parid, order) =
+            compute_reorder_target(&all, "d", "t", false).expect("should compute reorder target");
         assert_eq!(parid, "p2");
         assert!(order < 5.0);
     }
@@ -5852,8 +6066,8 @@ mod tests {
             },
         ];
 
-        let (parid, order) = compute_reorder_target(&all, "d", "t", true)
-            .expect("should compute reorder target");
+        let (parid, order) =
+            compute_reorder_target(&all, "d", "t", true).expect("should compute reorder target");
         assert_eq!(parid, "p");
         assert!(order > 3.0 && order < 10.0);
     }
