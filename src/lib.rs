@@ -3182,8 +3182,7 @@ pub fn OutlineEditor(
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    // Wiki-link create/open feedback (MVP)
-    let link_error: RwSignal<Option<String>> = RwSignal::new(None);
+    // Wiki links: opening a missing page does not hit the backend (Roam-style navigation).
 
     // Editing state
     let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
@@ -3255,13 +3254,7 @@ pub fn OutlineEditor(
                 })}
             </Show>
 
-            <Show when=move || link_error.get().is_some() fallback=|| ().into_view()>
-                {move || link_error.get().map(|e| view! {
-                    <Alert class="mt-2 border-destructive/30">
-                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
-                    </Alert>
-                })}
-            </Show>
+            // (Roam-style) opening missing pages does not show an error banner here.
 
             <div class=move || {
                 if editing_id.get().is_some() {
@@ -3311,7 +3304,6 @@ pub fn OutlineEditor(
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
-                                                link_error=link_error
                                             />
                                         }
                                     }
@@ -3337,7 +3329,6 @@ pub fn OutlineNode(
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Input>,
     focused_nav_id: RwSignal<Option<String>>,
-    link_error: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let navigate = leptos_router::hooks::use_navigate();
@@ -3444,7 +3435,6 @@ pub fn OutlineNode(
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
-                                        link_error=link_error
                                     />
                                 }
                             }
@@ -3716,24 +3706,8 @@ pub fn OutlineNode(
                                                                                         }
                                                                                     }
 
-                                                                                    // 3) Still not found: create-and-open.
-                                                                                    match api_client.create_note(&db_id, &title).await {
-                                                                                        Ok(note) => {
-                                                                                            app_state2.0.notes.update(|xs| {
-                                                                                                if !xs.iter().any(|x| x.id == note.id) {
-                                                                                                    xs.push(note.clone());
-                                                                                                }
-                                                                                            });
-                                                                                            navigate2(
-                                                                                                &format!("/db/{}/note/{}", db_id, note.id),
-                                                                                                leptos_router::NavigateOptions::default(),
-                                                                                            );
-                                                                                        }
-                                                                                        Err(e) => {
-                                                                                            // Surface error so users are not confused by no-op clicks.
-                                                                                            link_error.set(Some(e));
-                                                                                        }
-                                                                                    }
+                                                                                    // 3) Still not found: Roam-style navigation shouldn't require server-side creation.
+                                                                                    // (Our app is currently backend-first; for now, do nothing when the page doesn't exist.)
                                                                                 });
                                                                             }
                                                                         >
