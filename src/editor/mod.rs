@@ -123,6 +123,39 @@ fn ensure_titles_loaded(app_state: &AppContext, ac: &AutocompleteCtx) {
     });
 }
 
+fn build_ac_items(titles: &[String], q: &str) -> Vec<AcItem> {
+    let q_norm = q.to_lowercase();
+    let mut items: Vec<AcItem> = vec![];
+
+    // Create-new option (only if query is non-empty and not an exact existing title).
+    let exact_exists = titles.iter().any(|t| t == q);
+    if !q.trim().is_empty() && !exact_exists {
+        items.push(AcItem {
+            title: q.to_string(),
+            is_new: true,
+        });
+    }
+
+    // Existing titles (filter).
+    for t in titles.iter().cloned() {
+        if q_norm.trim().is_empty() || t.to_lowercase().contains(&q_norm) {
+            // Avoid duplicating the create-new entry.
+            if t == q {
+                continue;
+            }
+            items.push(AcItem {
+                title: t,
+                is_new: false,
+            });
+        }
+        if items.len() >= 20 {
+            break;
+        }
+    }
+
+    items
+}
+
 pub(crate) fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
     format!("tmp-{now_ms}-{rand}")
 }
@@ -255,6 +288,37 @@ pub fn OutlineEditor(
     let titles_cache_db: RwSignal<Option<String>> = RwSignal::new(None);
     let titles_cache: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let titles_loading: RwSignal<bool> = RwSignal::new(false);
+
+    // Autocomplete recompute effect.
+    // This fixes the first-`[[` case where titles are still loading: we keep the menu open and
+    // populate items as soon as the async title load completes (without requiring extra typing).
+    Effect::new(move |_| {
+        let start = ac_start_utf16.get();
+        if start.is_none() {
+            return;
+        }
+
+        let q = ac_query.get();
+        let loading_now = titles_loading.get();
+        let titles_now = titles_cache.get();
+
+        if loading_now {
+            ac_open.set(true);
+            // Keep items empty; UI will show a loading row.
+            return;
+        }
+
+        let items = build_ac_items(&titles_now, &q);
+        if items.is_empty() {
+            ac_open.set(false);
+            ac_index.set(0);
+            return;
+        }
+
+        ac_items.set(items);
+        ac_index.set(0);
+        ac_open.set(true);
+    });
 
     // Load navs when note_id changes.
     let note_id_for_effect = note_id.clone();
@@ -1038,38 +1102,17 @@ pub fn OutlineNode(
                                                 // Load titles lazily (notes + wiki links across DB).
                                                 ensure_titles_loaded(&app_state, &ac);
 
+                                                // If titles are still loading, keep the menu open and let the
+                                                // recompute Effect populate items once loading completes.
+                                                if ac.titles_loading.get_untracked() {
+                                                    ac.ac_open.set(true);
+                                                    ac.ac_index.set(0);
+                                                    ac.ac_items.set(vec![]);
+                                                    return;
+                                                }
+
                                                 let titles = ac.titles_cache.get_untracked();
-                                                let q_norm = q.to_lowercase();
-
-                                                let mut items: Vec<AcItem> = vec![];
-
-                                                // Create-new option (only if query is non-empty and not an exact existing title).
-                                                let exact_exists = titles.iter().any(|t| t == &q);
-                                                if !q.trim().is_empty() && !exact_exists {
-                                                    items.push(AcItem {
-                                                        title: q.clone(),
-                                                        is_new: true,
-                                                    });
-                                                }
-
-                                                // Existing titles (filter).
-                                                for t in titles.into_iter() {
-                                                    if q_norm.trim().is_empty()
-                                                        || t.to_lowercase().contains(&q_norm)
-                                                    {
-                                                        // Avoid duplicating the create-new entry.
-                                                        if t == q {
-                                                            continue;
-                                                        }
-                                                        items.push(AcItem {
-                                                            title: t,
-                                                            is_new: false,
-                                                        });
-                                                    }
-                                                    if items.len() >= 20 {
-                                                        break;
-                                                    }
-                                                }
+                                                let items = build_ac_items(&titles, &q);
 
                                                 if items.is_empty() {
                                                     ac.ac_open.set(false);
@@ -1908,6 +1951,12 @@ pub fn OutlineNode(
                                                     let items = ac.ac_items.get();
                                                     let idx = ac.ac_index.get();
                                                     if items.is_empty() {
+                                                        if ac.titles_loading.get() {
+                                                            return view! {
+                                                                <div class="px-2 py-1 text-muted-foreground">"Loading…"</div>
+                                                            }
+                                                            .into_any();
+                                                        }
                                                         return ().into_any();
                                                     }
 
