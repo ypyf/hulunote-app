@@ -700,11 +700,21 @@ pub fn OutlineNode(
                                 }
                                 draggable="true"
                                 on:dragstart=move |ev: web_sys::DragEvent| {
-                                    dragging_nav_id.set(Some(nav_id_sv.get_value()));
-                                    drag_over_nav_id.set(Some(nav_id_sv.get_value()));
+                                    let id = nav_id_sv.get_value();
+
+                                    // UX: dragging should not keep the row in editing state.
+                                    if editing_id.get_untracked().as_deref() == Some(id.as_str()) {
+                                        editing_id.set(None);
+                                        // Close autocomplete if it was open.
+                                        ac.ac_open.set(false);
+                                        ac.ac_start_utf16.set(None);
+                                    }
+
+                                    dragging_nav_id.set(Some(id.clone()));
+                                    drag_over_nav_id.set(Some(id.clone()));
 
                                     if let Some(dt) = ev.data_transfer() {
-                                        let _ = dt.set_data("text/plain", &nav_id_sv.get_value());
+                                        let _ = dt.set_data("text/plain", &id);
                                         dt.set_drop_effect("move");
                                     }
                                 }
