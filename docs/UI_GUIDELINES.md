@@ -10,6 +10,21 @@ predictable, and unsurprising.
 
 ## General Principles
 
+## Theme & Tokens (Rust/UI-aligned)
+
+This project’s UI is generated and maintained with **Rust/UI** components.
+To avoid per-component patches and style drift, we standardize on **Rust/UI style tokens**:
+
+- Use CSS variables in the `--color-*` namespace (e.g. `--color-background`, `--color-muted`, `--color-border`).
+- Tailwind utilities must resolve through these tokens (see `tailwind.config.js`).
+- If a generated Rust/UI component looks wrong, prefer fixing **tokens** in `style/tailwind.css` instead of editing generated component source.
+
+Avoid:
+- Hard-coded colors (hex/rgb/rgba) in components
+- Ad-hoc custom CSS values that bypass the token system
+
+If a new Rust/UI component introduces a previously-undefined `--color-*` token, add it to `style/tailwind.css` (alias it to existing app palette tokens).
+
 - Prefer clarity over expressiveness.
 - Fewer elements are better than more elements.
 - Consistency is more important than creativity.

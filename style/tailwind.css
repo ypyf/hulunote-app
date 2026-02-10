@@ -90,8 +90,8 @@
 body {
   font-family: "Inter Variable", "SF Pro Display", -apple-system, system-ui, "Segoe UI", Roboto,
     Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  background: rgb(var(--background));
-  color: rgb(var(--foreground));
+  background: rgb(var(--color-background));
+  color: rgb(var(--color-foreground));
 }
 
 /*

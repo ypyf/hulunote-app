@@ -81,6 +81,18 @@ trunk build
   If you hit CI failures, prefer stable, explicit wiring for inputs:
   `value=move || signal.get()` + `on:input` handler updating the signal.
 
+## Theme tokens (important)
+
+Rust/UI generated components may rely on `--color-*` tokens (shadcn-style variable names).
+This repo keeps a canonical token map in:
+
+- `style/tailwind.css` (defines the palette + `--color-*` aliases)
+- `tailwind.config.js` (Tailwind colors reference `--color-*`)
+
+Rule:
+- Prefer updating tokens in `style/tailwind.css` to fix styling.
+- Avoid editing generated component internals for colors unless absolutely necessary.
+
 ## Tailwind integration
 
 Trunk compiles Tailwind via `index.html`:
