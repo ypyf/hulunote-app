@@ -683,10 +683,14 @@ pub fn OutlineNode(
                                     let _is_focused = focused_nav_id.get().as_deref() == Some(id.as_str());
 
                                     let is_dragging = dragging_nav_id.get().is_some();
+                                    let is_drag_source = dragging_nav_id.get().as_deref() == Some(id.as_str());
                                     let is_drag_over = drag_over_nav_id.get().as_deref() == Some(id.as_str());
 
                                     if is_editing {
                                         "outline-row outline-row--editing flex items-center gap-2 py-1"
+                                    } else if is_dragging && is_drag_source {
+                                        // Highlight the dragged row itself (subtle).
+                                        "outline-row flex items-center gap-2 py-1 rounded-md bg-muted/50"
                                     } else if is_dragging && is_drag_over {
                                         // Highlight drop target only while dragging.
                                         "outline-row flex items-center gap-2 py-1 rounded-md bg-muted ring-1 ring-ring/40"
