@@ -83,7 +83,7 @@ Rules:
 
 - Compose pages using Rust/UI components only (copy/paste registry components). Do not reinvent styling per page.
 - Prefer Tailwind **semantic utilities** (`bg-muted`, `text-muted-foreground`, `border-border`, etc.) over bespoke class strings.
-- Theme must come from Rust/UI CSS variables (`--background`, `--foreground`, `--primary`, etc.) and `.dark` overrides.
+- Theme must come from Rust/UI CSS variables (`--background`, `--foreground`, `--primary`, etc.) with a single, centralized mechanism for theme variants (e.g. dark mode) at the theme layer.
 - **Avoid hardcoding** presentation values in components:
   - No hex colors
   - No `rgb(...)` / `rgba(...)` literals
