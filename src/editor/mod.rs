@@ -538,45 +538,42 @@ pub fn OutlineNode(
         }
 
         let idx = ac.ac_index.get();
+        let list_el = ac_list_ref.get();
         let ac2 = ac.clone();
-        let ac_list_ref2 = ac_list_ref.clone();
 
         // Wait a tick so the selected row is rendered before scrolling.
         let _ = web_sys::window()
             .unwrap()
             .set_timeout_with_callback_and_timeout_and_arguments_0(
                 Closure::once_into_js(move || {
+                    let Some(list_el) = list_el else {
+                        return;
+                    };
+
                     // If menu closed between scheduling and running, do nothing.
                     if !ac2.ac_open.get_untracked() {
                         return;
                     }
 
-                    let Some(list_el) = ac_list_ref2.get() else {
-                        return;
-                    };
-
                     let selector = format!("[data-ac-idx=\"{}\"]", idx);
-                    let Ok(Some(selected_el)) = list_el.query_selector(&selector) else {
+                    let Ok(Some(selected)) = list_el.query_selector(&selector) else {
                         return;
                     };
 
                     // Scroll the *popup list* (not the page) to keep the selected row visible.
-                    // Use bounding rects to avoid offsetParent quirks.
                     let list: web_sys::HtmlElement = list_el.unchecked_into();
-                    let list_rect = list.get_bounding_client_rect();
-                    let selected: web_sys::HtmlElement = selected_el.unchecked_into();
-                    let item_rect = selected.get_bounding_client_rect();
+                    let selected: web_sys::HtmlElement = selected.unchecked_into();
 
                     let list_top = list.scroll_top();
                     let list_h = list.client_height();
+                    let item_top = selected.offset_top();
+                    let item_h = selected.offset_height();
+                    let item_bottom = item_top + item_h;
 
-                    let item_top_in_list = (item_rect.top() - list_rect.top()).round() as i32;
-                    let item_bottom_in_list = (item_rect.bottom() - list_rect.top()).round() as i32;
-
-                    if item_top_in_list < 0 {
-                        list.set_scroll_top(list_top + item_top_in_list);
-                    } else if item_bottom_in_list > list_h {
-                        list.set_scroll_top(list_top + (item_bottom_in_list - list_h));
+                    if item_top < list_top {
+                        list.set_scroll_top(item_top);
+                    } else if item_bottom > list_top + list_h {
+                        list.set_scroll_top(item_bottom - list_h);
                     }
                 })
                 .as_ref()
