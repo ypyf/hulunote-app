@@ -4,52 +4,51 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: "rgb(var(--background) / <alpha-value>)",
-        foreground: "rgb(var(--foreground) / <alpha-value>)",
+        // Rust/UI token-aligned colors
+        background: "rgb(var(--color-background) / <alpha-value>)",
+        foreground: "rgb(var(--color-foreground) / <alpha-value>)",
 
         // Surfaces
-        muted: "rgb(var(--muted) / <alpha-value>)", // == surface
-        surface: "rgb(var(--muted) / <alpha-value>)",
+        muted: "rgb(var(--color-muted) / <alpha-value>)", // == surface
+        surface: "rgb(var(--color-muted) / <alpha-value>)",
         "surface-hover": "rgb(var(--surface-hover) / <alpha-value>)",
         "surface-active": "rgb(var(--surface-active) / <alpha-value>)",
 
         // Text
-        "muted-foreground": "rgb(var(--muted-foreground) / <alpha-value>)",
+        "muted-foreground": "rgb(var(--color-muted-foreground) / <alpha-value>)",
         "text-disabled": "rgb(var(--text-disabled) / <alpha-value>)",
 
         // Borders
-        border: "rgb(var(--border) / <alpha-value>)",
-        "border-strong": "rgb(var(--border-strong) / <alpha-value>)",
+        border: "rgb(var(--color-border) / <alpha-value>)",
+        "border-strong": "rgb(var(--color-border-strong) / <alpha-value>)",
 
-        // Accent
-        accent: "rgb(var(--accent) / <alpha-value>)",
+        // Accent / semantic
+        accent: "rgb(var(--color-accent) / <alpha-value>)",
         "accent-hover": "rgb(var(--accent-hover) / <alpha-value>)",
         "accent-active": "rgb(var(--accent-active) / <alpha-value>)",
-        "accent-foreground": "rgb(var(--accent-foreground) / <alpha-value>)",
+        "accent-foreground": "rgb(var(--color-accent-foreground) / <alpha-value>)",
         "accent-soft": "var(--accent-soft)",
-        ring: "var(--ring)",
+        ring: "var(--color-ring)",
+        primary: "rgb(var(--color-primary) / <alpha-value>)",
+        "primary-foreground": "rgb(var(--color-primary-foreground) / <alpha-value>)",
+        secondary: "rgb(var(--color-secondary) / <alpha-value>)",
+        "secondary-foreground": "rgb(var(--color-secondary-foreground) / <alpha-value>)",
+        destructive: "rgb(var(--color-destructive) / <alpha-value>)",
+        "destructive-foreground": "rgb(var(--color-destructive-foreground) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        "warning-foreground": "rgb(var(--color-warning-foreground) / <alpha-value>)",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        "success-foreground": "rgb(var(--color-success-foreground) / <alpha-value>)",
 
         // Aliases used by components
-        // Use a surface token for input background (NOT the border color).
-        input: "rgb(var(--surface-hover) / <alpha-value>)",
-        primary: "rgb(var(--accent) / <alpha-value>)",
-        "primary-foreground": "rgb(var(--accent-foreground) / <alpha-value>)",
-
-        secondary: "rgb(var(--secondary) / <alpha-value>)",
-        "secondary-foreground": "rgb(var(--secondary-foreground) / <alpha-value>)",
-
-        destructive: "rgb(var(--destructive) / <alpha-value>)",
-        "destructive-foreground": "rgb(var(--destructive-foreground) / <alpha-value>)",
-
-        warning: "rgb(var(--warning) / <alpha-value>)",
-        "warning-foreground": "rgb(var(--warning-foreground) / <alpha-value>)",
-
-        success: "rgb(var(--success) / <alpha-value>)",
-        "success-foreground": "rgb(var(--success-foreground) / <alpha-value>)",
+        // Use a surface token for input background.
+        input: "rgb(var(--color-input) / <alpha-value>)",
 
         // Make cards distinct from the default surface.
-        card: "rgb(var(--surface-hover) / <alpha-value>)",
-        "card-foreground": "rgb(var(--foreground) / <alpha-value>)",
+        card: "rgb(var(--color-card) / <alpha-value>)",
+        "card-foreground": "rgb(var(--color-card-foreground) / <alpha-value>)",
+        popover: "rgb(var(--color-popover) / <alpha-value>)",
+        "popover-foreground": "rgb(var(--color-popover-foreground) / <alpha-value>)",
       },
       borderRadius: {
         sm: "var(--radius-sm)",

@@ -25,38 +25,38 @@
 
   /* Rust/UI style-token aliases (use `--color-*` tokens inside generated components).
      Goal: generated Rust/UI components can rely on these tokens without per-component edits. */
-  --color-background: rgb(var(--background));
-  --color-foreground: rgb(var(--foreground));
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
 
   /* Surfaces */
-  --color-card: rgb(var(--surface-hover));
-  --color-card-foreground: rgb(var(--foreground));
-  --color-popover: rgb(var(--surface-hover));
-  --color-popover-foreground: rgb(var(--foreground));
+  --color-card: var(--surface-hover);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--surface-hover);
+  --color-popover-foreground: var(--foreground);
 
   /* Make `muted` a visible selection/background surface (slightly lighter than base surface). */
-  --color-muted: rgb(var(--surface-hover));
-  --color-muted-foreground: rgb(var(--muted-foreground));
+  --color-muted: var(--surface-hover);
+  --color-muted-foreground: var(--muted-foreground);
 
   /* Borders / inputs */
-  --color-border: rgb(var(--border));
-  --color-input: rgb(var(--surface-hover));
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--surface-hover);
   --color-ring: var(--ring);
-  --color-border-strong: rgb(var(--border-strong));
 
   /* Semantic / shadcn-style tokens (commonly used by Rust/UI components) */
-  --color-primary: rgb(var(--accent));
-  --color-primary-foreground: rgb(var(--accent-foreground));
-  --color-secondary: rgb(var(--secondary));
-  --color-secondary-foreground: rgb(var(--secondary-foreground));
-  --color-accent: rgb(var(--accent));
-  --color-accent-foreground: rgb(var(--accent-foreground));
-  --color-destructive: rgb(var(--destructive));
-  --color-destructive-foreground: rgb(var(--destructive-foreground));
-  --color-warning: rgb(var(--warning));
-  --color-warning-foreground: rgb(var(--warning-foreground));
-  --color-success: rgb(var(--success));
-  --color-success-foreground: rgb(var(--success-foreground));
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
 
   /* Accent tokens */
   --accent: 113 112 255;            /* color-accent: #7170FF */

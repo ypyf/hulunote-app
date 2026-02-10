@@ -501,8 +501,8 @@ pub fn Command(
             /* Command component - aria-selected styling */
             [data-name="CommandItemLink"][aria-selected="true"],
             [data-name="CommandItem"][aria-selected="true"] {
-                background-color: var(--color-muted);
-                color: var(--color-foreground);
+                background-color: rgb(var(--color-muted));
+                color: rgb(var(--color-foreground));
             }
             /* Hide CommandEmpty when there are visible items */
             [data-name="CommandList"]:has([data-name="CommandItem"][style*="flex"]) [data-name="CommandEmpty"] {
