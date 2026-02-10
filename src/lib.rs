@@ -3182,6 +3182,9 @@ pub fn OutlineEditor(
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Wiki-link create/open feedback (MVP)
+    let link_error: RwSignal<Option<String>> = RwSignal::new(None);
+
     // Editing state
     let editing_id: RwSignal<Option<String>> = RwSignal::new(None);
     let editing_value: RwSignal<String> = RwSignal::new(String::new());
@@ -3252,6 +3255,14 @@ pub fn OutlineEditor(
                 })}
             </Show>
 
+            <Show when=move || link_error.get().is_some() fallback=|| ().into_view()>
+                {move || link_error.get().map(|e| view! {
+                    <Alert class="mt-2 border-destructive/30">
+                        <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                    </Alert>
+                })}
+            </Show>
+
             <div class=move || {
                 if editing_id.get().is_some() {
                     "mt-2 outline-editor outline-editor--editing"
@@ -3300,6 +3311,7 @@ pub fn OutlineEditor(
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
+                                                link_error=link_error
                                             />
                                         }
                                     }
@@ -3325,6 +3337,7 @@ pub fn OutlineNode(
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Input>,
     focused_nav_id: RwSignal<Option<String>>,
+    link_error: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let navigate = leptos_router::hooks::use_navigate();
@@ -3431,6 +3444,7 @@ pub fn OutlineNode(
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
+                                        link_error=link_error
                                     />
                                 }
                             }
@@ -3715,8 +3729,9 @@ pub fn OutlineNode(
                                                                                                 leptos_router::NavigateOptions::default(),
                                                                                             );
                                                                                         }
-                                                                                        Err(_e) => {
-                                                                                            // Silent fail (MVP): keep UI stable.
+                                                                                        Err(e) => {
+                                                                                            // Surface error so users are not confused by no-op clicks.
+                                                                                            link_error.set(Some(e));
                                                                                         }
                                                                                     }
                                                                                 });
