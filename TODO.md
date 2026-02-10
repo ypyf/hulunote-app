@@ -132,7 +132,7 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 - [x] Keyboard navigation (Up/Down/Left/Right) based on “visible navs”
 - [x] Node deletion (Backspace/Delete on empty)
   - Use soft delete: set `is-delete: true`
-- [ ] Drag-and-drop reordering (requires stable order + drop targets)
+- [x] Drag-and-drop reordering (supports cross-parent move; no visual drop indicators yet)
 - [ ] Node moving (Alt+Up/Down) (order adjust only)
 
 ## Phase 7: Bidirectional Links
