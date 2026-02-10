@@ -96,6 +96,34 @@ Rules:
   - Have clear, imperative commit messages explaining WHAT and WHY
 - **Never revert/restore/reset user-authored docs (AGENTS.md, docs/*) as part of an unrelated change.** If doc diffs appear unexpectedly, stop and ask for confirmation; if separation is needed, move doc changes into a dedicated commit instead of discarding them.
 
+### Commit message format (required)
+
+Use a consistent, grep-friendly format:
+
+```
+<area>: <imperative summary>
+```
+
+Where:
+- `<area>` is one of:
+  - `auth`, `layout`, `db`, `notes`, `outline`, `search`, `ui`, `docs`, `tests`, `build`, `chore`
+- `<imperative summary>`:
+  - starts with a verb: `Add`, `Fix`, `Update`, `Refactor`, `Remove`, `Document`
+  - <= 72 chars
+  - describes **what changed**, not the task history
+
+Optional body (recommended for non-trivial changes):
+
+- **Why** the change is needed
+- **How** to verify (tests, manual steps)
+- Any behavior changes / risk
+
+Examples:
+- `outline: Fix blur-save race when switching nodes`
+- `outline: Add Alt+Up/Down reorder among siblings`
+- `docs: Update user manual for outline shortcuts`
+- `tests: Add regression test for storage roundtrip`
+
 Uncommitted work is considered unfinished work.
 
 ---
