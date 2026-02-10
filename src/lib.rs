@@ -2682,6 +2682,11 @@ pub struct UnreferencedRouteParams {
     pub db_id: Option<String>,
 }
 
+#[derive(Params, PartialEq, Clone, Debug)]
+pub struct PageByTitleRouteParams {
+    pub db_id: Option<String>,
+}
+
 #[component]
 pub fn NotePage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
@@ -3706,8 +3711,15 @@ pub fn OutlineNode(
                                                                                         }
                                                                                     }
 
-                                                                                    // 3) Still not found: Roam-style navigation shouldn't require server-side creation.
-                                                                                    // (Our app is currently backend-first; for now, do nothing when the page doesn't exist.)
+                                                                                    // 3) Still not found: open an empty page view (Roam-style).
+                                                                                    navigate2(
+                                                                                        &format!(
+                                                                                            "/db/{}/page?title={}",
+                                                                                            db_id,
+                                                                                            urlencoding::encode(&title)
+                                                                                        ),
+                                                                                        leptos_router::NavigateOptions::default(),
+                                                                                    );
                                                                                 });
                                                                             }
                                                                         >
@@ -5364,6 +5376,93 @@ pub fn UnreferencedPages() -> impl IntoView {
 }
 
 #[component]
+pub fn PageByTitle() -> impl IntoView {
+    let app_state = expect_context::<AppContext>();
+    let params = leptos_router::hooks::use_params::<PageByTitleRouteParams>();
+    let query = use_query_map();
+    let navigate = StoredValue::new(use_navigate());
+
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+    let title = move || query.get().get("title").unwrap_or_default();
+
+    let loading: RwSignal<bool> = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // If the note exists, jump to it. Otherwise, show an empty page view.
+    Effect::new(move |_| {
+        let db = db_id();
+        let t = title();
+        if db.trim().is_empty() || t.trim().is_empty() {
+            return;
+        }
+
+        // Keep global selected DB in sync.
+        if app_state.0.current_database_id.get() != Some(db.clone()) {
+            app_state.0.current_database_id.set(Some(db.clone()));
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                let _ = storage.set_item(CURRENT_DB_KEY, &db);
+            }
+        }
+
+        loading.set(true);
+        error.set(None);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            match api_client.get_all_note_list(&db).await {
+                Ok(notes) => {
+                    // Update global notes cache.
+                    app_state.0.notes.set(notes.clone());
+
+                    if let Some(n) = notes.into_iter().find(|n| n.database_id == db && n.title == t) {
+                        navigate.with_value(|nav| {
+                            nav(
+                                &format!("/db/{}/note/{}", db, n.id),
+                                leptos_router::NavigateOptions::default(),
+                            );
+                        });
+                    }
+                }
+                Err(e) => {
+                    if e == "Unauthorized" {
+                        let mut c = app_state.0.api_client.get_untracked();
+                        c.logout();
+                        app_state.0.api_client.set(c);
+                        app_state.0.current_user.set(None);
+                        let _ = window().location().set_href("/login");
+                    } else {
+                        error.set(Some(e));
+                    }
+                }
+            }
+            loading.set(false);
+        });
+    });
+
+    view! {
+        <div class="space-y-4">
+            <div class="space-y-1">
+                <h1 class="text-xl font-semibold">{move || title()}</h1>
+            </div>
+
+            // Keep layout stable: no loading indicator/spinner here.
+            <div class="min-h-[28px]">
+                <Show when=move || error.get().is_some() fallback=|| ().into_view()>
+                    {move || error.get().map(|e| view! {
+                        <Alert class="border-destructive/30">
+                            <AlertDescription class="text-destructive text-xs">{e}</AlertDescription>
+                        </Alert>
+                    })}
+                </Show>
+            </div>
+
+            <div class="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground min-h-[120px]">
+            </div>
+        </div>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     provide_context(AppContext(AppState::new()));
 
@@ -5388,6 +5487,11 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("db/:db_id/unreferenced") view=move || view! {
                     <RootAuthed>
                         <UnreferencedPages />
+                    </RootAuthed>
+                } />
+                <Route path=path!("db/:db_id/page") view=move || view! {
+                    <RootAuthed>
+                        <PageByTitle />
                     </RootAuthed>
                 } />
                 <Route path=path!("search") view=move || view! {
