@@ -160,6 +160,27 @@ fn get_nav_content(navs: &[Nav], nav_id: &str) -> Option<String> {
     navs.iter().find(|n| n.id == nav_id).map(|n| n.content.clone())
 }
 
+fn backfill_content_request(
+    note_id: &str,
+    real_id: &str,
+    content_now: &str,
+) -> Option<CreateOrUpdateNavRequest> {
+    if content_now.trim().is_empty() {
+        return None;
+    }
+
+    Some(CreateOrUpdateNavRequest {
+        note_id: note_id.to_string(),
+        id: Some(real_id.to_string()),
+        parid: None,
+        content: Some(content_now.to_string()),
+        order: None,
+        is_display: None,
+        is_delete: None,
+        properties: None,
+    })
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LoginRequest {
     pub email: String,
@@ -3786,17 +3807,11 @@ pub fn OutlineNode(
                                                                 }
 
                                                                 // Persist current content (if user typed before backend returned).
-                                                                if !content_now.is_empty() {
-                                                                    let save_req = CreateOrUpdateNavRequest {
-                                                                        note_id: note_id_now.clone(),
-                                                                        id: Some(new_id),
-                                                                        parid: None,
-                                                                        content: Some(content_now),
-                                                                        order: None,
-                                                                        is_display: None,
-                                                                        is_delete: None,
-                                                                        properties: None,
-                                                                    };
+                                                                if let Some(save_req) = backfill_content_request(
+                                                                    &note_id_now,
+                                                                    &new_id,
+                                                                    &content_now,
+                                                                ) {
                                                                     let _ = api_client.upsert_nav(save_req).await;
                                                                 }
                                                             }
@@ -4832,6 +4847,23 @@ mod tests {
 
         assert_eq!(get_nav_content(&navs, "a"), Some("hello".to_string()));
         assert_eq!(get_nav_content(&navs, "missing"), None);
+    }
+
+    #[test]
+    fn test_backfill_content_request_empty_skips() {
+        assert!(backfill_content_request("n", "id", "").is_none());
+        assert!(backfill_content_request("n", "id", "   ").is_none());
+    }
+
+    #[test]
+    fn test_backfill_content_request_builds_req() {
+        let req = backfill_content_request("n1", "id1", "hello")
+            .expect("should build request for non-empty content");
+        assert_eq!(req.note_id, "n1");
+        assert_eq!(req.id.as_deref(), Some("id1"));
+        assert_eq!(req.content.as_deref(), Some("hello"));
+        assert!(req.parid.is_none());
+        assert!(req.order.is_none());
     }
 
     // NOTE: database list parsing is intentionally strict to the canonical contract.
