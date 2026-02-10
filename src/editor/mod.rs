@@ -873,6 +873,12 @@ pub fn OutlineNode(
                                                                                 href="#"
                                                                                 title=move || format!("Open page: {}", title_for_title)
                                                                                 on:mousedown=move |ev: web_sys::MouseEvent| {
+                                                                                    // Only handle left click.
+                                                                                    // Right click should open context menu, not navigate.
+                                                                                    if ev.button() != 0 {
+                                                                                        return;
+                                                                                    }
+
                                                                                     // Prevent switching into edit mode.
                                                                                     ev.prevent_default();
                                                                                     ev.stop_propagation();
