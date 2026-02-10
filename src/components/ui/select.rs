@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use icons::{Check, ChevronDown, ChevronUp};
 use leptos::context::Provider;
 use leptos::prelude::*;
@@ -21,6 +23,7 @@ mod components {
     clx! {SelectItem, li, "inline-flex gap-2 items-center w-full rounded-sm px-2 py-1.5 text-sm no-underline transition-colors duration-200 text-popover-foreground hover:bg-accent hover:text-accent-foreground [&_svg:not([class*='size-'])]:size-4"}
 }
 
+#[allow(unused_imports)]
 pub use components::*;
 
 #[component]

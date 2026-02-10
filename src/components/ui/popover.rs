@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use leptos::prelude::*;
 use leptos_ui::clx;
 use tw_merge::*;
@@ -10,6 +12,7 @@ mod components {
     clx! {PopoverDescription, p, "text-muted-foreground text-sm"}
 }
 
+#[allow(unused_imports)]
 pub use components::*;
 
 /* ========================================================== */

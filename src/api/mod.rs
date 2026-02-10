@@ -105,6 +105,7 @@ pub(crate) struct CreateNoteRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct GetNoteListRequest {
     pub database_id: String,
     pub page: i32,
@@ -168,6 +169,7 @@ pub(crate) struct ApiClient {
 }
 
 impl ApiClient {
+    #[allow(dead_code)]
     pub fn new(base_url: String) -> Self {
         Self {
             base_url,
@@ -207,6 +209,7 @@ impl ApiClient {
         self.token = Some(token);
     }
 
+    #[allow(dead_code)]
     pub fn get_token(&self) -> Option<&String> {
         self.token.as_ref()
     }

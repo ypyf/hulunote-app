@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use leptos::prelude::*;
 use leptos_ui::void;
 use tw_merge::*;

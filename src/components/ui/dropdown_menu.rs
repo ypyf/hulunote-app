@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use icons::{Check, ChevronRight};
 use leptos::context::Provider;
 use leptos::prelude::*;
@@ -5,6 +7,7 @@ use leptos_ui::clx;
 use tw_merge::*;
 
 use crate::components::hooks::use_random::use_random_id_for;
+#[allow(unused_imports)]
 pub use crate::components::ui::separator::Separator as DropdownMenuSeparator;
 
 mod components {
@@ -16,6 +19,7 @@ mod components {
     clx! {DropdownMenuLink, a, "w-full inline-flex gap-2 items-center"}
 }
 
+#[allow(unused_imports)]
 pub use components::*;
 
 /* ========================================================== */

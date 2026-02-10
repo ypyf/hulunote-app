@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use icons::Check;
 use leptos::portal::Portal;
 use leptos::prelude::*;

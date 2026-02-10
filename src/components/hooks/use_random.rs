@@ -12,6 +12,7 @@ pub fn use_random_id_for(element: &str) -> String {
     format!("{}_{PREFIX}_{}", element, generate_hash())
 }
 
+#[allow(dead_code)]
 pub fn use_random_transition_name() -> String {
     let random_id = use_random_id();
     format!("view-transition-name: {random_id}")
