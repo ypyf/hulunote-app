@@ -793,11 +793,13 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             return;
         }
 
-        if db_loading.get() {
+        // IMPORTANT: avoid tracking `db_loading` / `databases` here.
+        // Otherwise, failures would toggle signals and immediately re-trigger loads (tight loop).
+        if db_loading.get_untracked() {
             return;
         }
 
-        if databases.get().is_empty() {
+        if databases.get_untracked().is_empty() {
             load_databases();
         }
     });
