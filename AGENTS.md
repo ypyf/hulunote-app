@@ -145,6 +145,31 @@ Uncommitted work is considered unfinished work.
 
 ## Common Pitfalls to Avoid
 
+### Avoid interactive Git flows (editor/TTY prompts)
+
+In this environment, interactive commands can hang waiting for an editor/TTY input.
+This has previously happened with:
+
+- `git add -p` (especially choosing `e` to edit a hunk)
+- `git rebase -i` / rebase flows that invoke an editor
+- any command that prints: `Waiting for your editor to close the file...`
+
+Rules:
+
+- Prefer **non-interactive** Git operations.
+  - Use `git add <paths>` (explicit paths) or `git add -A`.
+  - To split changes, use separate branches/stashes, or apply patches (`git diff > file.patch`, `git apply --cached file.patch`).
+- If a rebase is absolutely necessary, make it **non-interactive**:
+
+```bash
+GIT_SEQUENCE_EDITOR=true GIT_EDITOR=true git rebase origin/main
+# resolve conflicts
+git add <files>
+GIT_EDITOR=true git rebase --continue
+```
+
+- Prefer `git merge origin/main` over `rebase` when the only goal is to resolve PR conflicts.
+
 Agents should be especially careful to avoid:
 
 - Making assumptions about undocumented behavior

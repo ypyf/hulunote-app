@@ -7,8 +7,8 @@ use crate::editor::OutlineEditor;
 use crate::models::{Nav, Note};
 use crate::state::{AppContext, DbUiActions};
 use crate::storage::{
-    load_recent_notes, save_user_to_storage, write_recent_db, write_recent_note, CURRENT_DB_KEY,
-    SIDEBAR_COLLAPSED_KEY,
+    load_recent_notes, save_recent_notes, save_user_to_storage, write_recent_db, write_recent_note,
+    CURRENT_DB_KEY, SIDEBAR_COLLAPSED_KEY,
 };
 use crate::util::next_available_daily_note_title;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title};
@@ -747,8 +747,52 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                     // Success: reset backoff.
                     db_retry_delay_ms.set(500);
                     db_loaded_once.set(true);
-                    app_state.0.databases.set(dbs);
-                    app_state.0.api_client.set(api_client);
+
+                    // Update app state.
+                    app_state.0.databases.set(dbs.clone());
+                    app_state.0.api_client.set(api_client.clone());
+
+                    // Best-effort: reconcile localStorage "Recent Notes" with server state.
+                    // If a recent note's database or note-id no longer exists, remove it.
+                    // On network errors, keep local recents (avoid destructive loss when offline).
+                    spawn_local(async move {
+                        use std::collections::{HashMap, HashSet};
+
+                        let mut recents = load_recent_notes();
+                        if recents.is_empty() {
+                            return;
+                        }
+
+                        let db_ids: HashSet<String> = dbs.iter().map(|d| d.id.clone()).collect();
+                        recents.retain(|n| db_ids.contains(&n.db_id));
+                        if recents.is_empty() {
+                            save_recent_notes(&recents);
+                            return;
+                        }
+
+                        let unique_db_ids: HashSet<String> =
+                            recents.iter().map(|n| n.db_id.clone()).collect();
+
+                        let mut note_ids_by_db: HashMap<String, HashSet<String>> = HashMap::new();
+                        for db_id in unique_db_ids {
+                            if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
+                                let set: HashSet<String> = notes.into_iter().map(|n| n.id).collect();
+                                note_ids_by_db.insert(db_id, set);
+                            }
+                        }
+
+                        let before = recents.len();
+                        recents.retain(|n| {
+                            note_ids_by_db
+                                .get(&n.db_id)
+                                .map(|set| set.contains(&n.note_id))
+                                .unwrap_or(true)
+                        });
+
+                        if recents.len() != before {
+                            save_recent_notes(&recents);
+                        }
+                    });
                 }
                 Err(e) => {
                     if e == "Unauthorized" {
