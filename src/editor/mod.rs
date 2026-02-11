@@ -257,9 +257,9 @@ fn ensure_titles_loaded(app_state: &AppContext, ac: &AutocompleteCtx) {
         return;
     }
 
-    if ac.titles_cache_db.get_untracked().as_deref() == Some(db_id.as_str())
-        && !ac.titles_cache.get_untracked().is_empty()
-    {
+    // Treat empty title lists as a valid loaded state.
+    // Otherwise, when the backend returns no navs/notes, we would refetch on every keystroke.
+    if ac.titles_cache_db.get_untracked().as_deref() == Some(db_id.as_str()) {
         return;
     }
 
