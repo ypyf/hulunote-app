@@ -578,7 +578,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         // Defer to next tick so the Input is mounted.
         let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
             wasm_bindgen::closure::Closure::once_into_js(move || {
-                if let Some(el) = create_name_ref.get() {
+                if let Some(el) = create_name_ref.get_untracked() {
                     let _ = el.focus();
                 }
             })
