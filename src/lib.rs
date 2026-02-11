@@ -116,7 +116,7 @@ mod tests {
         let v = serde_json::to_value(req).expect("should serialize");
         assert_eq!(v["email"], "u@example.com");
         assert_eq!(v["username"], "u");
-        assert_eq!(v["registration-code"], "FA8E-AF6E-4578-9347");
+        assert_eq!(v["registration_code"], "FA8E-AF6E-4578-9347");
     }
 
     #[test]
@@ -178,6 +178,7 @@ mod tests {
                 content: "old".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "b".to_string(),
@@ -187,6 +188,7 @@ mod tests {
                 content: "keep".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
         ];
 
@@ -205,6 +207,7 @@ mod tests {
             content: "old".to_string(),
             is_display: true,
             is_delete: false,
+            properties: None,
         }];
 
         assert!(!apply_nav_content(&mut navs, "missing", "new"));
@@ -232,6 +235,7 @@ mod tests {
             content: "".to_string(),
             is_display: true,
             is_delete: false,
+            properties: None,
         }];
 
         assert!(swap_tmp_nav_id(&mut navs, "tmp-1-2", "real"));
@@ -248,6 +252,7 @@ mod tests {
             content: "".to_string(),
             is_display: true,
             is_delete: false,
+            properties: None,
         }];
 
         assert!(!swap_tmp_nav_id(&mut navs, "tmp-1-2", "real"));
@@ -264,6 +269,7 @@ mod tests {
             content: "hello".to_string(),
             is_display: true,
             is_delete: false,
+            properties: None,
         }];
 
         assert_eq!(get_nav_content(&navs, "a"), Some("hello".to_string()));
@@ -298,6 +304,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "t".to_string(),
@@ -307,6 +314,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "u".to_string(),
@@ -316,6 +324,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
         ];
 
@@ -336,6 +345,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "d".to_string(),
@@ -345,6 +355,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "t".to_string(),
@@ -354,6 +365,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
             Nav {
                 id: "b".to_string(),
@@ -363,6 +375,7 @@ mod tests {
                 content: "".to_string(),
                 is_display: true,
                 is_delete: false,
+                properties: None,
             },
         ];
 
