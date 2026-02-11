@@ -81,7 +81,6 @@ The app reads configuration from `window.ENV` in the browser. To customize the A
 
 Or set the default in `src/lib.rs` via the `get_api_url()` function.
 
-For local development, copy `.env.example` to `.env` and configure as needed.
 
 ## Project Structure
 
