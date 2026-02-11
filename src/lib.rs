@@ -116,7 +116,7 @@ mod tests {
         let v = serde_json::to_value(req).expect("should serialize");
         assert_eq!(v["email"], "u@example.com");
         assert_eq!(v["username"], "u");
-        assert_eq!(v["registration-code"], "FA8E-AF6E-4578-9347");
+        assert_eq!(v["registration_code"], "FA8E-AF6E-4578-9347");
     }
 
     #[test]

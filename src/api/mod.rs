@@ -148,9 +148,6 @@ pub(crate) struct SignupRequest {
     pub email: String,
     pub username: String,
     pub password: String,
-
-    /// Registration/invite code.
-    #[serde(rename = "registration-code")]
     pub registration_code: String,
 }
 
