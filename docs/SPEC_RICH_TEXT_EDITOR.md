@@ -75,7 +75,11 @@ Supported inline nodes (Phase 9 initial):
 - `text` with optional `marks`: `bold`, `italic`, `code`
 - `link`:
   - `kind: "wiki"` with `ref.title` for internal wiki links
-  - future: `kind: "url"` with `ref.href` for external URLs
+  - `kind: "url"` with `ref.href` for external URLs
+
+Notes:
+- Internal links are stored by `title` (and resolved at navigation time).
+- External links are stored by absolute `href`.
 
 ## 2. Rendering model
 
@@ -109,8 +113,8 @@ Acceptance requirements:
 
 - `Enter`: commits current node and creates a new sibling node (existing behavior).
 - Soft line break (intra-block newline):
-  - TBD: if Roam supports it, implement `Shift+Enter` to insert a newline into the rich-text doc.
-  - Implementation note: it should not create a new Nav.
+  - Implement `Shift+Enter` to insert a newline into the rich-text doc.
+  - It must not create a new Nav.
 
 - `Tab` / `Shift+Tab`: indent/outdent (existing behavior).
 - `Backspace/Delete` on empty: soft-delete node (existing behavior).
@@ -152,9 +156,9 @@ Implement:
 
 ## Open Questions
 
-1) Soft line break: confirm Roam behavior.
-   - If unknown, implement `Shift+Enter` as a feature gate (enabled by default once verified) so we can adjust without rewriting.
+1) Link resolution:
+   - Internal wiki link is stored by `title` and resolved to `note_id` at navigation time using the current workspace note list.
+   - If multiple notes share a title, define deterministic behavior (e.g. prefer the most recently opened note, or the first match by id).
 
-2) Link kinds and routing:
-   - Internal wiki link is stored by `title` (stable) vs by `note_id` (stable, but requires resolution).
-   - Proposed v1: store `title` and resolve to note_id at navigation time using existing note list.
+2) Rich paste:
+   - Phase 9 initial uses plain-text paste; define whether/when to support HTML/Markdown paste with marks.
