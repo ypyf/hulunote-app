@@ -3149,6 +3149,7 @@ pub fn UnreferencedPages() -> impl IntoView {
 
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let loaded_db_id: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Use stable local caches so the view doesn't depend on global notes state.
     let notes: RwSignal<Vec<Note>> = RwSignal::new(vec![]);
@@ -3163,8 +3164,15 @@ pub fn UnreferencedPages() -> impl IntoView {
             return;
         }
 
-        // Keep global selected DB in sync.
-        if app_state.0.current_database_id.get() != Some(db.clone()) {
+        // Avoid duplicate loads for the same db.
+        if loaded_db_id.get_untracked().as_deref() == Some(db.as_str()) && !loading.get_untracked()
+        {
+            return;
+        }
+        loaded_db_id.set(Some(db.clone()));
+
+        // Keep global selected DB in sync (untracked to avoid re-fetch when other pages update it).
+        if app_state.0.current_database_id.get_untracked() != Some(db.clone()) {
             app_state.0.current_database_id.set(Some(db.clone()));
             if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten())
             {
