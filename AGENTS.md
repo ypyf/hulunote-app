@@ -115,6 +115,12 @@ Rules:
 
 Pull Requests are **not** the default unit of work.
 
+### Prefer committing directly on `main` for small changes
+
+When the change is small, low-risk, and clearly scoped (especially documentation-only updates), prefer committing directly on `main` rather than creating a separate long-lived branch/PR. This keeps the repo workflow lightweight and avoids review overhead.
+
+If the change is risky, cross-cutting, or user-facing, use a branch + PR as usual.
+
 - Only open a PR when:
   - implementing a complex feature/requirement, or
   - fixing a tracked bug/issue (e.g. a GitHub Issue), or
