@@ -1589,11 +1589,21 @@ pub fn OutlineNode(
                                                 // Close autocomplete if open.
                                                 ac_open.set(false);
                                                 ac_start_utf16.set(None);
-
                                                 let Some(el) = ev
-                                                    .target()
+                                                    .current_target()
                                                     .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                    .or_else(|| {
+                                                        ev.target()
+                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                            .and_then(|t| {
+                                                                t.closest("[data-nav-id]")
+                                                                    .ok()
+                                                                    .flatten()
+                                                                    .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+                                                            })
+                                                    })
                                                 else {
+                                                    leptos::logging::log!("[editor] blur: no HtmlElement target");
                                                     return;
                                                 };
 
@@ -1603,11 +1613,19 @@ pub fn OutlineNode(
                                                 // Navigation can unmount this component before blur runs.
                                                 // Reading StoredValue/signal here can panic if it's already disposed.
                                                 // Instead, read ids from the DOM attributes.
-                                                let (nav_id_now, note_id_now) = (
-                                                    el.get_attribute("data-nav-id").unwrap_or_default(),
-                                                    el.get_attribute("data-note-id").unwrap_or_default(),
-                                                );
+                                                let mut nav_id_now =
+                                                    el.get_attribute("data-nav-id").unwrap_or_default();
+                                                let mut note_id_now =
+                                                    el.get_attribute("data-note-id").unwrap_or_default();
 
+                                                // Fallback: attributes may be missing if the event target isn't the exact
+                                                // node we expect, or if the DOM was recreated. Use captured ids.
+                                                if nav_id_now.trim().is_empty() {
+                                                    nav_id_now = nav_id_sv.get_value();
+                                                }
+                                                if note_id_now.trim().is_empty() {
+                                                    note_id_now = note_id_sv.get_value();
+                                                }
                                                 // If the input is already being torn down (e.g. Enter triggers a state
                                                 // change and the blur fires late), we may not be able to recover ids.
                                                 // In that case, don't send an invalid request.
@@ -1618,16 +1636,11 @@ pub fn OutlineNode(
                                                     return;
                                                 }
 
-                                                // Persist to backend only if content changed since we entered edit mode.
-                                                // IMPORTANT: compute this before clearing the snapshot.
-                                                let should_save = editing_snapshot
-                                                    .get_untracked()
-                                                    .filter(|(id, _)| id == &nav_id_now)
-                                                    .map(|(_id, original)| original != new_content)
-                                                    .unwrap_or_else(|| {
-                                                        // Fallback: compare against current nav content.
-                                                        get_nav_content(&navs.get_untracked(), &nav_id_now).unwrap_or_default() != new_content
-                                                    });
+                                                // MVP: always persist on blur.
+                                                // Contenteditable edge cases (IME/newline normalization) make
+                                                // "did it change" checks easy to get wrong, and missing a save is
+                                                // worse than an extra request.
+                                                let should_save = true;
 
                                                 // Clear editing if we are still editing this node.
                                                 if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
@@ -1639,8 +1652,7 @@ pub fn OutlineNode(
                                                     let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                 });
 
-                                                if should_save {
-                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                if should_save {                                                    let api_client = app_state.0.api_client.get_untracked();
                                                     let req = CreateOrUpdateNavRequest {
                                                         note_id: note_id_now,
                                                         id: Some(nav_id_now.clone()),
