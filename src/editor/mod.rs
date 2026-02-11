@@ -2172,6 +2172,7 @@ pub fn OutlineNode(
                                                             content: String::new(),
                                                             is_display: true,
                                                             is_delete: false,
+                                                            properties: None,
                                                         });
                                                     });
 
