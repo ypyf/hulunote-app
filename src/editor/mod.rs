@@ -151,6 +151,12 @@ fn ce_selection_utf16(el: &web_sys::HtmlElement) -> (u32, u32, u32) {
 }
 
 fn ce_set_caret_utf16(el: &web_sys::HtmlElement, pos_utf16: u32) {
+    // The editor node may already be unmounted when this runs (e.g. delayed focus/selection
+    // restoration). Avoid creating a Range from detached nodes.
+    if !el.is_connected() {
+        return;
+    }
+
     let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
         return;
     };
@@ -231,6 +237,7 @@ fn ce_set_caret_utf16(el: &web_sys::HtmlElement, pos_utf16: u32) {
 
         if let Ok(Some(sel)) = doc.get_selection() {
             let _ = sel.remove_all_ranges();
+            // `addRange()` throws if the range references nodes that are no longer in the document.
             let _ = sel.add_range(&range);
         }
     }
@@ -1156,11 +1163,14 @@ pub fn OutlineNode(
                                                     let editing_id = editing_id;
                                                     let editing_value = editing_value;
                                                     let editing_snapshot = editing_snapshot;
+                                                    let target_cursor_col = target_cursor_col;
 
                                                     let cb = Closure::<dyn FnMut()>::new(move || {
                                                         editing_id.set(Some(id.clone()));
                                                         editing_value.set(next_value.clone());
                                                         editing_snapshot.set(Some((id.clone(), next_value.clone())));
+                                                        // Default caret position: end of content.
+                                                        target_cursor_col.set(Some(next_value.encode_utf16().count() as u32));
                                                     });
                                                     let _ = window()
                                                         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -1585,7 +1595,10 @@ pub fn OutlineNode(
                                                     editing_value.set(ce_text(&el));
                                                 }
                                             }
-                                            on:blur=move |ev| {
+                                            on:blur={
+                                                let nav_id_fallback = nav_id_sv.get_value();
+                                                let note_id_fallback = note_id_sv.get_value();
+                                                move |ev| {
                                                 // Close autocomplete if open.
                                                 ac_open.set(false);
                                                 ac_start_utf16.set(None);
@@ -1621,10 +1634,10 @@ pub fn OutlineNode(
                                                 // Fallback: attributes may be missing if the event target isn't the exact
                                                 // node we expect, or if the DOM was recreated. Use captured ids.
                                                 if nav_id_now.trim().is_empty() {
-                                                    nav_id_now = nav_id_sv.get_value();
+                                                    nav_id_now = nav_id_fallback.clone();
                                                 }
                                                 if note_id_now.trim().is_empty() {
-                                                    note_id_now = note_id_sv.get_value();
+                                                    note_id_now = note_id_fallback.clone();
                                                 }
                                                 // If the input is already being torn down (e.g. Enter triggers a state
                                                 // change and the blur fires late), we may not be able to recover ids.
@@ -1667,7 +1680,7 @@ pub fn OutlineNode(
                                                         let _ = api_client.upsert_nav(req).await;
                                                     });
                                                 }
-                                            }
+                                            }}
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
 
