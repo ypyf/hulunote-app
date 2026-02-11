@@ -64,6 +64,10 @@ pub(crate) fn load_recent_notes() -> Vec<RecentNote> {
     load_json_from_storage::<Vec<RecentNote>>(RECENT_NOTES_KEY).unwrap_or_default()
 }
 
+pub(crate) fn save_recent_notes(notes: &[RecentNote]) {
+    save_json_to_storage(RECENT_NOTES_KEY, &notes);
+}
+
 pub(crate) fn write_recent_db(id: &str, name: &str) {
     if id.trim().is_empty() {
         return;
