@@ -148,9 +148,6 @@ pub(crate) struct SignupRequest {
     pub email: String,
     pub username: String,
     pub password: String,
-
-    /// Registration/invite code.
-    #[serde(rename = "registration-code")]
     pub registration_code: String,
 }
 
@@ -670,6 +667,10 @@ impl ApiClient {
                 .unwrap_or(false);
 
             if !id.trim().is_empty() && !note_id.trim().is_empty() {
+                let properties = get_s("properties")
+                    .or_else(|| get_s("hulunote-navs/properties"))
+                    .filter(|s| !s.trim().is_empty());
+
                 out.push(Nav {
                     id,
                     note_id,
@@ -678,6 +679,7 @@ impl ApiClient {
                     content,
                     is_display,
                     is_delete,
+                    properties,
                 });
             }
         }

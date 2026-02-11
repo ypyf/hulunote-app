@@ -50,7 +50,7 @@ Request:
   "email": "user@example.com",
   "password": "password123",
   "username": "username",
-  "registration-code": "FA8E-AF6E-4578-9347"
+  "registration_code": "FA8E-AF6E-4578-9347"
 }
 
 Response (success):
