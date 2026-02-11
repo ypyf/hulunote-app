@@ -474,6 +474,10 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let db_retry_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
     let db_retry_tick: RwSignal<u64> = RwSignal::new(0);
 
+    // If the backend returns an empty database list, that is still a valid "loaded" state.
+    // Without this guard, Effects that try to "load when empty" can re-trigger forever.
+    let db_loaded_once: RwSignal<bool> = RwSignal::new(false);
+
     // Phase 4: database create dialog state
     let create_open: RwSignal<bool> = RwSignal::new(false);
     let create_name: RwSignal<String> = RwSignal::new(String::new());
@@ -801,7 +805,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             return;
         }
 
-        if databases.get_untracked().is_empty() {
+        if !db_loaded_once.get_untracked() {
             load_databases();
         }
     });
