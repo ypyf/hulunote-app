@@ -111,6 +111,19 @@ Rules:
   - Have clear, imperative commit messages explaining WHAT and WHY
 - **Never revert/restore/reset user-authored docs (AGENTS.md, docs/*) as part of an unrelated change.** If doc diffs appear unexpectedly, stop and ask for confirmation; if separation is needed, move doc changes into a dedicated commit instead of discarding them.
 
+### PR discipline (avoid PR spam)
+
+Pull Requests are **not** the default unit of work.
+
+- Only open a PR when:
+  - implementing a complex feature/requirement, or
+  - fixing a tracked bug/issue (e.g. a GitHub Issue), or
+  - the change is risky enough that it needs review before merge.
+- Do **not** open a new PR for minor refactors, small cleanups, or purely incidental tweaks discovered while working on something else.
+- If you need to capture a small improvement that is *not* an issue/bug fix:
+  - bundle it into the current relevant PR **only if** it is directly related, otherwise
+  - write it down as a TODO (or open an Issue) and defer.
+
 ### Commit message format (required)
 
 Use a consistent, grep-friendly format:
