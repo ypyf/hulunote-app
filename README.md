@@ -4,27 +4,34 @@ A modern web client for [hulunote](https://github.com/hulunote/hulunote), an ope
 
 ## Overview
 
-This client is built with **Leptos** (Rust WASM framework) and connects to the [hulunote-rust](https://github.com/hulunote/hulunote-rust) backend API.
-
-## Tech Stack
-
-- **Framework**: Leptos 0.8.x (Rust WASM)
-- **Build Tool**: Trunk
-- **Styling**: Tailwind CSS
-- **Routing**: leptos_router
-- **Backend**: hulunote-rust API
+This client is built with [Leptos](https://leptos.dev/) and [Rust/UI](https://www.rust-ui.com/). It connects to the [hulunote-rust](https://github.com/hulunote/hulunote-rust) backend API.
 
 ## Features
 
-- [ ] Authentication (login/register)
-- [ ] Database management
-- [ ] Note editing with outliner
-- [ ] Bidirectional links
-- [ ] Daily notes
-- [ ] Full-text search
-- [ ] Import/Export (Markdown, JSON)
-- [ ] MCP Client integration
-- [ ] Settings page
+### Notes
+- Create and organize notes as an outline (nested blocks)
+- Drag and drop to reorder blocks
+- Daily notes for journaling and quick capture
+
+### Linking
+- Wiki-style links between pages
+- Backlinks (see what links to the current page)
+
+### Navigation
+- Workspaces to separate personal/work/projects
+- Fast switching between workspaces, notes, and blocks
+
+### Search
+- Full-text search across your workspace
+
+### Import / Export
+- Import and export notes (Markdown, JSON)
+
+### Integrations
+- MCP support (connect AI tools to your notes)
+
+### Settings
+- Customize the app to fit your workflow
 
 ## Getting Started
 
