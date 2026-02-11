@@ -79,6 +79,10 @@ pub(crate) fn write_recent_db(id: &str, name: &str) {
     save_json_to_storage(RECENT_DBS_KEY, &next);
 }
 
+pub(crate) fn set_recent_notes(notes: Vec<RecentNote>) {
+    save_json_to_storage(RECENT_NOTES_KEY, &notes);
+}
+
 pub(crate) fn write_recent_note(db_id: &str, note_id: &str, title: &str) {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return;
