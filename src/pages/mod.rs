@@ -333,126 +333,128 @@ pub fn HomeRecentsPage() -> impl IntoView {
             </div>
 
             <Show
-                when=move || !app_state.0.databases.get().is_empty()
-                fallback=|| view! { <div class="text-sm text-muted-foreground">"No databases."</div> }
+                when=move || app_state.0.databases.get().is_empty()
+                fallback=|| ().into_view()
             >
-                <div class="grid gap-3 sm:grid-cols-2">
-                    {move || {
-                        use leptos::prelude::IntoAny;
-
-                        let dbs = app_state.0.databases.get();
-
-                        let placeholder = view! {
-                            <Card
-                                class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
-                                on:click=move |_| actions.open_create.run(())
-                            >
-                                <div class="flex flex-col items-center gap-2 p-6">
-                                    <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
-                                        <span class="text-lg text-muted-foreground">"+"</span>
-                                    </div>
-                                    <div class="text-sm font-medium">"New database"</div>
-                                </div>
-                            </Card>
-                        }
-                        .into_any();
-
-                        dbs.into_iter()
-                            .map(|db| {
-                                let id = db.id.clone();
-                                let name = db.name.clone();
-                                let desc = db.description.clone();
-
-                                let id_for_nav = id.clone();
-                                let id_for_rename = id.clone();
-                                let name_for_rename = name.clone();
-                                let id_for_delete = id.clone();
-                                let name_for_delete = name.clone();
-
-                                view! {
-                                    <Card
-                                        class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
-                                        on:click=move |_| {
-                                            navigate.with_value(|nav| {
-                                                nav(&format!("/db/{}", id_for_nav), Default::default());
-                                            });
-                                        }
-                                    >
-                                        <CardHeader class="p-4">
-                                            <CardTitle class="truncate text-sm">{name}</CardTitle>
-                                            <CardDescription class="line-clamp-2 text-xs">{desc}</CardDescription>
-                                        </CardHeader>
-
-                                        <div class="absolute bottom-2 right-2 hidden items-center gap-1 group-hover:flex">
-                                            <Button
-                                                variant=ButtonVariant::Ghost
-                                                size=ButtonSize::Icon
-                                                class="h-7 w-7"
-                                                attr:title="Rename"
-                                                on:click=move |ev: web_sys::MouseEvent| {
-                                                    ev.stop_propagation();
-                                                    actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
-                                                }
-                                            >
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    width="16"
-                                                    height="16"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    class="text-muted-foreground"
-                                                    aria-hidden="true"
-                                                >
-                                                    <path d="M12 20h9" />
-                                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                                </svg>
-                                            </Button>
-
-                                            <Button
-                                                variant=ButtonVariant::Ghost
-                                                size=ButtonSize::Icon
-                                                class="h-7 w-7 text-destructive"
-                                                attr:title="Delete"
-                                                on:click=move |ev: web_sys::MouseEvent| {
-                                                    ev.stop_propagation();
-                                                    actions
-                                                        .open_delete
-                                                        .run((id_for_delete.clone(), name_for_delete.clone()));
-                                                }
-                                            >
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    width="16"
-                                                    height="16"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    aria-hidden="true"
-                                                >
-                                                    <path d="M3 6h18" />
-                                                    <path d="M8 6V4h8v2" />
-                                                    <path d="M19 6l-1 14H6L5 6" />
-                                                    <path d="M10 11v6" />
-                                                    <path d="M14 11v6" />
-                                                </svg>
-                                            </Button>
-                                        </div>
-                                    </Card>
-                                }
-                                .into_any()
-                            })
-                            .chain(std::iter::once(placeholder))
-                            .collect_view()
-                    }}
-                </div>
+                <div class="text-sm text-muted-foreground">"No databases."</div>
             </Show>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+                {move || {
+                    use leptos::prelude::IntoAny;
+
+                    let dbs = app_state.0.databases.get();
+
+                    let placeholder = view! {
+                        <Card
+                            class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
+                            on:click=move |_| actions.open_create.run(())
+                        >
+                            <div class="flex flex-col items-center gap-2 p-6">
+                                <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
+                                    <span class="text-lg text-muted-foreground">"+"</span>
+                                </div>
+                                <div class="text-sm font-medium">"New database"</div>
+                            </div>
+                        </Card>
+                    }
+                    .into_any();
+
+                    dbs.into_iter()
+                        .map(|db| {
+                            let id = db.id.clone();
+                            let name = db.name.clone();
+                            let desc = db.description.clone();
+
+                            let id_for_nav = id.clone();
+                            let id_for_rename = id.clone();
+                            let name_for_rename = name.clone();
+                            let id_for_delete = id.clone();
+                            let name_for_delete = name.clone();
+
+                            view! {
+                                <Card
+                                    class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
+                                    on:click=move |_| {
+                                        navigate.with_value(|nav| {
+                                            nav(&format!("/db/{}", id_for_nav), Default::default());
+                                        });
+                                    }
+                                >
+                                    <CardHeader class="p-4">
+                                        <CardTitle class="truncate text-sm">{name}</CardTitle>
+                                        <CardDescription class="line-clamp-2 text-xs">{desc}</CardDescription>
+                                    </CardHeader>
+
+                                    <div class="absolute bottom-2 right-2 hidden items-center gap-1 group-hover:flex">
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Icon
+                                            class="h-7 w-7"
+                                            attr:title="Rename"
+                                            on:click=move |ev: web_sys::MouseEvent| {
+                                                ev.stop_propagation();
+                                                actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
+                                            }
+                                        >
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                width="16"
+                                                height="16"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                class="text-muted-foreground"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="M12 20h9" />
+                                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                            </svg>
+                                        </Button>
+
+                                        <Button
+                                            variant=ButtonVariant::Ghost
+                                            size=ButtonSize::Icon
+                                            class="h-7 w-7 text-destructive"
+                                            attr:title="Delete"
+                                            on:click=move |ev: web_sys::MouseEvent| {
+                                                ev.stop_propagation();
+                                                actions
+                                                    .open_delete
+                                                    .run((id_for_delete.clone(), name_for_delete.clone()));
+                                            }
+                                        >
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                width="16"
+                                                height="16"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="M3 6h18" />
+                                                <path d="M8 6V4h8v2" />
+                                                <path d="M19 6l-1 14H6L5 6" />
+                                                <path d="M10 11v6" />
+                                                <path d="M14 11v6" />
+                                            </svg>
+                                        </Button>
+                                    </div>
+                                </Card>
+                            }
+                            .into_any()
+                        })
+                        .chain(std::iter::once(placeholder))
+                        .collect_view()
+                }}
+            </div>
         </div>
     }
 }
@@ -502,6 +504,9 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let search_query = app_state.0.search_query;
     let search_ref: NodeRef<html::Input> = NodeRef::new();
 
+    // Create database dialog: focus name input on open.
+    let create_name_ref: NodeRef<html::Input> = NodeRef::new();
+
     let navigate = StoredValue::new(use_navigate());
     let location = use_location();
     let pathname = move || location.pathname.get();
@@ -550,6 +555,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
         create_desc.set(String::new());
         create_error.set(None);
         create_open.set(true);
+
+        // Focus is handled by an Effect once the dialog is mounted.
     };
 
     let refresh_databases = move || {
@@ -561,6 +568,25 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             app_state.0.api_client.set(c);
         });
     };
+
+    // Focus the create-db name input when the dialog opens.
+    Effect::new(move |_| {
+        if !create_open.get() {
+            return;
+        }
+
+        // Defer to next tick so the Input is mounted.
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                if let Some(el) = create_name_ref.get() {
+                    let _ = el.focus();
+                }
+            })
+            .as_ref()
+            .unchecked_ref(),
+            0,
+        );
+    });
 
     let on_open_rename_db = move |id: String, name: String| {
         rename_db_id.set(Some(id));
@@ -1412,19 +1438,25 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         <div class="w-full max-w-sm rounded-md border border-border bg-background p-4 shadow-lg">
                             <div class="mb-3 space-y-1">
                                 <div class="text-sm font-medium">"New database"</div>
-                                <div class="text-xs text-muted-foreground">
-                                    "Create a new database (max 5)."
-                                </div>
                             </div>
 
                             <div class="space-y-2">
                                 <div class="space-y-1">
                                     <Label class="text-xs">"Name"</Label>
-                                    <Input bind_value=create_name class="h-8 text-sm" placeholder="My Notebook" />
+                                    <Input
+                                        node_ref=create_name_ref
+                                        bind_value=create_name
+                                        // Improve visibility when unfocused (some themes make the default border too subtle).
+                                        class="h-8 text-sm border-border bg-background"
+                                    />
                                 </div>
                                 <div class="space-y-1">
-                                    <Label class="text-xs">"Description"</Label>
-                                    <Input bind_value=create_desc class="h-8 text-sm" placeholder="Optional" />
+                                    <Label class="text-xs">"Description (optional)"</Label>
+                                    <Input
+                                        bind_value=create_desc
+                                        // Improve visibility when unfocused.
+                                        class="h-8 text-sm border-border bg-background"
+                                    />
                                 </div>
 
                                 <Show when=move || create_error.get().is_some() fallback=|| ().into_view()>
