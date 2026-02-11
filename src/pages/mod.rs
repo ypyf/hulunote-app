@@ -4,10 +4,11 @@ use crate::components::ui::{
     CardHeader, CardTitle, Input, Label, Spinner,
 };
 use crate::editor::OutlineEditor;
-use crate::models::{Nav, Note};
+use crate::models::{Nav, Note, RecentNote};
 use crate::state::{AppContext, DbUiActions};
 use crate::storage::{
-    load_recent_notes, save_user_to_storage, write_recent_db, write_recent_note, CURRENT_DB_KEY,
+    load_recent_notes, save_user_to_storage, set_recent_notes, write_recent_db, write_recent_note,
+    CURRENT_DB_KEY,
     SIDEBAR_COLLAPSED_KEY,
 };
 use crate::util::next_available_daily_note_title;
@@ -473,6 +474,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     let db_retry_delay_ms: RwSignal<u32> = RwSignal::new(500);
     let db_retry_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
     let db_retry_tick: RwSignal<u64> = RwSignal::new(0);
+    let db_loaded_once: RwSignal<bool> = RwSignal::new(false);
 
     // Phase 4: database create dialog state
     let create_open: RwSignal<bool> = RwSignal::new(false);
@@ -510,6 +512,65 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
     };
 
     let sidebar_show_recent_notes = move || pathname() == "/";
+
+    // Reconcile recent notes (local storage) with server state in the background.
+    // Remove entries that no longer exist on the server.
+    let recents_reconciled: RwSignal<bool> = RwSignal::new(false);
+    Effect::new(move |_| {
+        let authed = app_state.0.api_client.get().is_authenticated();
+        if !authed {
+            return;
+        }
+        if recents_reconciled.get_untracked() {
+            return;
+        }
+        recents_reconciled.set(true);
+
+        let api_client = app_state.0.api_client.get_untracked();
+        let local = load_recent_notes();
+        if local.is_empty() {
+            return;
+        }
+
+        // Limit work: reconcile by database id (unique dbs in recents).
+        let mut dbs: Vec<String> = local.iter().map(|x| x.db_id.clone()).collect();
+        dbs.sort();
+        dbs.dedup();
+
+        spawn_local(async move {
+            let mut valid: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+            let mut title_by_key: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
+
+            for db_id in dbs {
+                if db_id.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
+                    for n in notes {
+                        valid.insert((db_id.clone(), n.id.clone()));
+                        title_by_key.insert((db_id.clone(), n.id.clone()), n.title.clone());
+                    }
+                }
+            }
+
+            let mut next: Vec<RecentNote> = vec![];
+            for r in local.into_iter() {
+                let key = (r.db_id.clone(), r.note_id.clone());
+                if valid.contains(&key) {
+                    // Best-effort: refresh title from server.
+                    let title = title_by_key.get(&key).cloned().unwrap_or(r.title);
+                    next.push(RecentNote { title, ..r });
+                }
+            }
+
+            if next.len() != load_recent_notes().len() {
+                set_recent_notes(next);
+            } else {
+                // Titles may still have changed; persist the refreshed list anyway.
+                set_recent_notes(next);
+            }
+        });
+    });
 
     let sidebar_show_pages = move || {
         let p = pathname();
@@ -742,6 +803,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                 Ok(dbs) => {
                     // Success: reset backoff.
                     db_retry_delay_ms.set(500);
+                    db_loaded_once.set(true);
                     app_state.0.databases.set(dbs);
                     app_state.0.api_client.set(api_client);
                 }
@@ -750,6 +812,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         api_client.logout();
                         app_state.0.api_client.set(api_client);
                         app_state.0.current_user.set(None);
+                        db_loaded_once.set(false);
                         let _ = window().location().set_href("/login");
                     } else {
                         // Failure: schedule retry with exponential backoff.
@@ -801,7 +864,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
             return;
         }
 
-        if databases.get_untracked().is_empty() {
+        // Only auto-load once on entry; an empty database list is a valid state.
+        if !db_loaded_once.get_untracked() {
             load_databases();
         }
     });
