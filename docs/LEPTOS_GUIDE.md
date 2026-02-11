@@ -212,6 +212,47 @@ let id_now = params.get_untracked().ok().and_then(|p| p.id).unwrap_or_default();
 
 ## 6) WASM/CSR & Build Gotchas
 
+### Avoid fetch loops when APIs return empty lists
+
+In Leptos, `Effect::new` re-runs whenever any tracked signal inside it changes. A common bug pattern is:
+
+- Treating `Vec::is_empty()` as “not loaded yet”, e.g. `if items.is_empty() { fetch() }`.
+- Or triggering `fetch_list()` when a particular item is missing (`!has_note`) even though the server is allowed to return an empty list.
+
+If the backend returns an **empty list with 200 OK**, the condition stays true forever. When your code toggles a `loading` signal (true → false), the effect runs again and you end up spamming the same endpoint.
+
+**Rule of thumb**
+
+- Track *load state* explicitly: `loaded_once` / `last_loaded_key` (e.g. `notes_last_loaded_db_id`) + `loading` + `error`.
+- “Empty list” is valid data. It must set `loaded_once=true` / update `last_loaded_key`.
+- In fetch effects, avoid tracking unrelated global signals that other pages may update (use `get_untracked()` when the signal is only used for a one-off check).
+
+**Recommended guard pattern**
+
+```rust
+let loaded_key: RwSignal<Option<String>> = RwSignal::new(None);
+let loading: RwSignal<bool> = RwSignal::new(false);
+
+Effect::new(move |_| {
+    let key = current_key();
+    if key.is_empty() {
+        return;
+    }
+
+    if loaded_key.get_untracked().as_deref() == Some(key.as_str()) || loading.get_untracked() {
+        return;
+    }
+
+    loaded_key.set(Some(key.clone()));
+    loading.set(true);
+
+    spawn_local(async move {
+        // fetch...
+        loading.set(false);
+    });
+});
+```
+
 ### 6.1 Ensure CSR is enabled
 
 Client-side rendering requires enabling the `csr` feature on the `leptos` crate.
