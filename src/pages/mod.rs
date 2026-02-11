@@ -1709,10 +1709,11 @@ pub fn NotePage() -> impl IntoView {
 
         let already_loaded_db =
             app_state.0.notes_last_loaded_db_id.get().as_deref() == Some(db.as_str());
-        let has_note = app_state.0.notes.get().into_iter().any(|n| n.id == id);
         let is_loading = app_state.0.notes_loading.get();
 
-        if (!already_loaded_db || !has_note) && !is_loading {
+        // Only trigger the load once per DB. If the server returns an empty list (or the target
+        // note_id is missing), we must not spin in a retry loop.
+        if !already_loaded_db && !is_loading {
             // Kick off a load with stale-response protection.
             app_state.0.notes_last_loaded_db_id.set(Some(db.clone()));
 
