@@ -9,11 +9,11 @@
 - [x] Initialize Rust/UI project with Leptos
 - [x] Configure Tailwind CSS
 - [x] Set up project structure following Leptos patterns
-- [x] Configure environment variables (API URL, etc.)
+- [x] Configure runtime API URL (via `window.ENV` and a fallback default)
 - [x] Set up routing (Leptos Router)
 - [x] Implement state management (Leptos signals/store)
 - [x] Set up HTTP client for API calls
-- [x] Configure development workflow (cargo leptos watch)
+- [x] Configure development workflow (Trunk dev server)
 - [x] Set up build targets (Web, Desktop via Tauri/trunk)
 
 ## Phase 2: Authentication
@@ -132,7 +132,7 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 - [x] Keyboard navigation (Up/Down/Left/Right) based on “visible navs”
 - [x] Node deletion (Backspace/Delete on empty)
   - Use soft delete: set `is-delete: true`
-- [x] Drag-and-drop reordering (supports cross-parent move; no visual drop indicators yet)
+- [x] Drag-and-drop reordering (supports cross-parent move; drop target is highlighted while dragging)
 - [x] Node moving (Alt+Up/Down) (order adjust only)
 
 ## Phase 7: Bidirectional Links
@@ -142,10 +142,10 @@ Goal: Make post-login UX match product intent: Home shows recents, databases are
 - [x] Implement link rendering (clickable)
 - [x] Implement link navigation
 - [x] Implement backlink panel
-- [ ] Implement link preview (hover/tooltip)
+- [x] Implement link preview (hover)
 - [x] Implement "Unreferenced Pages" view
-- [ ] Handle link creation (type `[[`)
-- [ ] Handle link autocomplete
+- [x] Handle link creation (type `[[`)
+- [x] Handle link autocomplete
 
 ## Phase 8: Daily Notes
 
