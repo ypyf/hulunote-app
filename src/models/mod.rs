@@ -49,6 +49,11 @@ pub(crate) struct Nav {
 
     #[serde(rename = "is-delete")]
     pub is_delete: bool,
+
+    /// Optional JSON string persisted by backend for editor metadata.
+    /// Kept as a string to avoid coupling to a specific schema.
+    #[serde(default)]
+    pub properties: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
