@@ -100,6 +100,7 @@ pub(crate) struct DeleteDatabaseRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct CreateNoteRequest {
+    #[serde(rename = "database-id")]
     pub database_id: String,
     pub title: String,
 }
