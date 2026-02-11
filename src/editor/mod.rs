@@ -1099,7 +1099,7 @@ pub fn OutlineNode(
 
                                         return view! {
                                             <div
-                                                class="cursor-text whitespace-pre-wrap min-h-[20px]"
+                                                class="cursor-text whitespace-pre-wrap min-h-[28px] px-3 py-1"
                                                 on:mousedown=move |_ev: web_sys::MouseEvent| {
                                                     // Use mousedown (not click) for single-click switching.
                                                     // IMPORTANT: don't rely on `blur` to save. When a focused input is
@@ -1107,7 +1107,14 @@ pub fn OutlineNode(
                                                     // Save the current editing buffer explicitly before switching.
 
                                                     if let Some(current_id) = editing_id.get_untracked() {
-                                                        let current_content = editing_value.get_untracked();
+                                                        // IMPORTANT: when the editor surface is contenteditable, the DOM
+                                                        // can be ahead of our signal (e.g. certain edit operations).
+                                                        // Read from the DOM when possible.
+                                                        let current_content = editing_ref
+                                                            .get_untracked()
+                                                            .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
+                                                            .map(|el| ce_text(&el))
+                                                            .unwrap_or_else(|| editing_value.get_untracked());
 
                                                         // Update local state.
                                                         navs.update(|xs| {
@@ -1666,7 +1673,8 @@ pub fn OutlineNode(
                                                 let ac = ac_sv.get_value();
 
                                                 // Autocomplete menu key handling.
-                                                if ac.ac_open.get_untracked() {
+                                                // NOTE: allow Shift+Enter to fall through for soft line breaks.
+                                                if ac.ac_open.get_untracked() && !(key == "Enter" && ev.shift_key()) {
                                                     match key.as_str() {
                                                         "ArrowDown" => {
                                                             ev.prevent_default();
