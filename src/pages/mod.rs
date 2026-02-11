@@ -746,6 +746,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                 Ok(dbs) => {
                     // Success: reset backoff.
                     db_retry_delay_ms.set(500);
+                    db_loaded_once.set(true);
                     app_state.0.databases.set(dbs);
                     app_state.0.api_client.set(api_client);
                 }
