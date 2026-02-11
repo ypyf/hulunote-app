@@ -73,14 +73,13 @@ fn byte_idx_to_utf16(s: &str, byte_idx: usize) -> u32 {
 // ---- contenteditable helpers (Phase 9 MVP) ----
 
 fn ce_text(el: &web_sys::HtmlElement) -> String {
-    // Prefer `textContent`: it is stable and avoids layout-dependent normalization.
-    // Normalize Windows newlines just in case.
-    el.text_content().unwrap_or_default().replace("\r\n", "\n")
+    // `innerText` preserves line breaks as the user sees them.
+    el.inner_text()
 }
 
 fn ce_set_text(el: &web_sys::HtmlElement, s: &str) {
     // Avoid setting HTML; keep plain text only.
-    el.set_text_content(Some(s));
+    el.set_inner_text(s);
 }
 
 fn ce_selection_utf16(el: &web_sys::HtmlElement) -> (u32, u32, u32) {
