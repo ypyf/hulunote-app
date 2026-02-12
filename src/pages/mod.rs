@@ -2278,7 +2278,19 @@ pub fn NotePage() -> impl IntoView {
                                 let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
                                     spawn_local(async move {
                                         if api_client.update_note_title(&id2, &v2).await.is_ok() {
+                                            // Mark draft as synced.
                                             mark_title_synced(&db2, &id2, crate::util::now_ms());
+
+                                            // Update in-memory note list so sidebar/Home/recents reflect immediately.
+                                            let ctx = expect_context::<AppContext>();
+                                            ctx.0.notes.update(|xs| {
+                                                if let Some(n) = xs.iter_mut().find(|n| n.id == id2) {
+                                                    n.title = v2.clone();
+                                                }
+                                            });
+
+                                            // Keep local recent note title fresh.
+                                            write_recent_note(&db2, &id2, &v2);
                                         }
                                     });
                                 });
