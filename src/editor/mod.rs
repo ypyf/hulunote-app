@@ -1799,79 +1799,74 @@ pub fn OutlineNode(
                                                     editing_value.set(ce_text(&el));
                                                 }
                                             }
+                                            // on:blur only persists content; it does NOT decide whether we should exit
+                                            // editing mode (that decision belongs to focusout/relatedTarget).
                                             on:blur={
                                                 let nav_id_fallback = nav_id_sv.get_value();
                                                 let note_id_fallback = note_id_sv.get_value();
                                                 move |ev| {
-                                                // Close autocomplete if open.
-                                                ac_open.set(false);
-                                                ac_start_utf16.set(None);
-                                                let Some(el) = ev
-                                                    .current_target()
-                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
-                                                    .or_else(|| {
-                                                        ev.target()
-                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
-                                                            .and_then(|t| {
-                                                                t.closest("[data-nav-id]")
-                                                                    .ok()
-                                                                    .flatten()
-                                                                    .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
-                                                            })
-                                                    })
-                                                else {
-                                                    leptos::logging::log!("[editor] blur: no HtmlElement target");
-                                                    return;
-                                                };
+                                                    // Close autocomplete if open.
+                                                    ac_open.set(false);
+                                                    ac_start_utf16.set(None);
 
-                                                // IMPORTANT: read the value from the contenteditable element.
-                                                let new_content = ce_text(&el);
+                                                    let Some(el) = ev
+                                                        .current_target()
+                                                        .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                        .or_else(|| {
+                                                            ev.target()
+                                                                .and_then(|t| {
+                                                                    t.dyn_into::<web_sys::HtmlElement>().ok()
+                                                                })
+                                                                .and_then(|t| {
+                                                                    t.closest("[data-nav-id]")
+                                                                        .ok()
+                                                                        .flatten()
+                                                                        .and_then(|e| {
+                                                                            e.dyn_into::<web_sys::HtmlElement>().ok()
+                                                                        })
+                                                                })
+                                                        })
+                                                    else {
+                                                        leptos::logging::log!(
+                                                            "[editor] blur: no HtmlElement target"
+                                                        );
+                                                        return;
+                                                    };
 
-                                                // Navigation can unmount this component before blur runs.
-                                                // Reading StoredValue/signal here can panic if it's already disposed.
-                                                // Instead, read ids from the DOM attributes.
-                                                let mut nav_id_now =
-                                                    el.get_attribute("data-nav-id").unwrap_or_default();
-                                                let mut note_id_now =
-                                                    el.get_attribute("data-note-id").unwrap_or_default();
+                                                    // IMPORTANT: read the value from the contenteditable element.
+                                                    let new_content = ce_text(&el);
 
-                                                // Fallback: attributes may be missing if the event target isn't the exact
-                                                // node we expect, or if the DOM was recreated. Use captured ids.
-                                                if nav_id_now.trim().is_empty() {
-                                                    nav_id_now = nav_id_fallback.clone();
-                                                }
-                                                if note_id_now.trim().is_empty() {
-                                                    note_id_now = note_id_fallback.clone();
-                                                }
-                                                // If the input is already being torn down (e.g. Enter triggers a state
-                                                // change and the blur fires late), we may not be able to recover ids.
-                                                // In that case, don't send an invalid request.
-                                                if nav_id_now.trim().is_empty()
-                                                    || note_id_now.trim().is_empty()
-                                                    || is_tmp_nav_id(&nav_id_now)
-                                                {
-                                                    return;
-                                                }
+                                                    // Read ids from DOM attributes (component may be disposed during nav).
+                                                    let mut nav_id_now =
+                                                        el.get_attribute("data-nav-id").unwrap_or_default();
+                                                    let mut note_id_now =
+                                                        el.get_attribute("data-note-id").unwrap_or_default();
 
-                                                // MVP: always persist on blur.
-                                                // Contenteditable edge cases (IME/newline normalization) make
-                                                // "did it change" checks easy to get wrong, and missing a save is
-                                                // worse than an extra request.
-                                                let should_save = true;
+                                                    if nav_id_now.trim().is_empty() {
+                                                        nav_id_now = nav_id_fallback.clone();
+                                                    }
+                                                    if note_id_now.trim().is_empty() {
+                                                        note_id_now = note_id_fallback.clone();
+                                                    }
 
-                                                // Clear editing if we are still editing this node.
-                                                if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
-                                                    editing_id.set(None);
-                                                    editing_snapshot.set(None);
-                                                }
+                                                    if nav_id_now.trim().is_empty()
+                                                        || note_id_now.trim().is_empty()
+                                                        || is_tmp_nav_id(&nav_id_now)
+                                                    {
+                                                        return;
+                                                    }
 
-                                                navs.update(|xs| {
-                                                    let _ = apply_nav_content(xs, &nav_id_now, &new_content);
-                                                });
+                                                    // MVP: always persist on blur.
+                                                    navs.update(|xs| {
+                                                        let _ = apply_nav_content(xs, &nav_id_now, &new_content);
+                                                    });
 
-                                                if should_save {
                                                     let api_client = app_state.0.api_client.get_untracked();
-                                                    let db_id = app_state.0.current_database_id.get_untracked().unwrap_or_default();
+                                                    let db_id = app_state
+                                                        .0
+                                                        .current_database_id
+                                                        .get_untracked()
+                                                        .unwrap_or_default();
                                                     let note_id_now2 = note_id_now.clone();
                                                     let nav_id_now2 = nav_id_now.clone();
 
@@ -1887,11 +1882,40 @@ pub fn OutlineNode(
                                                     };
                                                     spawn_local(async move {
                                                         if api_client.upsert_nav(req).await.is_ok() {
-                                                            mark_nav_synced(&db_id, &note_id_now2, &nav_id_now2, now_ms());
+                                                            mark_nav_synced(
+                                                                &db_id,
+                                                                &note_id_now2,
+                                                                &nav_id_now2,
+                                                                now_ms(),
+                                                            );
                                                         }
                                                     });
                                                 }
-                                            }}
+                                            }
+                                            on:focusout=move |ev: web_sys::FocusEvent| {
+                                                // Exit editing mode only when focus leaves the outline editor.
+                                                // `related_target` tells us where focus is going.
+                                                let Some(next) = ev.related_target() else {
+                                                    // If we don't know the next target (can happen during DOM churn),
+                                                    // do not clear editing here.
+                                                    return;
+                                                };
+                                                let Some(next_el) = next.dyn_into::<web_sys::Element>().ok() else {
+                                                    return;
+                                                };
+
+                                                // Keep editing if focus stays within outline editor.
+                                                if next_el.closest(".outline-editor").ok().flatten().is_some() {
+                                                    return;
+                                                }
+
+                                                let nav_id_now = nav_id_sv.get_value();
+                                                if editing_id.get_untracked().as_deref() == Some(nav_id_now.as_str()) {
+                                                    editing_id.set(None);
+                                                    editing_snapshot.set(None);
+                                                }
+                                            }
+
                                             on:keydown=move |ev: web_sys::KeyboardEvent| {
                                                 let key = ev.key();
 
