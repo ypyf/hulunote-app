@@ -122,6 +122,10 @@ fn roam_delete_state(has_any_text: bool, semantic_br_count: u32) -> RoamDeleteSt
     }
 }
 
+fn should_persist_nav_id(nav_id: &str) -> bool {
+    !nav_id.trim().is_empty() && !is_tmp_nav_id(nav_id)
+}
+
 fn ensure_trailing_break(doc: &web_sys::Document, root: &web_sys::Node) -> Option<web_sys::Node> {
     // Remove all existing trailing markers inside this root.
     if let Ok(list) = doc.query_selector_all("br[data-trailing-break='1']") {
@@ -2741,7 +2745,12 @@ pub fn OutlineNode(
                                                     target_cursor_col.set(Some(0));
 
                                                     spawn_local(async move {
-                                                        let _ = api_client.upsert_nav(save_req).await;
+                                                        // If the current node is still a temporary (optimistic) node, do NOT
+                                                        // send an update with a tmp id. The backend will reject it (400 Invalid nav ID).
+                                                        // We'll backfill content once the real id is known.
+                                                        if should_persist_nav_id(&nav_id_now) {
+                                                            let _ = api_client.upsert_nav(save_req).await;
+                                                        }
 
                                                         let create_req = CreateOrUpdateNavRequest {
                                                             note_id: note_id_now.clone(),
@@ -2998,5 +3007,16 @@ mod editor_delete_behavior_tests {
         assert_eq!(roam_delete_state(false, 1), RoamDeleteState::OnlySoftBreaks);
 
         assert_eq!(roam_delete_state(false, 0), RoamDeleteState::Empty);
+    }
+
+    #[test]
+    fn test_should_persist_nav_id() {
+        assert!(!should_persist_nav_id(""));
+        assert!(!should_persist_nav_id("   "));
+        assert!(!should_persist_nav_id("tmp-1-2"));
+        assert!(should_persist_nav_id(
+            "00000000-0000-0000-0000-000000000000"
+        ));
+        assert!(should_persist_nav_id("abc"));
     }
 }
