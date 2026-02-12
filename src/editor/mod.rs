@@ -729,33 +729,8 @@ pub fn OutlineEditor(
         });
     });
 
-    // Focus the inline editor when editing_id changes.
-    Effect::new(move |_| {
-        let id = editing_id.get();
-        if id.is_none() {
-            return;
-        }
-
-        let col = target_cursor_col.get_untracked();
-        let el = editing_ref.get();
-        if let Some(el) = el {
-            // Focus on next tick so the node is mounted.
-            let _ = web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    wasm_bindgen::closure::Closure::once_into_js(move || {
-                        let _ = el.focus();
-                        if let Some(col) = col {
-                            let he: web_sys::HtmlElement = el.unchecked_into();
-                            ce_set_caret_utf16(&he, col);
-                        }
-                    })
-                    .as_ref()
-                    .unchecked_ref(),
-                    0,
-                );
-        }
-    });
+    // Focus handled by OutlineNode (see below).
+    // (focus moved to OutlineNode)
 
     // Keep the contenteditable DOM in sync when switching nodes.
     // IMPORTANT: do not re-apply on every keystroke (would break IME / caret).
@@ -896,6 +871,38 @@ pub fn OutlineNode(
     // (handler ids are captured per-render; avoid moving values out of the render closure)
 
     let nav_id_sv = StoredValue::new(nav_id.clone());
+
+    // Focus is handled at the node level (instead of OutlineEditor + setTimeout) so the component
+    // that owns the contenteditable DOM is responsible for focusing it.
+    Effect::new(move |_| {
+        let my_id = nav_id_sv.get_value();
+        let is_editing = editing_id.get().as_deref() == Some(my_id.as_str());
+        if !is_editing {
+            return;
+        }
+
+        let col = target_cursor_col.get_untracked();
+        let editing_ref2 = editing_ref.clone();
+
+        // Defer to the next animation frame so the contenteditable element is mounted and the
+        // NodeRef is populated, without accumulating unbounded setTimeout callbacks.
+        let _ = web_sys::window().unwrap().request_animation_frame(
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                // This callback runs outside reactive tracking; use untracked access.
+                let Some(el) = editing_ref2.get_untracked() else {
+                    return;
+                };
+
+                let _ = el.focus();
+                if let Some(col) = col {
+                    let he: web_sys::HtmlElement = el.unchecked_into();
+                    ce_set_caret_utf16(&he, col);
+                }
+            })
+            .as_ref()
+            .unchecked_ref(),
+        );
+    });
     let note_id_sv = StoredValue::new(note_id.clone());
     let app_state_sv = StoredValue::new(app_state.clone());
     let ac_sv = StoredValue::new(ac.clone());
