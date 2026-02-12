@@ -84,6 +84,29 @@ fn ce_set_text(el: &web_sys::HtmlElement, s: &str) {
     el.set_inner_text(s);
 }
 
+// ---- contenteditable structural helpers ----
+
+fn ensure_trailing_break(doc: &web_sys::Document, root: &web_sys::Node) -> Option<web_sys::Node> {
+    // Remove all existing trailing markers inside this root.
+    if let Ok(list) = doc.query_selector_all("br[data-trailing-break='1']") {
+        for i in 0..list.length() {
+            if let Some(n) = list.get(i) {
+                if root.contains(Some(&n)) {
+                    let _ = n.parent_node().and_then(|p| p.remove_child(&n).ok());
+                }
+            }
+        }
+    }
+
+    let Ok(br) = doc.create_element("br") else {
+        return None;
+    };
+    let _ = br.set_attribute("data-trailing-break", "1");
+    let br_node: web_sys::Node = br.unchecked_into();
+    let _ = root.append_child(&br_node);
+    Some(br_node)
+}
+
 fn ce_selection_utf16(el: &web_sys::HtmlElement) -> (u32, u32, u32) {
     let txt = ce_text(el);
     let len = txt.encode_utf16().count() as u32;
@@ -367,35 +390,6 @@ pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> boo
     };
 
     let root: web_sys::Node = input_el.clone().unchecked_into();
-
-    // ---- trailing break normalization ----
-    // We keep exactly one trailing <br data-trailing-break="1"> at the end of the
-    // editor so the caret can sit on an empty last line. This node is NOT user
-    // content and should be ignored by editing semantics.
-    fn ensure_trailing_break(
-        doc: &web_sys::Document,
-        root: &web_sys::Node,
-    ) -> Option<web_sys::Node> {
-        // Remove all existing trailing markers.
-        if let Ok(list) = doc.query_selector_all("br[data-trailing-break='1']") {
-            for i in 0..list.length() {
-                if let Some(n) = list.get(i) {
-                    // Only remove markers that belong to this root.
-                    if root.contains(Some(&n)) {
-                        let _ = n.parent_node().and_then(|p| p.remove_child(&n).ok());
-                    }
-                }
-            }
-        }
-
-        let Ok(br) = doc.create_element("br") else {
-            return None;
-        };
-        let _ = br.set_attribute("data-trailing-break", "1");
-        let br_node: web_sys::Node = br.unchecked_into();
-        let _ = root.append_child(&br_node);
-        Some(br_node)
-    }
 
     // Ensure we have a trailing break before insertion.
     let trailing = ensure_trailing_break(&doc, &root);
@@ -2441,56 +2435,61 @@ pub fn OutlineNode(
                                                     .unwrap_or_else(|| editing_value.get_untracked());
 
                                                 // Roam-style delete:
-                                                // - If the node contains only soft line breaks (<br>), `innerText` includes
-                                                //   newlines ("\n"). First Backspace should remove the breaks.
-                                                // - Once it's truly empty (""), the next Backspace/Delete deletes the node.
-                                                let is_only_soft_breaks = v_now.trim().is_empty() && v_now.contains(['\n', '\r']);
-                                                let is_truly_empty = v_now.trim().is_empty() && !v_now.contains(['\n', '\r']);
+                                                // Roam-style delete (trailing break aware):
+                                                // - We maintain a trailing `<br data-trailing-break="1">` placeholder for caret.
+                                                //   It is NOT user content and must not require an extra Backspace.
+                                                // - If the node has semantic soft breaks (`<br>` without the marker) but no text,
+                                                //   Backspace/Delete removes one break at a time.
+                                                // - Once only the trailing placeholder remains (no semantic breaks, no text),
+                                                //   the next Backspace/Delete deletes the node.
+                                                let (semantic_br_count, has_any_text) = input()
+                                                    .as_ref()
+                                                    .and_then(|el| {
+                                                        let semantic = el
+                                                            .query_selector_all("br:not([data-trailing-break='1'])")
+                                                            .ok()
+                                                            .map(|l| l.length())
+                                                            .unwrap_or(0);
+
+                                                        // Treat any non-whitespace as text content.
+                                                        // Note: placeholder breaks can yield innerText like " " or "\n".
+                                                        let txt = ce_text(el);
+                                                        let has_text = txt.chars().any(|c| !c.is_whitespace());
+                                                        Some((semantic, has_text))
+                                                    })
+                                                    .unwrap_or((0, v_now.chars().any(|c| !c.is_whitespace())));
+
+                                                let is_only_soft_breaks = !has_any_text && semantic_br_count > 0;
+                                                let is_truly_empty = !has_any_text && semantic_br_count == 0;
 
                                                 if (key == "Backspace" || key == "Delete") && is_only_soft_breaks {
                                                     ev.prevent_default();
 
-                                                    // Behave like a normal editor: delete a single line break at a time.
-                                                    // (When the node is only soft breaks, `innerText` is a run of "\n".)
-                                                    let (sel_start, _sel_end, _len) = input()
-                                                        .as_ref()
-                                                        .map(|el| ce_selection_utf16(el))
-                                                        .unwrap_or((v_now.encode_utf16().count() as u32, 0, 0));
-
-                                                    // Work in chars; content here is only \n/\r.
-                                                    let mut chars: Vec<char> = v_now.chars().collect();
-                                                    if chars.is_empty() {
-                                                        return;
-                                                    }
-
-                                                    // Map selection to a char index (best-effort).
-                                                    // NOTE: In contenteditable with only <br>, some browsers report caret at 0
-                                                    // even when it visually sits on the last (empty) line. In that case,
-                                                    // treat Backspace as removing the last break.
-                                                    let mut idx = (sel_start as usize).min(chars.len());
-                                                    if idx == 0 {
-                                                        idx = chars.len();
-                                                    }
-
-                                                    // Remove the char before the cursor.
-                                                    idx -= 1;
-                                                    let removed = chars.remove(idx);
-                                                    // Handle CRLF as one logical break.
-                                                    if removed == '\n' && idx > 0 && chars.get(idx - 1) == Some(&'\r') {
-                                                        let _ = chars.remove(idx - 1);
-                                                        idx -= 1;
-                                                    }
-
-                                                    let next = chars.iter().collect::<String>();
+                                                    // Remove one semantic soft break at a time (ignore the trailing placeholder).
                                                     if let Some(el) = input() {
-                                                        ce_set_text(&el, &next);
-                                                        // Update caret immediately (editing_id does not change).
-                                                        ce_set_caret_utf16(&el, idx as u32);
-                                                    }
-                                                    editing_value.set(next.clone());
+                                                        if let Some(last) = el
+                                                            .query_selector_all("br:not([data-trailing-break='1'])")
+                                                            .ok()
+                                                            .and_then(|l| l.get(l.length().saturating_sub(1)))
+                                                        {
+                                                            let _ = last.parent_node().and_then(|p| p.remove_child(&last).ok());
+                                                        }
 
-                                                    // Also set signal for consistency.
-                                                    target_cursor_col.set(Some(idx as u32));
+                                                        // Keep exactly one trailing placeholder break.
+                                                        let doc = web_sys::window().and_then(|w| w.document());
+                                                        if let Some(doc) = doc {
+                                                            let root: web_sys::Node = el.clone().unchecked_into();
+                                                            let _ = ensure_trailing_break(&doc, &root);
+                                                        }
+
+                                                        // Keep caret at end.
+                                                        let txt = ce_text(&el);
+                                                        let end = txt.encode_utf16().count() as u32;
+                                                        ce_set_caret_utf16(&el, end);
+                                                        editing_value.set(txt);
+                                                        target_cursor_col.set(Some(end));
+                                                    }
+
                                                     return;
                                                 }
 
