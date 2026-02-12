@@ -1049,7 +1049,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                             <Show when=move || sidebar_show_recent_notes() fallback=|| ().into_view()>
                                 <Card>
                                     <CardHeader class="p-3">
-                                        <CardTitle class="text-sm">"Recent Notes"</CardTitle>
+                                        <CardTitle class="text-sm text-muted-foreground">"Recent Notes"</CardTitle>
                                     </CardHeader>
                                     <CardContent class="p-3 pt-0">
                                         <Show
@@ -1075,7 +1075,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             view! {
                                                                 <a
                                                                     href=format!("/db/{}/note/{}", db_id_href, note_id)
-                                                                    class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
+                                                                    class="block rounded-md border border-border px-3 py-2 transition-colors hover:bg-accent-soft"
                                                                 >
                                                                     <div class="truncate text-sm font-medium">{title}</div>
                                                                     // Only show database name (never show raw id). Keep height stable.
