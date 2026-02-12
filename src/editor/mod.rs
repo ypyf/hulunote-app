@@ -94,7 +94,21 @@ enum RoamDeleteState {
 }
 
 fn has_any_text_content(s: &str) -> bool {
-    s.chars().any(|c| !c.is_whitespace())
+    // Treat some invisible/bogus chars that browsers may inject into contenteditable
+    // (to keep caret positions) as non-content.
+    fn is_ignorable(c: char) -> bool {
+        matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}')
+    }
+
+    s.chars().any(|c| !c.is_whitespace() && !is_ignorable(c))
+}
+
+fn effective_semantic_br_count(total_br_count: u32, has_trailing_placeholder_br: bool) -> u32 {
+    if has_trailing_placeholder_br {
+        total_br_count.saturating_sub(1)
+    } else {
+        total_br_count
+    }
 }
 
 fn roam_delete_state(has_any_text: bool, semantic_br_count: u32) -> RoamDeleteState {
@@ -457,24 +471,37 @@ pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> boo
     // Re-normalize: keep exactly one trailing break at the end.
     let trailing = ensure_trailing_break(&doc, &root).or(trailing);
 
-    // Place caret right after the semantic <br>, but before the trailing break.
+    // Place caret right after the semantic <br>.
     let _ = range.set_start_after(&br_node);
     let _ = range.collapse_with_to_start(true);
-    // If selection would land after trailing, clamp it.
+
+    // If we inserted at the end (i.e. immediately before the trailing placeholder),
+    // put caret BEFORE the trailing placeholder so the next Shift+Enter inserts a new
+    // semantic <br> (instead of getting stuck on the same line due to browser quirks).
     if let Some(t) = trailing {
-        // If caret is after trailing (or equals end), move before trailing.
-        // Best-effort: create a range directly before trailing.
-        if let Ok(r2) = doc.create_range() {
-            let _ = r2.set_start_before(&t);
-            let _ = r2.collapse_with_to_start(true);
-            // Only use r2 if br_node is directly before trailing or if we inserted at end.
-            // Otherwise keep range after br_node.
-            if let Some(prev) = t.previous_sibling() {
-                if prev == br_node {
-                    let _ = sel.remove_all_ranges();
-                    let _ = sel.add_range(&r2);
-                    return true;
-                }
+        // Determine whether br_node is effectively the last real node before trailing,
+        // allowing for empty text nodes that some browsers insert.
+        fn is_empty_text_node(n: &web_sys::Node) -> bool {
+            n.node_type() == web_sys::Node::TEXT_NODE
+                && n.text_content().unwrap_or_default().trim().is_empty()
+        }
+
+        let mut cur = t.previous_sibling();
+        while let Some(n) = cur.clone() {
+            if is_empty_text_node(&n) {
+                cur = n.previous_sibling();
+                continue;
+            }
+            break;
+        }
+
+        if cur == Some(br_node.clone()) {
+            if let Ok(r2) = doc.create_range() {
+                let _ = r2.set_start_before(&t);
+                let _ = r2.collapse_with_to_start(true);
+                let _ = sel.remove_all_ranges();
+                let _ = sel.add_range(&r2);
+                return true;
             }
         }
     }
@@ -2467,14 +2494,42 @@ pub fn OutlineNode(
                                                 let (semantic_br_count, has_any_text) = input()
                                                     .as_ref()
                                                     .and_then(|el| {
-                                                        let semantic = el
-                                                            .query_selector_all("br:not([data-trailing-break='1'])")
+                                                        fn is_empty_text_node(n: &web_sys::Node) -> bool {
+                                                            n.node_type() == web_sys::Node::TEXT_NODE
+                                                                && n.text_content().unwrap_or_default().trim().is_empty()
+                                                        }
+
+                                                        let root: web_sys::Node = el.clone().unchecked_into();
+
+                                                        // Find the last non-empty child node.
+                                                        let mut last_nonempty: Option<web_sys::Node> = None;
+                                                        let kids = root.child_nodes();
+                                                        for i in 0..kids.length() {
+                                                            if let Some(n) = kids.get(i) {
+                                                                if is_empty_text_node(&n) {
+                                                                    continue;
+                                                                }
+                                                                last_nonempty = Some(n);
+                                                            }
+                                                        }
+
+                                                        let total_br = el
+                                                            .query_selector_all("br")
                                                             .ok()
                                                             .map(|l| l.length())
                                                             .unwrap_or(0);
 
-                                                        // Treat any non-whitespace as text content.
-                                                        // Note: placeholder breaks can yield innerText like " " or "\n".
+                                                        let has_trailing_placeholder_br = last_nonempty
+                                                            .as_ref()
+                                                            .and_then(|n| n.dyn_ref::<web_sys::Element>())
+                                                            .map(|e| e.tag_name().to_uppercase() == "BR")
+                                                            .unwrap_or(false);
+
+                                                        let semantic = effective_semantic_br_count(
+                                                            total_br,
+                                                            has_trailing_placeholder_br,
+                                                        );
+
                                                         let txt = ce_text(el);
                                                         let has_text = has_any_text_content(&txt);
                                                         Some((semantic, has_text))
@@ -2488,17 +2543,22 @@ pub fn OutlineNode(
                                                 {
                                                     ev.prevent_default();
 
-                                                    // Remove one semantic soft break at a time (ignore the trailing placeholder).
+                                                    // Remove one semantic soft break at a time.
+                                                    // In our model, the trailing placeholder break is always the last BR.
                                                     if let Some(el) = input() {
-                                                        if let Some(last) = el
-                                                            .query_selector_all("br:not([data-trailing-break='1'])")
-                                                            .ok()
-                                                            .and_then(|l| l.get(l.length().saturating_sub(1)))
-                                                        {
-                                                            let _ = last.parent_node().and_then(|p| p.remove_child(&last).ok());
+                                                        if let Ok(list) = el.query_selector_all("br") {
+                                                            let len = list.length();
+                                                            if len >= 2 {
+                                                                // Remove the br right before the trailing placeholder.
+                                                                if let Some(to_remove) = list.get(len - 2) {
+                                                                    let _ = to_remove
+                                                                        .parent_node()
+                                                                        .and_then(|p| p.remove_child(&to_remove).ok());
+                                                                }
+                                                            }
                                                         }
 
-                                                        // Keep exactly one trailing placeholder break.
+                                                        // Re-normalize trailing placeholder.
                                                         let doc = web_sys::window().and_then(|w| w.document());
                                                         if let Some(doc) = doc {
                                                             let root: web_sys::Node = el.clone().unchecked_into();
@@ -2918,6 +2978,15 @@ mod editor_delete_behavior_tests {
         assert!(!has_any_text_content(" \n\t"));
         assert!(has_any_text_content("a"));
         assert!(has_any_text_content(" 爱 "));
+    }
+
+    #[test]
+    fn test_effective_semantic_br_count() {
+        assert_eq!(effective_semantic_br_count(0, false), 0);
+        assert_eq!(effective_semantic_br_count(0, true), 0);
+        assert_eq!(effective_semantic_br_count(1, false), 1);
+        assert_eq!(effective_semantic_br_count(1, true), 0);
+        assert_eq!(effective_semantic_br_count(2, true), 1);
     }
 
     #[test]
