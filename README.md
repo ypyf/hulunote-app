@@ -60,12 +60,18 @@ trunk serve
 
 ### Tests
 
+Run **both** suites when validating changes (host unit tests + browser-based WASM tests).
+
 ```bash
 # Unit tests (host)
 cargo test
+
+# WASM tests (browser)
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
+cargo test --target wasm32-unknown-unknown
 ```
 
-See the full test instructions (including WASM/WebDriver setup) in:
+Prereqs + WebDriver setup are documented in:
 - [docs/TEST_GUIDE.md](./docs/TEST_GUIDE.md)
 
 ### Production Build
