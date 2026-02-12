@@ -27,6 +27,7 @@ mod wasm_tests {
     use crate::editor::insert_soft_line_break_dom;
     use crate::models::AccountInfo;
     use crate::storage::{load_user_from_storage, save_user_to_storage};
+    use wasm_bindgen::JsCast;
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
@@ -108,7 +109,7 @@ mod wasm_tests {
         let range = doc.create_range().unwrap();
         let text_node = he.first_child().unwrap();
         range.set_start(&text_node, 1).unwrap();
-        range.collapse_with_to_start(true).unwrap();
+        range.collapse_with_to_start(true);
         sel.add_range(&range).unwrap();
 
         assert!(insert_soft_line_break_dom(&he));

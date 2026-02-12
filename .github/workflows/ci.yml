@@ -40,8 +40,21 @@ jobs:
       - name: Build with Trunk
         run: trunk build
 
-      - name: Run tests
+      - name: Run tests (host)
         run: cargo test
+
+      # WASM tests are a separate suite from host tests. Run them in CI to avoid missing regressions.
+      - name: Install wasm-bindgen-test-runner
+        run: cargo install wasm-bindgen-test-runner --version 0.3.58
+
+      - name: Install Chrome (for wasm-bindgen-test-runner)
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Run tests (wasm32 / browser)
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          WASM_BINDGEN_TEST_TIMEOUT: '120'
+        run: cargo test --target wasm32-unknown-unknown
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
