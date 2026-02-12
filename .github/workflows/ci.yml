@@ -45,9 +45,7 @@ jobs:
 
       # WASM tests are a separate suite from host tests. Run them in CI to avoid missing regressions.
       - name: Install wasm-bindgen-test-runner
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen-test-runner
+        run: cargo install wasm-bindgen-test-runner
 
       - name: Install Chrome (for wasm-bindgen-test-runner)
         uses: browser-actions/setup-chrome@v1
