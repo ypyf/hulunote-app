@@ -121,6 +121,93 @@ mod wasm_tests {
         assert!(html.contains("<br"));
         assert!(html.matches("<br").count() >= 2);
     }
+
+    #[wasm_bindgen_test]
+    fn test_insert_soft_line_break_dom_repeated_inserts_accumulate() {
+        let doc = web_sys::window().unwrap().document().unwrap();
+        let el = doc.create_element("div").unwrap();
+        el.set_attribute("contenteditable", "true").unwrap();
+        el.set_text_content(Some(""));
+        doc.body().unwrap().append_child(&el).unwrap();
+
+        let he: web_sys::HtmlElement = el.unchecked_into();
+
+        // Ensure selection is inside the editor.
+        let sel = doc.get_selection().unwrap().unwrap();
+        sel.remove_all_ranges().unwrap();
+        let r = doc.create_range().unwrap();
+        let root: web_sys::Node = he.clone().unchecked_into();
+        r.select_node_contents(&root).unwrap();
+        r.collapse_with_to_start(false);
+        sel.add_range(&r).unwrap();
+
+        assert!(insert_soft_line_break_dom(&he));
+        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 2);
+        assert!(sel.range_count() > 0);
+
+        assert!(insert_soft_line_break_dom(&he));
+        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 3);
+        assert!(sel.range_count() > 0);
+
+        assert!(insert_soft_line_break_dom(&he));
+        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 4);
+        assert!(sel.range_count() > 0);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_insert_soft_line_break_dom_on_empty_node_inserts_on_first_press() {
+        let doc = web_sys::window().unwrap().document().unwrap();
+        let el = doc.create_element("div").unwrap();
+        el.set_attribute("contenteditable", "true").unwrap();
+        el.set_text_content(Some(""));
+        doc.body().unwrap().append_child(&el).unwrap();
+
+        let he: web_sys::HtmlElement = el.unchecked_into();
+
+        // Simulate "no selection" state.
+        if let Some(sel) = doc.get_selection().unwrap() {
+            let _ = sel.remove_all_ranges();
+        }
+
+        assert!(insert_soft_line_break_dom(&he));
+        let html = he.inner_html().to_lowercase();
+        assert!(html.contains("<br"));
+        // Ensure we keep a trailing break marker for stable caret placement.
+        assert!(html.contains("data-trailing-break=\"1\""));
+    }
+
+    #[wasm_bindgen_test]
+    fn test_insert_soft_line_break_dom_when_selection_is_outside_editor() {
+        let doc = web_sys::window().unwrap().document().unwrap();
+
+        let host1 = doc.create_element("div").unwrap();
+        host1.set_attribute("contenteditable", "true").unwrap();
+        host1.set_text_content(Some("a"));
+
+        let host2 = doc.create_element("div").unwrap();
+        host2.set_attribute("contenteditable", "true").unwrap();
+        host2.set_text_content(Some("x"));
+
+        doc.body().unwrap().append_child(&host1).unwrap();
+        doc.body().unwrap().append_child(&host2).unwrap();
+
+        let he1: web_sys::HtmlElement = host1.unchecked_into();
+        let he2: web_sys::HtmlElement = host2.unchecked_into();
+
+        // Put selection inside the other editor.
+        let sel = doc.get_selection().unwrap().unwrap();
+        sel.remove_all_ranges().unwrap();
+        let range = doc.create_range().unwrap();
+        let text_node = he2.first_child().unwrap();
+        range.set_start(&text_node, 1).unwrap();
+        range.collapse_with_to_start(true);
+        sel.add_range(&range).unwrap();
+
+        // Should still insert into he1 on first call.
+        assert!(insert_soft_line_break_dom(&he1));
+        let html = he1.inner_html().to_lowercase();
+        assert!(html.contains("<br"));
+    }
 }
 
 // Only register the WASM start function for normal builds (not for tests),

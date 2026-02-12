@@ -344,44 +344,125 @@ pub(crate) fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
 pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> bool {
     let _ = input_el.focus();
 
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+    let Some(win) = web_sys::window() else {
+        return false;
+    };
+    let Some(doc) = win.document() else {
         return false;
     };
 
-    let Ok(Some(sel)) = doc.get_selection() else {
+    // Selection can momentarily be unavailable in some browsers/states.
+    // Prefer window.getSelection and retry once after focusing.
+    let mut sel = win.get_selection().ok().flatten();
+    if sel.is_none() {
+        let _ = input_el.focus();
+        sel = win
+            .get_selection()
+            .ok()
+            .flatten()
+            .or_else(|| doc.get_selection().ok().flatten());
+    }
+    let Some(sel) = sel else {
         return false;
     };
 
-    if sel.range_count() == 0 {
-        return false;
+    let root: web_sys::Node = input_el.clone().unchecked_into();
+
+    // ---- trailing break normalization ----
+    // We keep exactly one trailing <br data-trailing-break="1"> at the end of the
+    // editor so the caret can sit on an empty last line. This node is NOT user
+    // content and should be ignored by editing semantics.
+    fn ensure_trailing_break(
+        doc: &web_sys::Document,
+        root: &web_sys::Node,
+    ) -> Option<web_sys::Node> {
+        // Remove all existing trailing markers.
+        if let Ok(list) = doc.query_selector_all("br[data-trailing-break='1']") {
+            for i in 0..list.length() {
+                if let Some(n) = list.get(i) {
+                    // Only remove markers that belong to this root.
+                    if root.contains(Some(&n)) {
+                        let _ = n.parent_node().and_then(|p| p.remove_child(&n).ok());
+                    }
+                }
+            }
+        }
+
+        let Ok(br) = doc.create_element("br") else {
+            return None;
+        };
+        let _ = br.set_attribute("data-trailing-break", "1");
+        let br_node: web_sys::Node = br.unchecked_into();
+        let _ = root.append_child(&br_node);
+        Some(br_node)
     }
 
-    let Ok(range) = sel.get_range_at(0) else {
-        return false;
+    // Ensure we have a trailing break before insertion.
+    let trailing = ensure_trailing_break(&doc, &root);
+
+    // Prefer the current selection range if it exists and is inside this editor.
+    // Otherwise, synthesize a range at the end of this editor.
+    let mut range = if sel.range_count() > 0 {
+        sel.get_range_at(0).ok()
+    } else {
+        None
     };
 
-    // Only handle if selection is inside this editor element.
     let container_ok = range
-        .common_ancestor_container()
-        .map(|n| {
-            let root: web_sys::Node = input_el.clone().unchecked_into();
-            root.contains(Some(&n))
-        })
+        .as_ref()
+        .and_then(|r| r.common_ancestor_container().ok())
+        .map(|n| root.contains(Some(&n)))
         .unwrap_or(false);
+
     if !container_ok {
-        return false;
+        let Ok(r) = doc.create_range() else {
+            return false;
+        };
+        let _ = r.select_node_contents(&root);
+        let _ = r.collapse_with_to_start(false);
+        let _ = sel.remove_all_ranges();
+        let _ = sel.add_range(&r);
+        range = Some(r);
     }
+
+    let Some(range) = range else {
+        return false;
+    };
 
     let _ = range.delete_contents();
+
+    // Insert semantic <br> (user content).
     let Ok(br) = doc.create_element("br") else {
         return false;
     };
     let br_node: web_sys::Node = br.unchecked_into();
     let _ = range.insert_node(&br_node);
 
-    // Move caret to after <br>.
+    // Re-normalize: keep exactly one trailing break at the end.
+    let trailing = ensure_trailing_break(&doc, &root).or(trailing);
+
+    // Place caret right after the semantic <br>, but before the trailing break.
     let _ = range.set_start_after(&br_node);
     let _ = range.collapse_with_to_start(true);
+    // If selection would land after trailing, clamp it.
+    if let Some(t) = trailing {
+        // If caret is after trailing (or equals end), move before trailing.
+        // Best-effort: create a range directly before trailing.
+        if let Ok(r2) = doc.create_range() {
+            let _ = r2.set_start_before(&t);
+            let _ = r2.collapse_with_to_start(true);
+            // Only use r2 if br_node is directly before trailing or if we inserted at end.
+            // Otherwise keep range after br_node.
+            if let Some(prev) = t.previous_sibling() {
+                if prev == br_node {
+                    let _ = sel.remove_all_ranges();
+                    let _ = sel.add_range(&r2);
+                    return true;
+                }
+            }
+        }
+    }
+
     let _ = sel.remove_all_ranges();
     let _ = sel.add_range(&range);
 
@@ -1766,9 +1847,17 @@ pub fn OutlineNode(
                                                 }
 
                                                 // Helpers for reading the current contenteditable element.
+                                                // Prefer `current_target` (the element the handler is attached to).
                                                 let input = || {
-                                                    ev.target()
+                                                    ev.current_target()
                                                         .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                        .or_else(|| {
+                                                            // Fallback: keydown target can be a Text node; walk up to parent element.
+                                                            ev.target()
+                                                                .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                                                                .and_then(|n| n.parent_element())
+                                                                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+                                                        })
                                                 };
 
                                                 let ac = ac_sv.get_value();
@@ -2344,9 +2433,68 @@ pub fn OutlineNode(
                                                 }
 
                                                 // Backspace/Delete on empty: soft-delete node (and its subtree)
-                                                if (key == "Backspace" || key == "Delete")
-                                                    && editing_value.get_untracked().trim().is_empty()
-                                                {
+                                                // IMPORTANT: on keydown, `editing_value` may lag behind the DOM.
+                                                // Use the live DOM text if available, otherwise fall back to the signal.
+                                                let v_now = input()
+                                                    .as_ref()
+                                                    .map(ce_text)
+                                                    .unwrap_or_else(|| editing_value.get_untracked());
+
+                                                // Roam-style delete:
+                                                // - If the node contains only soft line breaks (<br>), `innerText` includes
+                                                //   newlines ("\n"). First Backspace should remove the breaks.
+                                                // - Once it's truly empty (""), the next Backspace/Delete deletes the node.
+                                                let is_only_soft_breaks = v_now.trim().is_empty() && v_now.contains(['\n', '\r']);
+                                                let is_truly_empty = v_now.trim().is_empty() && !v_now.contains(['\n', '\r']);
+
+                                                if (key == "Backspace" || key == "Delete") && is_only_soft_breaks {
+                                                    ev.prevent_default();
+
+                                                    // Behave like a normal editor: delete a single line break at a time.
+                                                    // (When the node is only soft breaks, `innerText` is a run of "\n".)
+                                                    let (sel_start, _sel_end, _len) = input()
+                                                        .as_ref()
+                                                        .map(|el| ce_selection_utf16(el))
+                                                        .unwrap_or((v_now.encode_utf16().count() as u32, 0, 0));
+
+                                                    // Work in chars; content here is only \n/\r.
+                                                    let mut chars: Vec<char> = v_now.chars().collect();
+                                                    if chars.is_empty() {
+                                                        return;
+                                                    }
+
+                                                    // Map selection to a char index (best-effort).
+                                                    // NOTE: In contenteditable with only <br>, some browsers report caret at 0
+                                                    // even when it visually sits on the last (empty) line. In that case,
+                                                    // treat Backspace as removing the last break.
+                                                    let mut idx = (sel_start as usize).min(chars.len());
+                                                    if idx == 0 {
+                                                        idx = chars.len();
+                                                    }
+
+                                                    // Remove the char before the cursor.
+                                                    idx -= 1;
+                                                    let removed = chars.remove(idx);
+                                                    // Handle CRLF as one logical break.
+                                                    if removed == '\n' && idx > 0 && chars.get(idx - 1) == Some(&'\r') {
+                                                        let _ = chars.remove(idx - 1);
+                                                        idx -= 1;
+                                                    }
+
+                                                    let next = chars.iter().collect::<String>();
+                                                    if let Some(el) = input() {
+                                                        ce_set_text(&el, &next);
+                                                        // Update caret immediately (editing_id does not change).
+                                                        ce_set_caret_utf16(&el, idx as u32);
+                                                    }
+                                                    editing_value.set(next.clone());
+
+                                                    // Also set signal for consistency.
+                                                    target_cursor_col.set(Some(idx as u32));
+                                                    return;
+                                                }
+
+                                                if (key == "Backspace" || key == "Delete") && is_truly_empty {
                                                     ev.prevent_default();
 
                                                     let nav_id_now = nav_id_sv.get_value();
@@ -2410,10 +2558,20 @@ pub fn OutlineNode(
 
                                                 // Shift+Enter: soft line break inside a node (do NOT create a new Nav).
                                                 if key == "Enter" && ev.shift_key() {
-                                                    ev.prevent_default();
-
                                                     if let Some(input_el) = input() {
-                                                        if insert_soft_line_break_dom(&input_el) {
+                                                        // Prefer our DOM insertion to keep behavior consistent.
+                                                        // But if it fails (e.g. transient selection issues right after typing),
+                                                        // fall back to the browser default Shift+Enter behavior.
+                                                        let is_empty = ce_text(&input_el).trim().is_empty()
+                                                            && input_el.inner_html().trim().is_empty();
+
+                                                        let ok = insert_soft_line_break_dom(&input_el);
+                                                        let will_prevent = ok || is_empty;
+                                                        if will_prevent {
+                                                            ev.prevent_default();
+                                                        }
+
+                                                        if ok {
                                                             // Sync signal from DOM.
                                                             editing_value.set(ce_text(&input_el));
                                                         }
