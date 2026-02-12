@@ -41,7 +41,9 @@ pub fn DropdownMenuRadioGroup<T>(
 where
     T: Clone + PartialEq + Send + Sync + 'static,
 {
-    let ctx = DropdownMenuRadioContext { value_signal: value };
+    let ctx = DropdownMenuRadioContext {
+        value_signal: value,
+    };
 
     view! {
         <Provider value=ctx>
@@ -189,7 +191,10 @@ pub fn DropdownMenu(
 ) -> impl IntoView {
     let dropdown_target_id = use_random_id_for("dropdown");
 
-    let ctx = DropdownMenuContext { target_id: dropdown_target_id.clone(), align };
+    let ctx = DropdownMenuContext {
+        target_id: dropdown_target_id.clone(),
+        align,
+    };
 
     view! {
         <Provider value=ctx>
@@ -224,7 +229,10 @@ pub fn DropdownMenu(
 }
 
 #[component]
-pub fn DropdownMenuTrigger(children: Children, #[prop(optional, into)] class: String) -> impl IntoView {
+pub fn DropdownMenuTrigger(
+    children: Children,
+    #[prop(optional, into)] class: String,
+) -> impl IntoView {
     let ctx = expect_context::<DropdownMenuContext>();
     let button_class = tw_merge!(
         "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4  border bg-background border-input hover:bg-accent hover:text-accent-foreground",
@@ -516,7 +524,10 @@ pub fn DropdownMenuSub(children: Children) -> impl IntoView {
 }
 
 #[component]
-pub fn DropdownMenuSubTrigger(children: Children, #[prop(optional, into)] class: String) -> impl IntoView {
+pub fn DropdownMenuSubTrigger(
+    children: Children,
+    #[prop(optional, into)] class: String,
+) -> impl IntoView {
     let class = tw_merge!("flex items-center justify-between w-full", class);
 
     view! {
@@ -528,7 +539,10 @@ pub fn DropdownMenuSubTrigger(children: Children, #[prop(optional, into)] class:
 }
 
 #[component]
-pub fn DropdownMenuSubItem(children: Children, #[prop(optional, into)] class: String) -> impl IntoView {
+pub fn DropdownMenuSubItem(
+    children: Children,
+    #[prop(optional, into)] class: String,
+) -> impl IntoView {
     let class = tw_merge!(
         "inline-flex gap-2 items-center w-full rounded-sm px-3 py-2 text-sm transition-all duration-150 ease text-popover-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer hover:translate-x-[2px]",
         class

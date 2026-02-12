@@ -94,10 +94,16 @@ pub fn Popover(
             .to_string(),
             "left top".to_string(),
         ),
-        PopoverAlign::Center => ("position-area: block-start;".to_string(), "center top".to_string()),
+        PopoverAlign::Center => (
+            "position-area: block-start;".to_string(),
+            "center top".to_string(),
+        ),
     };
 
-    let ctx = PopoverContext { anchor_name: popover_anchor_name.clone(), target_id: popover_target_id.clone() };
+    let ctx = PopoverContext {
+        anchor_name: popover_anchor_name.clone(),
+        target_id: popover_target_id.clone(),
+    };
 
     view! {
         <leptos::context::Provider value=ctx>

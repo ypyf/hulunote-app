@@ -6,7 +6,11 @@ use leptos::prelude::*;
 /// - `on_scroll_handler`: Event handler to attach to the scrollable element's `on:scroll`
 /// - `can_scroll_up_signal`: RwSignal<bool> indicating if content is scrolled down (can scroll up)
 /// - `can_scroll_down_signal`: RwSignal<bool> indicating if more content is below (can scroll down)
-pub fn use_can_scroll_vertical() -> (impl Fn(web_sys::Event) + Clone, RwSignal<bool>, RwSignal<bool>) {
+pub fn use_can_scroll_vertical() -> (
+    impl Fn(web_sys::Event) + Clone,
+    RwSignal<bool>,
+    RwSignal<bool>,
+) {
     let can_scroll_up_signal = RwSignal::new(false);
     let can_scroll_down_signal = RwSignal::new(false);
 

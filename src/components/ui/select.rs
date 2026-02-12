@@ -116,7 +116,11 @@ pub fn Select(
     let select_target_id = use_random_id_for("select");
     let value_signal = RwSignal::new(default_value);
 
-    let ctx = SelectContext { target_id: select_target_id.clone(), value_signal, on_change };
+    let ctx = SelectContext {
+        target_id: select_target_id.clone(),
+        value_signal,
+        on_change,
+    };
 
     let merged_class = tw_merge!("relative w-fit", class);
 
@@ -137,7 +141,11 @@ pub fn SelectTrigger(
 ) -> impl IntoView {
     let ctx = expect_context::<SelectContext>();
 
-    let peer_class = if !id.is_empty() { format!("peer/{}", id) } else { String::new() };
+    let peer_class = if !id.is_empty() {
+        format!("peer/{}", id)
+    } else {
+        String::new()
+    };
 
     let button_class = tw_merge!(
         "w-full p-2 h-9 inline-flex items-center justify-between text-sm font-medium whitespace-nowrap rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground",
@@ -145,7 +153,11 @@ pub fn SelectTrigger(
         class
     );
 
-    let button_id = if !id.is_empty() { id } else { format!("trigger_{}", ctx.target_id) };
+    let button_id = if !id.is_empty() {
+        id
+    } else {
+        format!("trigger_{}", ctx.target_id)
+    };
 
     view! {
         <button

@@ -3,8 +3,8 @@ use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
     CardHeader, CardTitle, Input, Label, Spinner,
 };
-use crate::editor::OutlineEditor;
 use crate::drafts::{get_title_override, mark_title_synced, touch_title};
+use crate::editor::OutlineEditor;
 use crate::models::{Nav, Note};
 use crate::state::{AppContext, DbUiActions};
 use crate::storage::{
@@ -803,7 +803,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                         let mut note_ids_by_db: HashMap<String, HashSet<String>> = HashMap::new();
                         for db_id in unique_db_ids {
                             if let Ok(notes) = api_client.get_all_note_list(&db_id).await {
-                                let set: HashSet<String> = notes.into_iter().map(|n| n.id).collect();
+                                let set: HashSet<String> =
+                                    notes.into_iter().map(|n| n.id).collect();
                                 note_ids_by_db.insert(db_id, set);
                             }
                         }

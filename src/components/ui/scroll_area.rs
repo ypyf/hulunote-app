@@ -30,7 +30,10 @@ pub fn ScrollArea(children: Children, #[prop(into, optional)] class: String) -> 
 }
 
 #[component]
-pub fn ScrollAreaViewport(children: Children, #[prop(into, optional)] class: String) -> impl IntoView {
+pub fn ScrollAreaViewport(
+    children: Children,
+    #[prop(into, optional)] class: String,
+) -> impl IntoView {
     let merged_class = tw_merge!(
         "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1 overflow-auto",
         class
@@ -64,7 +67,11 @@ pub fn ScrollBar(
         ScrollBarOrientation::Horizontal => "h-2.5 flex-col border-t border-t-transparent",
     };
 
-    let merged_class = tw_merge!("flex touch-none p-px transition-colors select-none", orientation_class, class);
+    let merged_class = tw_merge!(
+        "flex touch-none p-px transition-colors select-none",
+        orientation_class,
+        class
+    );
 
     view! {
         <div data-name="ScrollBar" class=merged_class>

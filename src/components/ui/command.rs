@@ -55,7 +55,10 @@ pub fn CommandDialogProvider(children: Children, #[prop(into)] id: String) -> im
 }
 
 #[component]
-pub fn CommandDialogTrigger(children: Children, #[prop(into, optional)] class: String) -> impl IntoView {
+pub fn CommandDialogTrigger(
+    children: Children,
+    #[prop(into, optional)] class: String,
+) -> impl IntoView {
     let context = expect_context::<CommandDialogContext>();
     let trigger_id = format!("{TRIGGER_ID_QUALIFIER}__{}", context.dialog_id);
 
@@ -249,7 +252,10 @@ pub fn Command(
 ) -> impl IntoView {
     let dialog_context = use_context::<CommandDialogContext>();
     let search_query_signal = RwSignal::new(String::new());
-    let command_context = CommandContext { search_query_signal, should_filter };
+    let command_context = CommandContext {
+        search_query_signal,
+        should_filter,
+    };
 
     provide_context(command_context);
 

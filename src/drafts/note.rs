@@ -73,7 +73,10 @@ pub(crate) fn touch_nav(db_id: &str, note_id: &str, nav_id: &str, content: &str)
     let mut d = load_note_draft(db_id, note_id);
     let now = now_ms();
 
-    let f = d.navs.entry(nav_id.to_string()).or_insert_with(FieldDraft::default);
+    let f = d
+        .navs
+        .entry(nav_id.to_string())
+        .or_insert_with(FieldDraft::default);
     f.value = content.to_string();
     f.updated_ms = now;
 
@@ -101,7 +104,10 @@ pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_m
     }
 
     let mut d = load_note_draft(db_id, note_id);
-    let f = d.navs.entry(nav_id.to_string()).or_insert_with(FieldDraft::default);
+    let f = d
+        .navs
+        .entry(nav_id.to_string())
+        .or_insert_with(FieldDraft::default);
     f.synced_ms = f.synced_ms.max(synced_ms);
     d.updated_ms = now_ms();
     save_note_draft(&d);
