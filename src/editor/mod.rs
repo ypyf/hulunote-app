@@ -86,6 +86,28 @@ fn ce_set_text(el: &web_sys::HtmlElement, s: &str) {
 
 // ---- contenteditable structural helpers ----
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RoamDeleteState {
+    HasContent,
+    OnlySoftBreaks,
+    Empty,
+}
+
+fn has_any_text_content(s: &str) -> bool {
+    s.chars().any(|c| !c.is_whitespace())
+}
+
+fn roam_delete_state(has_any_text: bool, semantic_br_count: u32) -> RoamDeleteState {
+    if has_any_text {
+        return RoamDeleteState::HasContent;
+    }
+    if semantic_br_count > 0 {
+        RoamDeleteState::OnlySoftBreaks
+    } else {
+        RoamDeleteState::Empty
+    }
+}
+
 fn ensure_trailing_break(doc: &web_sys::Document, root: &web_sys::Node) -> Option<web_sys::Node> {
     // Remove all existing trailing markers inside this root.
     if let Ok(list) = doc.query_selector_all("br[data-trailing-break='1']") {
@@ -2437,11 +2459,11 @@ pub fn OutlineNode(
                                                 // Roam-style delete:
                                                 // Roam-style delete (trailing break aware):
                                                 // - We maintain a trailing `<br data-trailing-break="1">` placeholder for caret.
-                                                //   It is NOT user content and must not require an extra Backspace.
+                                                //   It is NOT user content.
                                                 // - If the node has semantic soft breaks (`<br>` without the marker) but no text,
                                                 //   Backspace/Delete removes one break at a time.
                                                 // - Once only the trailing placeholder remains (no semantic breaks, no text),
-                                                //   the next Backspace/Delete deletes the node.
+                                                //   Backspace/Delete deletes the node.
                                                 let (semantic_br_count, has_any_text) = input()
                                                     .as_ref()
                                                     .and_then(|el| {
@@ -2454,15 +2476,16 @@ pub fn OutlineNode(
                                                         // Treat any non-whitespace as text content.
                                                         // Note: placeholder breaks can yield innerText like " " or "\n".
                                                         let txt = ce_text(el);
-                                                        let has_text = txt.chars().any(|c| !c.is_whitespace());
+                                                        let has_text = has_any_text_content(&txt);
                                                         Some((semantic, has_text))
                                                     })
-                                                    .unwrap_or((0, v_now.chars().any(|c| !c.is_whitespace())));
+                                                    .unwrap_or((0, has_any_text_content(&v_now)));
 
-                                                let is_only_soft_breaks = !has_any_text && semantic_br_count > 0;
-                                                let is_truly_empty = !has_any_text && semantic_br_count == 0;
+                                                let state = roam_delete_state(has_any_text, semantic_br_count);
 
-                                                if (key == "Backspace" || key == "Delete") && is_only_soft_breaks {
+                                                if (key == "Backspace" || key == "Delete")
+                                                    && state == RoamDeleteState::OnlySoftBreaks
+                                                {
                                                     ev.prevent_default();
 
                                                     // Remove one semantic soft break at a time (ignore the trailing placeholder).
@@ -2493,7 +2516,7 @@ pub fn OutlineNode(
                                                     return;
                                                 }
 
-                                                if (key == "Backspace" || key == "Delete") && is_truly_empty {
+                                                if (key == "Backspace" || key == "Delete") && state == RoamDeleteState::Empty {
                                                     ev.prevent_default();
 
                                                     let nav_id_now = nav_id_sv.get_value();
@@ -2882,5 +2905,29 @@ pub fn OutlineNode(
                 .into_any()
             }}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod editor_delete_behavior_tests {
+    use super::*;
+
+    #[test]
+    fn test_has_any_text_content() {
+        assert!(!has_any_text_content(""));
+        assert!(!has_any_text_content(" \n\t"));
+        assert!(has_any_text_content("a"));
+        assert!(has_any_text_content(" 爱 "));
+    }
+
+    #[test]
+    fn test_roam_delete_state() {
+        assert_eq!(roam_delete_state(true, 0), RoamDeleteState::HasContent);
+        assert_eq!(roam_delete_state(true, 3), RoamDeleteState::HasContent);
+
+        assert_eq!(roam_delete_state(false, 2), RoamDeleteState::OnlySoftBreaks);
+        assert_eq!(roam_delete_state(false, 1), RoamDeleteState::OnlySoftBreaks);
+
+        assert_eq!(roam_delete_state(false, 0), RoamDeleteState::Empty);
     }
 }
