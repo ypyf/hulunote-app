@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod components;
+mod drafts;
 mod editor;
 mod models;
 mod pages;
@@ -19,6 +20,10 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_tests {
     use crate::api::ApiClient;
+    use crate::drafts::{
+        get_nav_override, get_title_override, mark_nav_synced, mark_title_synced, touch_nav,
+        touch_title,
+    };
     use crate::editor::insert_soft_line_break_dom;
     use crate::models::AccountInfo;
     use crate::storage::{load_user_from_storage, save_user_to_storage};
@@ -52,6 +57,39 @@ mod wasm_tests {
         save_user_to_storage(&user);
         let loaded = load_user_from_storage().expect("should load user from localStorage");
         assert_eq!(loaded.extra["username"], "u");
+    }
+
+    #[wasm_bindgen_test]
+    fn test_note_draft_nav_and_title_overrides_with_synced_ms_gate() {
+        let db_id = "db-test";
+        let note_id = "note-test";
+        let nav_id = "nav-test";
+
+        // Cleanup any prior runs.
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.remove_item(&format!("hulunote_draft_note::{db_id}::{note_id}"));
+        }
+
+        // Title: touching creates override.
+        touch_title(db_id, note_id, "t1");
+        assert_eq!(get_title_override(db_id, note_id, "server"), "t1");
+
+        // After marking synced beyond updated, override should fall back to server.
+        mark_title_synced(db_id, note_id, i64::MAX);
+        assert_eq!(get_title_override(db_id, note_id, "server"), "server");
+
+        // Nav: touching creates override.
+        touch_nav(db_id, note_id, nav_id, "c1");
+        assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), "c1");
+
+        // After marking synced beyond updated, override should fall back to server content.
+        mark_nav_synced(db_id, note_id, nav_id, i64::MAX);
+        assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), "sv");
+
+        // Cleanup.
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.remove_item(&format!("hulunote_draft_note::{db_id}::{note_id}"));
+        }
     }
 
     #[wasm_bindgen_test]

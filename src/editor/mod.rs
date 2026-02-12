@@ -1,8 +1,10 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
+use crate::drafts::{get_nav_override, mark_nav_synced, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
+use crate::util::now_ms;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::html;
 use leptos::prelude::*;
@@ -1216,12 +1218,17 @@ pub fn OutlineNode(
                                                     let editing_snapshot = editing_snapshot;
                                                     let target_cursor_col = target_cursor_col;
 
+                                                    let db_id = app_state.0.current_database_id.get_untracked().unwrap_or_default();
+                                                    let note_id = note_id_sv.get_value();
+
                                                     let cb = Closure::<dyn FnMut()>::new(move || {
+                                                        let restored = get_nav_override(&db_id, &note_id, &id, &next_value);
+
                                                         editing_id.set(Some(id.clone()));
-                                                        editing_value.set(next_value.clone());
-                                                        editing_snapshot.set(Some((id.clone(), next_value.clone())));
+                                                        editing_value.set(restored.clone());
+                                                        editing_snapshot.set(Some((id.clone(), restored.clone())));
                                                         // Default caret position: end of content.
-                                                        target_cursor_col.set(Some(next_value.encode_utf16().count() as u32));
+                                                        target_cursor_col.set(Some(restored.encode_utf16().count() as u32));
                                                     });
                                                     let _ = window()
                                                         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -1582,6 +1589,17 @@ pub fn OutlineNode(
                                                 let v = ce_text(&el);
                                                 editing_value.set(v.clone());
 
+                                                // Local-first: store draft at note-level aggregate.
+                                                let db_id = app_state_sv
+                                                    .get_value()
+                                                    .0
+                                                    .current_database_id
+                                                    .get_untracked()
+                                                    .unwrap_or_default();
+                                                let note_id = note_id_sv.get_value();
+                                                let nav_id = nav_id_sv.get_value();
+                                                touch_nav(&db_id, &note_id, &nav_id, &v);
+
                                                 // Autocomplete: detect an unclosed `[[...` immediately before the caret.
                                                 let (caret_utf16, _caret_end_utf16, _len) = ce_selection_utf16(&el);
 
@@ -1716,7 +1734,12 @@ pub fn OutlineNode(
                                                     let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                 });
 
-                                                if should_save {                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                if should_save {
+                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    let db_id = app_state.0.current_database_id.get_untracked().unwrap_or_default();
+                                                    let note_id_now2 = note_id_now.clone();
+                                                    let nav_id_now2 = nav_id_now.clone();
+
                                                     let req = CreateOrUpdateNavRequest {
                                                         note_id: note_id_now,
                                                         id: Some(nav_id_now.clone()),
@@ -1728,7 +1751,9 @@ pub fn OutlineNode(
                                                         properties: None,
                                                     };
                                                     spawn_local(async move {
-                                                        let _ = api_client.upsert_nav(req).await;
+                                                        if api_client.upsert_nav(req).await.is_ok() {
+                                                            mark_nav_synced(&db_id, &note_id_now2, &nav_id_now2, now_ms());
+                                                        }
                                                     });
                                                 }
                                             }}
