@@ -4,6 +4,7 @@ use crate::components::ui::{
     CardHeader, CardTitle, Input, Label, Spinner,
 };
 use crate::editor::OutlineEditor;
+use crate::drafts::{get_title_override, mark_title_synced, touch_title};
 use crate::models::{Nav, Note};
 use crate::state::{AppContext, DbUiActions};
 use crate::storage::{
@@ -1733,6 +1734,9 @@ pub fn NotePage() -> impl IntoView {
     let saving: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
 
+    // Title server sync: idle debounce timer handle.
+    let title_debounce_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
+
     // Phase 7: backlinks (MVP)
     let all_db_navs: RwSignal<Vec<Nav>> = RwSignal::new(vec![]);
     let all_db_navs_loading: RwSignal<bool> = RwSignal::new(false);
@@ -1888,12 +1892,24 @@ pub fn NotePage() -> impl IntoView {
             // If we navigated to a different note, sync title input immediately.
             if title_note_id.get() != id {
                 title_note_id.set(id.clone());
-                title_value.set(n.title.clone());
-                title_original.set(n.title.clone());
+
+                // Local-first title draft (note-level aggregate): restore only if newer than synced.
+                let v = get_title_override(&db, &id, &n.title);
+                title_value.set(v.clone());
+                title_original.set(v);
+
+                // Clear any pending title debounce when switching notes.
+                if let Some(win) = web_sys::window() {
+                    if let Some(tid) = title_debounce_timer_id.get_untracked() {
+                        let _ = win.clear_timeout_with_handle(tid);
+                    }
+                }
+                title_debounce_timer_id.set(None);
             } else if title_value.get().trim().is_empty() {
                 // Only overwrite local input when it's empty (avoid clobbering user typing).
-                title_value.set(n.title.clone());
-                title_original.set(n.title.clone());
+                let v = get_title_override(&db, &id, &n.title);
+                title_value.set(v.clone());
+                title_original.set(v);
             }
 
             // Phase 5.5: recent notes (local)
@@ -1940,6 +1956,7 @@ pub fn NotePage() -> impl IntoView {
                 Ok(_) => {
                     // Mark new title as saved.
                     title_original.set(new_title.clone());
+                    mark_title_synced(&db, &id, crate::util::now_ms());
 
                     // Refresh notes list.
                     let c = app_state.0.api_client.get_untracked();
@@ -2231,6 +2248,49 @@ pub fn NotePage() -> impl IntoView {
                         bind_value=title_value
                         class="h-10 min-w-0 flex-1 text-lg font-semibold"
                         placeholder="Untitled"
+                        on:input=move |ev: web_sys::Event| {
+                            let db = db_id();
+                            let id = note_id();
+                            if db.trim().is_empty() || id.trim().is_empty() {
+                                return;
+                            }
+
+                            let v = ev
+                                .target()
+                                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                .map(|t| t.value())
+                                .unwrap_or_else(|| title_value.get_untracked());
+
+                            touch_title(&db, &id, &v);
+
+                            // idle debounce server sync (1200ms)
+                            if let Some(win) = web_sys::window() {
+                                if let Some(tid) = title_debounce_timer_id.get_untracked() {
+                                    let _ = win.clear_timeout_with_handle(tid);
+                                }
+
+                                let api_client = app_state.0.api_client.get_untracked();
+                                let db2 = db.clone();
+                                let id2 = id.clone();
+                                let v2 = v.clone();
+
+                                let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+                                    spawn_local(async move {
+                                        if api_client.update_note_title(&id2, &v2).await.is_ok() {
+                                            mark_title_synced(&db2, &id2, crate::util::now_ms());
+                                        }
+                                    });
+                                });
+
+                                let tid = win
+                                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                        cb.as_ref().unchecked_ref(),
+                                        1200,
+                                    )
+                                    .unwrap_or(0);
+                                title_debounce_timer_id.set(Some(tid));
+                            }
+                        }
                         on:blur=move |_| save_title()
                         on:keydown=move |ev: web_sys::KeyboardEvent| {
                             if ev.key() == "Enter" {

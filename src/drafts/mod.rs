@@ -7,5 +7,4 @@ pub(crate) use note::{
     mark_title_synced,
     touch_nav,
     touch_title,
-    NoteDraft,
 };
