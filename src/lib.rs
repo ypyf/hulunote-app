@@ -19,6 +19,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_tests {
     use crate::api::ApiClient;
+    use crate::editor::insert_soft_line_break_dom;
     use crate::models::AccountInfo;
     use crate::storage::{load_user_from_storage, save_user_to_storage};
     use wasm_bindgen_test::*;
@@ -51,6 +52,35 @@ mod wasm_tests {
         save_user_to_storage(&user);
         let loaded = load_user_from_storage().expect("should load user from localStorage");
         assert_eq!(loaded.extra["username"], "u");
+    }
+
+    #[wasm_bindgen_test]
+    fn test_insert_soft_line_break_dom_twice_advances_caret() {
+        let doc = web_sys::window().unwrap().document().unwrap();
+        let el = doc.create_element("div").unwrap();
+        el.set_attribute("contenteditable", "true").unwrap();
+        el.set_text_content(Some("a"));
+        doc.body().unwrap().append_child(&el).unwrap();
+
+        let he: web_sys::HtmlElement = el.unchecked_into();
+
+        // Place caret at end.
+        let sel = doc.get_selection().unwrap().unwrap();
+        sel.remove_all_ranges().unwrap();
+        let range = doc.create_range().unwrap();
+        let text_node = he.first_child().unwrap();
+        range.set_start(&text_node, 1).unwrap();
+        range.collapse_with_to_start(true).unwrap();
+        sel.add_range(&range).unwrap();
+
+        assert!(insert_soft_line_break_dom(&he));
+        assert!(insert_soft_line_break_dom(&he));
+
+        // Two soft breaks after "a".
+        let html = he.inner_html().to_lowercase();
+        assert!(html.starts_with("a"));
+        assert!(html.contains("<br"));
+        assert!(html.matches("<br").count() >= 2);
     }
 }
 

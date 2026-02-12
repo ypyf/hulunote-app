@@ -4,7 +4,7 @@ This document describes how to run tests for `hulunote-app`.
 
 ## 1) Unit Tests (host)
 
-Run the standard Rust unit tests:
+Run the standard Rust unit tests (fast feedback; covers pure Rust logic):
 
 ```bash
 cargo test
@@ -12,7 +12,14 @@ cargo test
 
 ## 2) WASM tests (wasm-bindgen-test)
 
-Some tests are WASM-only (e.g., localStorage round-trips). These require:
+WASM tests are a **separate test suite** from host tests.
+
+- `cargo test --target wasm32-unknown-unknown` does **NOT** run host tests.
+- `cargo test` (host) does **NOT** run wasm32 tests.
+
+To avoid missing coverage, run **both** suites when validating changes.
+
+Some tests are WASM-only (e.g., localStorage round-trips, DOM/contenteditable/Selection behavior). These require:
 - `wasm32-unknown-unknown` target
 - `wasm-bindgen-test-runner`
 - A working WebDriver + browser
@@ -27,6 +34,19 @@ cargo install wasm-bindgen-cli --version 0.2.108
 ### 2.2 Run WASM tests
 
 ```bash
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+  cargo test --target wasm32-unknown-unknown
+```
+
+### 2.3 Recommended validation (avoid missing coverage)
+
+For changes that may affect user behavior (especially DOM/editor behavior), run:
+
+```bash
+# Host suite
+cargo test
+
+# Browser suite
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test --target wasm32-unknown-unknown
 ```

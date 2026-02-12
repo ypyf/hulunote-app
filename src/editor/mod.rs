@@ -335,6 +335,57 @@ pub(crate) fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
     format!("tmp-{now_ms}-{rand}")
 }
 
+/// Insert a soft line break at the current selection inside a contenteditable element.
+///
+/// This uses DOM Selection/Range APIs so caret movement is handled by the browser.
+/// Returns true if we inserted a break, false otherwise.
+pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> bool {
+    let _ = input_el.focus();
+
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return false;
+    };
+
+    let Ok(Some(sel)) = doc.get_selection() else {
+        return false;
+    };
+
+    if sel.range_count() == 0 {
+        return false;
+    }
+
+    let Ok(range) = sel.get_range_at(0) else {
+        return false;
+    };
+
+    // Only handle if selection is inside this editor element.
+    let container_ok = range
+        .common_ancestor_container()
+        .map(|n| {
+            let root: web_sys::Node = input_el.clone().unchecked_into();
+            root.contains(Some(&n))
+        })
+        .unwrap_or(false);
+    if !container_ok {
+        return false;
+    }
+
+    let _ = range.delete_contents();
+    let Ok(br) = doc.create_element("br") else {
+        return false;
+    };
+    let br_node: web_sys::Node = br.unchecked_into();
+    let _ = range.insert_node(&br_node);
+
+    // Move caret to after <br>.
+    let _ = range.set_start_after(&br_node);
+    let _ = range.collapse_with_to_start(true);
+    let _ = sel.remove_all_ranges();
+    let _ = sel.add_range(&range);
+
+    true
+}
+
 pub(crate) fn swap_tmp_nav_id(navs: &mut [Nav], tmp_id: &str, real_id: &str) -> bool {
     if let Some(n) = navs.iter_mut().find(|n| n.id == tmp_id) {
         n.id = real_id.to_string();
@@ -2337,20 +2388,10 @@ pub fn OutlineNode(
                                                     ev.prevent_default();
 
                                                     if let Some(input_el) = input() {
-                                                        let v = ce_text(&input_el);
-                                                        let (start_utf16, end_utf16, _len) = ce_selection_utf16(&input_el);
-
-                                                        let start_b = utf16_to_byte_idx(&v, start_utf16);
-                                                        let end_b = utf16_to_byte_idx(&v, end_utf16);
-
-                                                        let mut next = String::new();
-                                                        next.push_str(&v[..start_b.min(v.len())]);
-                                                        next.push('\n');
-                                                        next.push_str(&v[end_b.min(v.len())..]);
-
-                                                        ce_set_text(&input_el, &next);
-                                                        editing_value.set(next);
-                                                        ce_set_caret_utf16(&input_el, start_utf16 + 1);
+                                                        if insert_soft_line_break_dom(&input_el) {
+                                                            // Sync signal from DOM.
+                                                            editing_value.set(ce_text(&input_el));
+                                                        }
                                                     }
                                                     return;
                                                 }
