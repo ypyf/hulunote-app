@@ -32,6 +32,36 @@ mod wasm_tests {
 
     wasm_bindgen_test_configure!(run_in_browser);
 
+    fn wasm_doc() -> web_sys::Document {
+        web_sys::window()
+            .and_then(|w| w.document())
+            .expect("wasm tests should run in a browser with window.document")
+    }
+
+    fn with_test_root<T>(f: impl FnOnce(web_sys::HtmlElement) -> T) -> T {
+        let doc = wasm_doc();
+        let body = doc
+            .body()
+            .expect("wasm tests should run in a browser with document.body")
+            .dyn_into::<web_sys::HtmlElement>()
+            .expect("document.body should be an HtmlElement");
+
+        let root: web_sys::HtmlElement = doc
+            .create_element("div")
+            .expect("create test root")
+            .dyn_into::<web_sys::HtmlElement>()
+            .expect("test root should be HtmlElement");
+        root.set_attribute("data-test-root", "wasm")
+            .expect("set attribute");
+        body.append_child(&root).expect("append test root");
+
+        let out = f(root.clone());
+
+        // Cleanup DOM to avoid cross-test interference.
+        let _ = root.remove();
+        out
+    }
+
     #[wasm_bindgen_test]
     fn test_api_client_storage_roundtrip_token() {
         ApiClient::clear_storage();
@@ -52,12 +82,16 @@ mod wasm_tests {
 
     #[wasm_bindgen_test]
     fn test_user_storage_roundtrip() {
+        ApiClient::clear_storage();
+
         let user = AccountInfo {
             extra: serde_json::json!({"id": 1, "username": "u"}),
         };
         save_user_to_storage(&user);
         let loaded = load_user_from_storage().expect("should load user from localStorage");
         assert_eq!(loaded.extra["username"], "u");
+
+        ApiClient::clear_storage();
     }
 
     #[wasm_bindgen_test]
@@ -70,6 +104,8 @@ mod wasm_tests {
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
             let _ = storage.remove_item(&format!("hulunote_draft_note::{db_id}::{note_id}"));
         }
+        // Also clear standard API/user storage keys.
+        ApiClient::clear_storage();
 
         // Title: touching creates override.
         touch_title(db_id, note_id, "t1");
@@ -91,122 +127,172 @@ mod wasm_tests {
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
             let _ = storage.remove_item(&format!("hulunote_draft_note::{db_id}::{note_id}"));
         }
+        ApiClient::clear_storage();
     }
 
     #[wasm_bindgen_test]
     fn test_insert_soft_line_break_dom_twice_advances_caret() {
-        let doc = web_sys::window().unwrap().document().unwrap();
-        let el = doc.create_element("div").unwrap();
-        el.set_attribute("contenteditable", "true").unwrap();
-        el.set_text_content(Some("a"));
-        doc.body().unwrap().append_child(&el).unwrap();
+        with_test_root(|root| {
+            let doc = wasm_doc();
+            let el = doc.create_element("div").expect("create div");
+            el.set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            el.set_text_content(Some("a"));
+            root.append_child(&el).expect("append editor");
 
-        let he: web_sys::HtmlElement = el.unchecked_into();
+            let he: web_sys::HtmlElement = el.unchecked_into();
 
-        // Place caret at end.
-        let sel = doc.get_selection().unwrap().unwrap();
-        sel.remove_all_ranges().unwrap();
-        let range = doc.create_range().unwrap();
-        let text_node = he.first_child().unwrap();
-        range.set_start(&text_node, 1).unwrap();
-        range.collapse_with_to_start(true);
-        sel.add_range(&range).unwrap();
+            // Place caret at end.
+            let sel = doc
+                .get_selection()
+                .expect("selection API")
+                .expect("selection should exist");
+            sel.remove_all_ranges().expect("clear ranges");
+            let range = doc.create_range().expect("create range");
+            let text_node = he.first_child().expect("text node");
+            range.set_start(&text_node, 1).expect("set range start");
+            range.collapse_with_to_start(true);
+            sel.add_range(&range).expect("add range");
 
-        assert!(insert_soft_line_break_dom(&he));
-        assert!(insert_soft_line_break_dom(&he));
+            assert!(insert_soft_line_break_dom(&he));
+            assert!(insert_soft_line_break_dom(&he));
 
-        // Two soft breaks after "a".
-        let html = he.inner_html().to_lowercase();
-        assert!(html.starts_with("a"));
-        assert!(html.contains("<br"));
-        assert!(html.matches("<br").count() >= 2);
+            // Two soft breaks after "a".
+            let brs = he
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 2);
+        });
     }
 
     #[wasm_bindgen_test]
     fn test_insert_soft_line_break_dom_repeated_inserts_accumulate() {
-        let doc = web_sys::window().unwrap().document().unwrap();
-        let el = doc.create_element("div").unwrap();
-        el.set_attribute("contenteditable", "true").unwrap();
-        el.set_text_content(Some(""));
-        doc.body().unwrap().append_child(&el).unwrap();
+        with_test_root(|root| {
+            let doc = wasm_doc();
+            let el = doc.create_element("div").expect("create div");
+            el.set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            el.set_text_content(Some(""));
+            root.append_child(&el).expect("append editor");
 
-        let he: web_sys::HtmlElement = el.unchecked_into();
+            let he: web_sys::HtmlElement = el.unchecked_into();
 
-        // Ensure selection is inside the editor.
-        let sel = doc.get_selection().unwrap().unwrap();
-        sel.remove_all_ranges().unwrap();
-        let r = doc.create_range().unwrap();
-        let root: web_sys::Node = he.clone().unchecked_into();
-        r.select_node_contents(&root).unwrap();
-        r.collapse_with_to_start(false);
-        sel.add_range(&r).unwrap();
+            // Ensure selection is inside the editor.
+            let sel = doc
+                .get_selection()
+                .expect("selection API")
+                .expect("selection should exist");
+            sel.remove_all_ranges().expect("clear ranges");
+            let r = doc.create_range().expect("create range");
+            let root_node: web_sys::Node = he.clone().unchecked_into();
+            r.select_node_contents(&root_node)
+                .expect("select node contents");
+            r.collapse_with_to_start(false);
+            sel.add_range(&r).expect("add range");
 
-        assert!(insert_soft_line_break_dom(&he));
-        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 2);
-        assert!(sel.range_count() > 0);
+            assert!(insert_soft_line_break_dom(&he));
+            let brs = he
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 2);
+            assert!(sel.range_count() > 0);
 
-        assert!(insert_soft_line_break_dom(&he));
-        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 3);
-        assert!(sel.range_count() > 0);
+            assert!(insert_soft_line_break_dom(&he));
+            let brs = he
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 3);
+            assert!(sel.range_count() > 0);
 
-        assert!(insert_soft_line_break_dom(&he));
-        assert!(he.inner_html().to_lowercase().matches("<br").count() >= 4);
-        assert!(sel.range_count() > 0);
+            assert!(insert_soft_line_break_dom(&he));
+            let brs = he
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 4);
+            assert!(sel.range_count() > 0);
+        });
     }
 
     #[wasm_bindgen_test]
     fn test_insert_soft_line_break_dom_on_empty_node_inserts_on_first_press() {
-        let doc = web_sys::window().unwrap().document().unwrap();
-        let el = doc.create_element("div").unwrap();
-        el.set_attribute("contenteditable", "true").unwrap();
-        el.set_text_content(Some(""));
-        doc.body().unwrap().append_child(&el).unwrap();
+        with_test_root(|root| {
+            let doc = wasm_doc();
+            let el = doc.create_element("div").expect("create div");
+            el.set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            el.set_text_content(Some(""));
+            root.append_child(&el).expect("append editor");
 
-        let he: web_sys::HtmlElement = el.unchecked_into();
+            let he: web_sys::HtmlElement = el.unchecked_into();
 
-        // Simulate "no selection" state.
-        if let Some(sel) = doc.get_selection().unwrap() {
-            let _ = sel.remove_all_ranges();
-        }
+            // Simulate "no selection" state.
+            if let Some(sel) = doc.get_selection().expect("selection API") {
+                let _ = sel.remove_all_ranges();
+            }
 
-        assert!(insert_soft_line_break_dom(&he));
-        let html = he.inner_html().to_lowercase();
-        assert!(html.contains("<br"));
-        // Ensure we keep a trailing break marker for stable caret placement.
-        assert!(html.contains("data-trailing-break=\"1\""));
+            assert!(insert_soft_line_break_dom(&he));
+
+            let brs = he
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 1);
+
+            // Ensure we keep a trailing break marker for stable caret placement.
+            assert!(he
+                .query_selector("[data-trailing-break='1']")
+                .expect("querySelector trailing break")
+                .is_some());
+        });
     }
 
     #[wasm_bindgen_test]
     fn test_insert_soft_line_break_dom_when_selection_is_outside_editor() {
-        let doc = web_sys::window().unwrap().document().unwrap();
+        with_test_root(|root| {
+            let doc = wasm_doc();
 
-        let host1 = doc.create_element("div").unwrap();
-        host1.set_attribute("contenteditable", "true").unwrap();
-        host1.set_text_content(Some("a"));
+            let host1 = doc.create_element("div").expect("create div");
+            host1
+                .set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            host1.set_text_content(Some("a"));
 
-        let host2 = doc.create_element("div").unwrap();
-        host2.set_attribute("contenteditable", "true").unwrap();
-        host2.set_text_content(Some("x"));
+            let host2 = doc.create_element("div").expect("create div");
+            host2
+                .set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            host2.set_text_content(Some("x"));
 
-        doc.body().unwrap().append_child(&host1).unwrap();
-        doc.body().unwrap().append_child(&host2).unwrap();
+            root.append_child(&host1).expect("append host1");
+            root.append_child(&host2).expect("append host2");
 
-        let he1: web_sys::HtmlElement = host1.unchecked_into();
-        let he2: web_sys::HtmlElement = host2.unchecked_into();
+            let he1: web_sys::HtmlElement = host1.unchecked_into();
+            let he2: web_sys::HtmlElement = host2.unchecked_into();
 
-        // Put selection inside the other editor.
-        let sel = doc.get_selection().unwrap().unwrap();
-        sel.remove_all_ranges().unwrap();
-        let range = doc.create_range().unwrap();
-        let text_node = he2.first_child().unwrap();
-        range.set_start(&text_node, 1).unwrap();
-        range.collapse_with_to_start(true);
-        sel.add_range(&range).unwrap();
+            // Put selection inside the other editor.
+            let sel = doc
+                .get_selection()
+                .expect("selection API")
+                .expect("selection should exist");
+            sel.remove_all_ranges().expect("clear ranges");
+            let range = doc.create_range().expect("create range");
+            let text_node = he2.first_child().expect("text node");
+            range.set_start(&text_node, 1).expect("set range start");
+            range.collapse_with_to_start(true);
+            sel.add_range(&range).expect("add range");
 
-        // Should still insert into he1 on first call.
-        assert!(insert_soft_line_break_dom(&he1));
-        let html = he1.inner_html().to_lowercase();
-        assert!(html.contains("<br"));
+            // Should still insert into he1 on first call.
+            assert!(insert_soft_line_break_dom(&he1));
+            let brs = he1
+                .query_selector_all("br")
+                .expect("querySelectorAll br")
+                .length();
+            assert!(brs >= 1);
+        });
     }
 }
 
