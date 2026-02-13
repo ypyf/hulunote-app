@@ -1319,7 +1319,12 @@ pub fn OutlineNode(
                                     let is_editing = editing_id.get().as_deref() == Some(id.as_str());
 
                                     if !is_editing {
-                                        let content_now = n.content.clone();
+                                        // When not editing, still reflect local-first drafts stored in localStorage.
+                                        // Otherwise a refresh shows stale server content until the user re-enters edit mode.
+                                        let db_id = app_state.0.current_database_id.get_untracked().unwrap_or_default();
+                                        let note_id = note_id_sv.get_value();
+                                        let id_now = nav_id_sv.get_value();
+                                        let content_now = get_nav_override(&db_id, &note_id, &id_now, &n.content);
                                         let content_for_click = content_now.clone();
 
                                         // Ensure empty nodes still have a clickable area.
