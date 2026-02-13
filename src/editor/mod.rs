@@ -894,13 +894,13 @@ pub fn OutlineEditor(
 
     // Click-to-exit: clicking on non-editable blank space exits editing mode.
     let _mouse_handle = window_event_listener(ev::mousedown, move |ev: web_sys::MouseEvent| {
-        if editing_id.get_untracked().is_none() {
+        if editing_id.try_get_untracked().flatten().is_none() {
             return;
         }
 
         if should_exit_edit_on_mousedown_target(ev.target()) {
             // Best-effort flush before exiting.
-            flush_note_drafts.with_value(|f| f());
+            let _ = flush_note_drafts.try_with_value(|f| f());
             editing_id.set(None);
             editing_snapshot.set(None);
         }
@@ -964,7 +964,7 @@ pub fn OutlineEditor(
 
         let tick = retry_tick;
         let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            tick.with_value(|f| f());
+            let _ = tick.try_with_value(|f| f());
         }) as Box<dyn FnMut()>);
 
         let tid = win
@@ -974,12 +974,20 @@ pub fn OutlineEditor(
             )
             .unwrap_or(0);
         retry_timer_id.set(Some(tid));
+
+        // Stop the interval when the editor unmounts to avoid calling disposed reactive values.
+        on_cleanup(move || {
+            if let Some(win) = web_sys::window() {
+                let _ = win.clear_interval_with_handle(tid);
+            }
+        });
+
         cb.forget();
     });
 
     // Kick retry tick on reconnect.
     let _online_handle = window_event_listener(ev::online, move |_ev: web_sys::Event| {
-        retry_tick.with_value(|f| f());
+        let _ = retry_tick.try_with_value(|f| f());
     });
 
     // Best-effort flush on page hide (refresh/close/navigation) — keep it beacon/keepalive-friendly.
@@ -1005,7 +1013,7 @@ pub fn OutlineEditor(
 
             drafts.sort_by(|a, b| b.2.cmp(&a.2));
 
-            let editing = editing_id.get_untracked();
+            let editing = editing_id.try_get_untracked().flatten();
             let mut picked: Vec<(String, String, i64)> = Vec::new();
 
             if let Some(editing_nav) = editing {
