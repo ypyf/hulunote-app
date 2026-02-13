@@ -2940,6 +2940,19 @@ pub fn DbHomePage() -> impl IntoView {
                                             load_notes_for_sv.with_value(|f| {
                                                 f(id.clone(), true);
                                             });
+
+                                            if note.id.trim().is_empty() {
+                                                leptos::logging::error!(
+                                                    "create_note succeeded but returned empty note id; refusing to navigate: title={}",
+                                                    title
+                                                );
+                                                create_note_error.set(Some(
+                                                    "Create note failed: empty note id in response".to_string(),
+                                                ));
+                                                create_note_loading.set(false);
+                                                return;
+                                            }
+
                                             navigate.with_value(|nav| {
                                                 nav(
                                                     &format!("/db/{}/note/{}", id, note.id),

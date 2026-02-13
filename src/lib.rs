@@ -126,7 +126,10 @@ mod wasm_tests {
         // Newlines must be preserved in local drafts (Shift+Enter produces soft breaks).
         let with_newlines = "a\nb\n";
         touch_nav(db_id, note_id, nav_id, with_newlines);
-        assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), with_newlines);
+        assert_eq!(
+            get_nav_override(db_id, note_id, nav_id, "sv"),
+            with_newlines
+        );
 
         // After marking synced beyond updated, override should fall back to server content.
         mark_nav_synced(db_id, note_id, nav_id, i64::MAX);
