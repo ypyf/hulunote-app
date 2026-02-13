@@ -950,11 +950,20 @@ pub fn OutlineEditor(
 
             <div class=move || {
                 if editing_id.get().is_some() {
-                    "mt-2 outline-editor outline-editor--editing"
+                    "mt-2 outline-editor outline-editor--editing relative"
                 } else {
-                    "mt-2 outline-editor"
+                    "mt-2 outline-editor relative"
                 }
             }>
+                // Loading overlay (does not affect layout; avoids content shift).
+                <Show when=move || loading.get() fallback=|| ().into_view()>
+                    <div class="absolute inset-0 z-10 flex items-center justify-center bg-background/40">
+                        <div class="flex items-center justify-center rounded-md bg-background/70 p-2 shadow">
+                            <Spinner class="size-4" />
+                        </div>
+                    </div>
+                </Show>
+
                 {move || {
                     let all = navs.get();
                     let root = "00000000-0000-0000-0000-000000000000";
@@ -970,18 +979,8 @@ pub fn OutlineEditor(
                         .unwrap_or(std::cmp::Ordering::Equal));
 
                     if roots.is_empty() {
-                        if loading.get() {
-                            view! {
-                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Spinner class="size-3" />
-                                    "Loading…"
-                                </div>
-                            }
+                        view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
                             .into_any()
-                        } else {
-                            view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
-                                .into_any()
-                        }
                     } else {
                         let nid_sv = StoredValue::new(note_id());
                         let root_ids_sv = StoredValue::new(
@@ -1418,7 +1417,7 @@ pub fn OutlineNode(
                                             .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
                                             .and_then(|el| el.closest(".outline-row").ok().flatten())
                                         {
-                                            // Anchor the drag preview under the cursor to avoid the “jump” feeling.
+                                            // Anchor the drag preview under the cursor to avoid the "jump" feeling.
                                             let rect = row.get_bounding_client_rect();
                                             let ox = ((ev.client_x() as f64) - rect.left()).round() as i32;
                                             let oy = ((ev.client_y() as f64) - rect.top()).round() as i32;
