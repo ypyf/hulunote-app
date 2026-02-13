@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::api::CreateOrUpdateNavRequest;
 use crate::cache::{load_note_snapshot, save_note_snapshot};
 use crate::components::hooks::use_random::use_random_id_for;
@@ -2277,7 +2278,7 @@ pub fn OutlineNode(
 
                                                 // Helpers for wiki-style navigation
 
-                                                let save_current = |nav_id_now: &str, note_id_now: &str| {
+                                                let save_current = |nav_id_now: &str, _note_id_now: &str| {
                                                     let current_content = editing_value.get_untracked();
                                                     navs.update(|xs| {
                                                         if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
@@ -2296,20 +2297,11 @@ pub fn OutlineNode(
                                                         });
 
                                                     if should_save {
-                                                        let api_client = app_state.0.api_client.get_untracked();
-                                                        let save_req = CreateOrUpdateNavRequest {
-                                                            note_id: note_id_now.to_string(),
-                                                            id: Some(nav_id_now.to_string()),
-                                                            parid: None,
-                                                            content: Some(current_content),
-                                                            order: None,
-                                                            is_display: None,
-                                                            is_delete: None,
-                                                            properties: None,
-                                                        };
-
-                                                        spawn_local(async move {
-                                                            let _ = api_client.upsert_nav(save_req).await;
+                                                        // Local-first: persist content to drafts; sync controller handles network.
+                                                        let nav_id_now2 = nav_id_now.to_string();
+                                                        let current_content2 = current_content.clone();
+                                                        let _ = sync_sv.try_with_value(|s| {
+                                                            s.on_nav_changed(&nav_id_now2, &current_content2);
                                                         });
                                                     }
                                                 };
@@ -2356,7 +2348,7 @@ pub fn OutlineNode(
                                                     target_cursor_col.set(Some(cursor_col));
 
                                                     let nav_id_now = nav_id_sv.get_value();
-                                                    let note_id_now = note_id_sv.get_value();
+                                                    let _note_id_now = note_id_sv.get_value();
                                                     let current_content = editing_value.get_untracked();
 
                                                     let all = navs.get_untracked();
@@ -2419,21 +2411,19 @@ pub fn OutlineNode(
                                                         // work (and gets slower as the outline grows).
                                                     });
 
-                                                    // Persist to backend.
-                                                    let api_client = app_state.0.api_client.get_untracked();
-                                                    let req = CreateOrUpdateNavRequest {
-                                                        note_id: note_id_now,
-                                                        id: Some(nav_id_now.clone()),
-                                                        parid: None,
-                                                        content: Some(current_content.clone()),
-                                                        order: Some(new_order),
-                                                        is_display: None,
-                                                        is_delete: None,
-                                                        properties: None,
-                                                    };
-                                                    spawn_local(async move {
-                                                        let _ = api_client.upsert_nav(req).await;
+                                                    // Local-first: persist reorder meta; sync controller handles network.
+                                                    navs.update(|xs| {
+                                                        if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
+                                                            x.same_deep_order = new_order;
+                                                        }
                                                     });
+                                                    if let Some(n) = navs
+                                                        .get_untracked()
+                                                        .into_iter()
+                                                        .find(|n| n.id == nav_id_now)
+                                                    {
+                                                        let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+                                                    }
 
                                                     // Keep editing current node.
                                                     editing_id.set(Some(nav_id_now.clone()));
@@ -2602,20 +2592,14 @@ pub fn OutlineNode(
                                                                     }
                                                                 });
 
-                                                                let api_client = app_state.0.api_client.get_untracked();
-                                                                let req = CreateOrUpdateNavRequest {
-                                                                    note_id: note_id_now.clone(),
-                                                                    id: Some(nav_id_now.clone()),
-                                                                    parid: None,
-                                                                    content: None,
-                                                                    order: None,
-                                                                    is_display: Some(true),
-                                                                    is_delete: None,
-                                                                    properties: None,
-                                                                };
-                                                                spawn_local(async move {
-                                                                    let _ = api_client.upsert_nav(req).await;
-                                                                });
+                                                                // Local-first: persist expand meta; sync controller handles network.
+                                                                if let Some(n) = navs
+                                                                    .get_untracked()
+                                                                    .into_iter()
+                                                                    .find(|n| n.id == nav_id_now)
+                                                                {
+                                                                    let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+                                                                }
 
                                                                 editing_id.set(Some(first_child.id.clone()));
                                                                 editing_value.set(first_child.content.clone());
@@ -2643,7 +2627,7 @@ pub fn OutlineNode(
 
                                                     let shift = ev.shift_key();
                                                     let nav_id_now = nav_id_sv.get_value();
-                                                    let note_id_now = note_id_sv.get_value();
+                                                    let _note_id_now = note_id_sv.get_value();
 
                                                     let all = navs.get_untracked();
                                                     let Some(me) = all.iter().find(|x| x.id == nav_id_now) else {
@@ -2658,7 +2642,7 @@ pub fn OutlineNode(
                                                         }
                                                     });
 
-                                                    let api_client = app_state.0.api_client.get_untracked();
+                                                    // (local-first) no direct backend request here
 
                                                     if !shift {
                                                         // Indent: become child of previous sibling.
@@ -2702,20 +2686,14 @@ pub fn OutlineNode(
                                                             }
                                                         });
 
-                                                        let req = CreateOrUpdateNavRequest {
-                                                            note_id: note_id_now,
-                                                            id: Some(nav_id_now.clone()),
-                                                            parid: Some(new_parid),
-                                                            content: Some(current_content.clone()),
-                                                            order: Some(new_order),
-                                                            is_display: None,
-                                                            is_delete: None,
-                                                            properties: None,
-                                                        };
-
-                                                        spawn_local(async move {
-                                                            let _ = api_client.upsert_nav(req).await;
-                                                        });
+                                                        // Local-first: persist meta; sync controller handles network.
+                                                        if let Some(n) = navs
+                                                            .get_untracked()
+                                                            .into_iter()
+                                                            .find(|n| n.id == nav_id_now)
+                                                        {
+                                                            let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+                                                        }
                                                     } else {
                                                         // Outdent: become sibling of parent.
                                                         let parent_id = me.parid.clone();
@@ -2758,20 +2736,14 @@ pub fn OutlineNode(
                                                             }
                                                         });
 
-                                                        let req = CreateOrUpdateNavRequest {
-                                                            note_id: note_id_now,
-                                                            id: Some(nav_id_now.clone()),
-                                                            parid: Some(new_parid),
-                                                            content: Some(current_content.clone()),
-                                                            order: Some(new_order),
-                                                            is_display: None,
-                                                            is_delete: None,
-                                                            properties: None,
-                                                        };
-
-                                                        spawn_local(async move {
-                                                            let _ = api_client.upsert_nav(req).await;
-                                                        });
+                                                        // Local-first: persist meta; sync controller handles network.
+                                                        if let Some(n) = navs
+                                                            .get_untracked()
+                                                            .into_iter()
+                                                            .find(|n| n.id == nav_id_now)
+                                                        {
+                                                            let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+                                                        }
                                                     }
 
                                                     // Keep editing current node.

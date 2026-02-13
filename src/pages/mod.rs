@@ -1,4 +1,4 @@
-use crate::api::CreateOrUpdateNavRequest;
+// use crate::api::CreateOrUpdateNavRequest;
 use crate::cache::load_note_snapshot;
 use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
@@ -2128,7 +2128,7 @@ pub fn NotePage() -> impl IntoView {
 
         let api_client = app_state_for_draft.0.api_client.get_untracked();
         let app_state2 = app_state_for_draft.clone();
-        let draft_value2 = draft_value;
+        let _draft_value2 = draft_value;
         let title_norm = normalize_roam_page_title(&t);
         let navigate2 = navigate;
 
@@ -2184,64 +2184,64 @@ pub fn NotePage() -> impl IntoView {
                 }
             });
 
-            // Create first nav.
-            // Backend may have an explicit root container node; create under it when present.
+            // Create first nav (local-first): create a tmp node in local snapshot + drafts.
+            // Sync controller will create it on backend when online and swap tmp->real.
             let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
-            let root_parid = match api_client.get_note_navs(&note.id).await {
-                Ok(navs) => navs
-                    .into_iter()
-                    .find(|n| n.parid == root_container_parent_id)
-                    .map(|n| n.id)
-                    .unwrap_or_else(|| root_container_parent_id.to_string()),
-                Err(_) => root_container_parent_id.to_string(),
+            let (root_container_id, mut base_navs) = match api_client.get_note_navs(&note.id).await
+            {
+                Ok(navs) => {
+                    let cid = navs
+                        .iter()
+                        .find(|n| n.parid == root_container_parent_id)
+                        .map(|n| n.id.clone())
+                        .unwrap_or_else(|| root_container_parent_id.to_string());
+                    (cid, navs)
+                }
+                Err(_) => (root_container_parent_id.to_string(), vec![]),
             };
 
-            let create_req = CreateOrUpdateNavRequest {
+            let tmp_id = crate::editor::make_tmp_nav_id(
+                js_sys::Date::now() as u64,
+                (js_sys::Math::random() * 1e9) as u64,
+            );
+
+            // Persist snapshot (so refresh won't drop the first node).
+            base_navs.push(crate::models::Nav {
+                id: tmp_id.clone(),
                 note_id: note.id.clone(),
-                id: None,
-                parid: Some(root_parid),
-                content: Some(initial_content.clone()),
-                order: Some(0.0),
-                is_display: Some(true),
-                is_delete: Some(false),
+                parid: root_container_id.clone(),
+                same_deep_order: 1.0,
+                content: initial_content.clone(),
+                is_display: true,
+                is_delete: false,
                 properties: None,
-            };
+            });
+            crate::cache::save_note_snapshot(
+                &db,
+                &note.id,
+                Some(t.clone()),
+                base_navs.clone(),
+                crate::util::now_ms(),
+            );
 
-            let nav_id = match api_client.upsert_nav(create_req).await {
-                Ok(resp) => resp
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                Err(e) => {
-                    draft_creating.set(false);
-                    draft_error.set(Some(e.to_string()));
-                    return;
-                }
-            };
+            // Seed drafts for content/meta.
+            crate::drafts::touch_nav(&db, &note.id, &tmp_id, &initial_content);
+            crate::drafts::touch_nav_meta(
+                &db,
+                &note.id,
+                &crate::models::Nav {
+                    id: tmp_id.clone(),
+                    note_id: note.id.clone(),
+                    parid: root_container_id.clone(),
+                    same_deep_order: 1.0,
+                    content: initial_content.clone(),
+                    is_display: true,
+                    is_delete: false,
+                    properties: None,
+                },
+            );
 
-            if !nav_id.trim().is_empty() {
-                let content_now = draft_value2.get_untracked();
-                if content_now != initial_content {
-                    let save_req = CreateOrUpdateNavRequest {
-                        note_id: note.id.clone(),
-                        id: Some(nav_id.clone()),
-                        parid: None,
-                        content: Some(content_now),
-                        order: None,
-                        is_display: None,
-                        is_delete: None,
-                        properties: None,
-                    };
-                    let _ = api_client.upsert_nav(save_req).await;
-                }
-            }
-
-            let url = if nav_id.trim().is_empty() {
-                format!("/db/{}/note/{}", db, note.id)
-            } else {
-                format!("/db/{}/note/{}?focus_nav={}", db, note.id, nav_id)
-            };
+            let url = format!("/db/{}/note/{}?focus_nav={}", db, note.id, tmp_id);
 
             navigate2.with_value(|nav| {
                 nav(&url, leptos_router::NavigateOptions::default());
