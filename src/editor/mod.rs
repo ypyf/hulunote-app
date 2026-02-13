@@ -405,6 +405,32 @@ pub(crate) fn make_tmp_nav_id(now_ms: u64, rand: u64) -> String {
 ///
 /// This uses DOM Selection/Range APIs so caret movement is handled by the browser.
 /// Returns true if we inserted a break, false otherwise.
+pub(crate) fn should_exit_edit_on_focusout_related_target(
+    related: Option<web_sys::EventTarget>,
+) -> bool {
+    let Some(t) = related else {
+        return false;
+    };
+    let Ok(el) = t.dyn_into::<web_sys::Element>() else {
+        return false;
+    };
+
+    // If focus stays within outline editor, do NOT exit.
+    el.closest(".outline-editor").ok().flatten().is_none()
+}
+
+pub(crate) fn should_exit_edit_on_mousedown_target(target: Option<web_sys::EventTarget>) -> bool {
+    let Some(t) = target else {
+        return false;
+    };
+    let Ok(el) = t.dyn_into::<web_sys::Element>() else {
+        return false;
+    };
+
+    // Clicking inside an editor ([data-nav-id] contenteditable) should NOT exit.
+    el.closest("[data-nav-id]").ok().flatten().is_none()
+}
+
 pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> bool {
     let _ = input_el.focus();
 
@@ -737,28 +763,15 @@ pub fn OutlineEditor(
     // should exit editing mode. We cannot rely on `focusout.relatedTarget` here because clicking a
     // non-focusable element often yields `relatedTarget=None`.
     let _mouse_handle = window_event_listener(ev::mousedown, move |ev: web_sys::MouseEvent| {
-        let Some(target) = ev
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        else {
-            return;
-        };
-
         // If we are not currently editing, do nothing.
         if editing_id.get_untracked().is_none() {
             return;
         }
 
-        let in_editor = target.closest("[data-nav-id]").ok().flatten().is_some();
-
-        // Clicking inside a contenteditable editor should not exit edit mode.
-        if in_editor {
-            return;
+        if should_exit_edit_on_mousedown_target(ev.target()) {
+            editing_id.set(None);
+            editing_snapshot.set(None);
         }
-
-        // Clicking anywhere else exits edit mode (blank space in outline, sidebar, etc.).
-        editing_id.set(None);
-        editing_snapshot.set(None);
     });
 
     // Keep the contenteditable DOM in sync when switching nodes.
@@ -1922,19 +1935,9 @@ pub fn OutlineNode(
                                                 }
                                             }
                                             on:focusout=move |ev: web_sys::FocusEvent| {
-                                                // Exit editing mode only when focus leaves the outline editor.
-                                                // `related_target` tells us where focus is going.
-                                                let Some(next) = ev.related_target() else {
-                                                    // If we don't know the next target (can happen during DOM churn),
-                                                    // do not clear editing here.
-                                                    return;
-                                                };
-                                                let Some(next_el) = next.dyn_into::<web_sys::Element>().ok() else {
-                                                    return;
-                                                };
-
-                                                // Keep editing if focus stays within outline editor.
-                                                if next_el.closest(".outline-editor").ok().flatten().is_some() {
+                                                if !should_exit_edit_on_focusout_related_target(
+                                                    ev.related_target(),
+                                                ) {
                                                     return;
                                                 }
 

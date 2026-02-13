@@ -24,7 +24,10 @@ mod wasm_tests {
         get_nav_override, get_title_override, mark_nav_synced, mark_title_synced, touch_nav,
         touch_title,
     };
-    use crate::editor::insert_soft_line_break_dom;
+    use crate::editor::{
+        insert_soft_line_break_dom, should_exit_edit_on_focusout_related_target,
+        should_exit_edit_on_mousedown_target,
+    };
     use crate::models::AccountInfo;
     use crate::storage::{load_user_from_storage, save_user_to_storage};
     use wasm_bindgen::JsCast;
@@ -292,6 +295,70 @@ mod wasm_tests {
                 .expect("querySelectorAll br")
                 .length();
             assert!(brs >= 1);
+        });
+    }
+
+    #[wasm_bindgen_test]
+    fn test_exit_edit_mode_rules_focusout_and_mousedown() {
+        with_test_root(|root| {
+            let doc = wasm_doc();
+
+            // Element outside outline.
+            let outside = doc.create_element("div").expect("create outside");
+            root.append_child(&outside).expect("append outside");
+
+            // Outline editor container.
+            let outline = doc.create_element("div").expect("create outline");
+            outline
+                .set_attribute("class", "outline-editor")
+                .expect("set class");
+            root.append_child(&outline).expect("append outline");
+
+            // One editable node.
+            let editor = doc.create_element("div").expect("create editor");
+            editor
+                .set_attribute("contenteditable", "true")
+                .expect("set contenteditable");
+            editor
+                .set_attribute("data-nav-id", "n1")
+                .expect("set data-nav-id");
+            editor.set_text_content(Some("hi"));
+            outline.append_child(&editor).expect("append editor");
+
+            // Blank area inside outline.
+            let blank = doc.create_element("div").expect("create blank");
+            outline.append_child(&blank).expect("append blank");
+
+            let outside_t: web_sys::EventTarget = outside.unchecked_into();
+            let outline_t: web_sys::EventTarget = outline.unchecked_into();
+            let editor_t: web_sys::EventTarget = editor.unchecked_into();
+            let blank_t: web_sys::EventTarget = blank.unchecked_into();
+
+            // focusout:
+            // - None means "unknown next focus" (DOM churn). We must NOT exit.
+            assert!(!should_exit_edit_on_focusout_related_target(None));
+            // - staying within outline must NOT exit.
+            assert!(!should_exit_edit_on_focusout_related_target(Some(
+                outline_t
+            )));
+            assert!(!should_exit_edit_on_focusout_related_target(Some(
+                editor_t.clone()
+            )));
+            assert!(!should_exit_edit_on_focusout_related_target(Some(
+                blank_t.clone()
+            )));
+            // - leaving outline must exit.
+            assert!(should_exit_edit_on_focusout_related_target(Some(outside_t)));
+
+            // mousedown:
+            // - clicking inside editor must NOT exit.
+            assert!(!should_exit_edit_on_mousedown_target(Some(editor_t)));
+            // - clicking blank / outside must exit.
+            assert!(should_exit_edit_on_mousedown_target(Some(blank_t)));
+            let outside2 = doc.create_element("div").expect("create outside2");
+            root.append_child(&outside2).expect("append outside2");
+            let outside2_t: web_sys::EventTarget = outside2.unchecked_into();
+            assert!(should_exit_edit_on_mousedown_target(Some(outside2_t)));
         });
     }
 }
