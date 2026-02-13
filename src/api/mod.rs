@@ -2,6 +2,66 @@ use crate::models::{AccountInfo, Database, Nav, Note};
 use crate::storage::{TOKEN_KEY, USER_KEY};
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ApiErrorKind {
+    Unauthorized,
+    Network,
+    Http,
+    Parse,
+    Other,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ApiError {
+    pub kind: ApiErrorKind,
+    pub message: String,
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl ApiError {
+    fn network(e: reqwest::Error) -> Self {
+        Self {
+            kind: ApiErrorKind::Network,
+            message: e.to_string(),
+        }
+    }
+
+    fn parse(e: impl std::fmt::Display) -> Self {
+        Self {
+            kind: ApiErrorKind::Parse,
+            message: e.to_string(),
+        }
+    }
+
+    fn unauthorized() -> Self {
+        Self {
+            kind: ApiErrorKind::Unauthorized,
+            message: "Unauthorized".to_string(),
+        }
+    }
+
+    fn http(status: reqwest::StatusCode, body: String, ctx: &str) -> Self {
+        Self {
+            kind: ApiErrorKind::Http,
+            message: format!("{ctx} ({status}): {body}"),
+        }
+    }
+
+    fn other(msg: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::Other,
+            message: msg.into(),
+        }
+    }
+}
+
+pub(crate) type ApiResult<T> = Result<T, ApiError>;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct EnvConfig {
     pub api_url: String,
@@ -320,7 +380,7 @@ impl ApiClient {
         out
     }
 
-    pub async fn get_all_note_list(&self, database_id: &str) -> Result<Vec<Note>, String> {
+    pub async fn get_all_note_list(&self, database_id: &str) -> ApiResult<Vec<Note>> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/get-all-note-list", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
@@ -330,17 +390,17 @@ impl ApiClient {
             .json(&serde_json::json!({ "database-id": database_id }))
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(ApiError::network)?;
 
         if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
             Ok(Self::parse_note_list_response(data))
         } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
+            Err(ApiError::unauthorized())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(format!("Failed to get notes ({status}): {body}"))
+            Err(ApiError::http(status, body, "Failed to get notes"))
         }
     }
 
@@ -507,7 +567,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn get_note_navs(&self, note_id: &str) -> Result<Vec<Nav>, String> {
+    pub async fn get_note_navs(&self, note_id: &str) -> ApiResult<Vec<Nav>> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/get-note-navs", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
@@ -518,21 +578,21 @@ impl ApiClient {
             })
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(ApiError::network)?;
 
         if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
             Ok(Self::parse_nav_list_response(data))
         } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
+            Err(ApiError::unauthorized())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(format!("Failed to get navs ({status}): {body}"))
+            Err(ApiError::http(status, body, "Failed to get navs"))
         }
     }
 
-    pub async fn get_all_navs(&self, database_id: &str) -> Result<Vec<Nav>, String> {
+    pub async fn get_all_navs(&self, database_id: &str) -> ApiResult<Vec<Nav>> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/get-all-navs", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
@@ -541,24 +601,24 @@ impl ApiClient {
             .json(&serde_json::json!({ "database-id": database_id }))
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(ApiError::network)?;
 
         if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
             Ok(Self::parse_nav_list_response(data))
         } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
+            Err(ApiError::unauthorized())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(format!("Failed to get navs ({status}): {body}"))
+            Err(ApiError::http(status, body, "Failed to get navs"))
         }
     }
 
     pub async fn upsert_nav(
         &self,
         req_body: CreateOrUpdateNavRequest,
-    ) -> Result<serde_json::Value, String> {
+    ) -> ApiResult<serde_json::Value> {
         let client = reqwest::Client::new();
         let req = client.post(format!("{}/hulunote/create-or-update-nav", self.base_url));
         let req = Self::with_auth_headers(req, self.get_auth_token());
@@ -567,16 +627,16 @@ impl ApiClient {
             .json(&req_body)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(ApiError::network)?;
 
         if res.status().is_success() {
-            res.json().await.map_err(|e| e.to_string())
+            res.json().await.map_err(ApiError::parse)
         } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
+            Err(ApiError::unauthorized())
         } else {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            Err(format!("Upsert nav failed ({status}): {body}"))
+            Err(ApiError::http(status, body, "Upsert nav failed"))
         }
     }
 

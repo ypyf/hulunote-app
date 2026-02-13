@@ -1845,19 +1845,19 @@ pub fn NotePage() -> impl IntoView {
                         app_state.0.notes.set(notes);
                     }
                     Err(e) => {
-                        if e == "Unauthorized" {
+                        if e.kind == crate::api::ApiErrorKind::Unauthorized {
                             let mut c = app_state.0.api_client.get_untracked();
                             c.logout();
                             app_state.0.api_client.set(c);
                             app_state.0.current_user.set(None);
                             let _ = window().location().set_href("/login");
                         } else {
-                            let _ = sync_sv.try_with_value(|s| s.mark_backend_offline(&e));
+                            let _ = sync_sv.try_with_value(|s| s.mark_backend_offline_api(&e));
                             let offline_now = sync_sv
                                 .try_with_value(|s| !s.is_backend_online())
                                 .unwrap_or(false);
                             if !offline_now {
-                                app_state.0.notes_error.set(Some(e));
+                                app_state.0.notes_error.set(Some(e.to_string()));
                             }
                         }
                     }
@@ -1909,14 +1909,14 @@ pub fn NotePage() -> impl IntoView {
                     all_db_navs.set(navs)
                 }
                 Err(e) => {
-                    if e == "Unauthorized" {
+                    if e.kind == crate::api::ApiErrorKind::Unauthorized {
                         let mut c = app_state.0.api_client.get_untracked();
                         c.logout();
                         app_state.0.api_client.set(c);
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        let _ = sync_sv.try_with_value(|s| s.mark_backend_offline(&e));
+                        let _ = sync_sv.try_with_value(|s| s.mark_backend_offline_api(&e));
                         // Local-first UX: hide backlink errors when backend is unreachable.
                         let offline_now = sync_sv
                             .try_with_value(|s| !s.is_backend_online())
@@ -1925,7 +1925,7 @@ pub fn NotePage() -> impl IntoView {
                             all_db_navs.set(vec![]);
                             all_db_navs_error.set(None);
                         } else {
-                            all_db_navs_error.set(Some(e));
+                            all_db_navs_error.set(Some(e.to_string()));
                         }
                     }
                 }
@@ -2093,14 +2093,14 @@ pub fn NotePage() -> impl IntoView {
                     );
                 }
                 Err(e) => {
-                    if e == "Unauthorized" {
+                    if e.kind == crate::api::ApiErrorKind::Unauthorized {
                         let mut c = app_state.0.api_client.get_untracked();
                         c.logout();
                         app_state.0.api_client.set(c);
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        draft_error.set(Some(e));
+                        draft_error.set(Some(e.to_string()));
                     }
                 }
             }
@@ -2204,7 +2204,7 @@ pub fn NotePage() -> impl IntoView {
                     .to_string(),
                 Err(e) => {
                     draft_creating.set(false);
-                    draft_error.set(Some(e));
+                    draft_error.set(Some(e.to_string()));
                     return;
                 }
             };
@@ -2678,14 +2678,14 @@ pub fn DbHomePage() -> impl IntoView {
                     app_state.0.notes.set(notes);
                 }
                 Err(e) => {
-                    if e == "Unauthorized" {
+                    if e.kind == crate::api::ApiErrorKind::Unauthorized {
                         let mut c = app_state.0.api_client.get_untracked();
                         c.logout();
                         app_state.0.api_client.set(c);
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        app_state.0.notes_error.set(Some(e));
+                        app_state.0.notes_error.set(Some(e.to_string()));
                         app_state.0.notes.set(vec![]);
                     }
                 }
@@ -3375,14 +3375,14 @@ pub fn UnreferencedPages() -> impl IntoView {
                     navs.set(vs);
                 }
                 (Err(e), _) | (_, Err(e)) => {
-                    if e == "Unauthorized" {
+                    if e.kind == crate::api::ApiErrorKind::Unauthorized {
                         let mut c = app_state.0.api_client.get_untracked();
                         c.logout();
                         app_state.0.api_client.set(c);
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        error.set(Some(e));
+                        error.set(Some(e.to_string()));
                     }
                 }
             }

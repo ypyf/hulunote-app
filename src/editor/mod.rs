@@ -813,7 +813,7 @@ pub fn OutlineEditor(
                     navs.set(xs);
                 }
                 Err(e) => {
-                    sync2.mark_backend_offline(&e);
+                    sync2.mark_backend_offline_api(&e);
 
                     // Backend unreachable: fall back to snapshot (read cache), and suppress errors.
                     if !sync2.is_backend_online() {
@@ -834,7 +834,7 @@ pub fn OutlineEditor(
                         // Non-connectivity error.
                         offline.set(false);
                         offline_missing_snapshot.set(false);
-                        error.set(Some(e));
+                        error.set(Some(e.to_string()));
                     }
                 }
             }
@@ -1684,14 +1684,14 @@ pub fn OutlineNode(
                                                                                                         .map(|n| n.id.clone());
                                                                                                 }
                                                                                                 Err(e) => {
-                                                                                                    sync2.mark_backend_offline(&e);
+                                                                                                    sync2.mark_backend_offline_api(&e);
                                                                                                     if !sync2.is_backend_online() {
                                                                                                         preview_error.set(None);
                                                                                                         preview_lines.set(vec![
                                                                                                             "Offline: preview unavailable".to_string(),
                                                                                                         ]);
                                                                                                     } else {
-                                                                                                        preview_error.set(Some(e));
+                                                                                                        preview_error.set(Some(e.to_string()));
                                                                                                     }
                                                                                                 }
                                                                                             }
@@ -1747,14 +1747,14 @@ pub fn OutlineNode(
                                                                                                 preview_lines.set(out);
                                                                                             }
                                                                                             Err(e) => {
-                                                                                                sync2.mark_backend_offline(&e);
+                                                                                                sync2.mark_backend_offline_api(&e);
                                                                                                 if !sync2.is_backend_online() {
                                                                                                     preview_error.set(None);
                                                                                                     preview_lines.set(vec![
                                                                                                         "Offline: preview unavailable".to_string(),
                                                                                                     ]);
                                                                                                 } else {
-                                                                                                    preview_error.set(Some(e));
+                                                                                                    preview_error.set(Some(e.to_string()));
                                                                                                 }
                                                                                             }
                                                                                         }

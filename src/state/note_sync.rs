@@ -83,6 +83,13 @@ impl NoteSyncController {
         }
     }
 
+    pub(crate) fn mark_backend_offline_api(&self, e: &crate::api::ApiError) {
+        if e.kind == crate::api::ApiErrorKind::Network {
+            self.backend_online.set(false);
+            self.last_backend_error.set(Some(e.to_string()));
+        }
+    }
+
     fn should_probe_offline(&self, now_ms: i64) -> bool {
         if self.backend_online.get_untracked() {
             return true;
@@ -229,7 +236,7 @@ impl NoteSyncController {
                     mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
                 }
                 Err(e) => {
-                    s2.mark_backend_offline(&e);
+                    s2.mark_backend_offline_api(&e);
                     mark_nav_sync_failed(&db_id, &note_id, &nav_id);
                 }
             }
@@ -277,7 +284,7 @@ impl NoteSyncController {
                     mark_nav_meta_synced(&db_id, &note_id, &nav_id, updated_ms);
                 }
                 Err(e) => {
-                    s2.mark_backend_offline(&e);
+                    s2.mark_backend_offline_api(&e);
                     mark_nav_meta_sync_failed(&db_id, &note_id, &nav_id);
                 }
             }
@@ -390,7 +397,7 @@ impl NoteSyncController {
                         mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
                     }
                     Err(e) => {
-                        s2.mark_backend_offline(&e);
+                        s2.mark_backend_offline_api(&e);
                         mark_nav_sync_failed(&db_id, &note_id, &nav_id);
                     }
                 }
@@ -414,7 +421,7 @@ impl NoteSyncController {
                         mark_nav_meta_synced(&db_id, &note_id, &nav_id, updated_ms);
                     }
                     Err(e) => {
-                        s2.mark_backend_offline(&e);
+                        s2.mark_backend_offline_api(&e);
                         mark_nav_meta_sync_failed(&db_id, &note_id, &nav_id);
                     }
                 }
@@ -520,7 +527,7 @@ impl NoteSyncController {
                         mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
                     }
                     Err(e) => {
-                        s2.mark_backend_offline(&e);
+                        s2.mark_backend_offline_api(&e);
                         mark_nav_sync_failed(&db_id, &note_id, &nav_id);
                     }
                 }
