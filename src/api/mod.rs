@@ -516,14 +516,34 @@ impl ApiClient {
 
         if res.status().is_success() {
             let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+
+            // Backend response has been observed with different shapes; accept a few common forms.
+            // Expected: {"note": {"hulunote-notes/id": "..."}}
+            // Also seen: {"note": {"id": "..."}} or top-level {"note-id": "..."}
             let id = data
                 .get("note")
-                .and_then(|n| n.get("hulunote-notes/id"))
+                .and_then(|n| {
+                    n.get("hulunote-notes/id")
+                        .or_else(|| n.get("id"))
+                        .or_else(|| n.get("note-id"))
+                })
+                // Some backends return the note object directly (no `note` wrapper).
+                .or_else(|| data.get("hulunote-notes/id"))
                 .or_else(|| data.get("note-id"))
+                .or_else(|| data.get("id"))
                 .and_then(|v| v.as_str())
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .to_string();
+
+            if id.trim().is_empty() {
+                return Err(format!(
+                    "Create note succeeded but response is missing note id: {}",
+                    data
+                ));
+            }
+
             Ok(Note {
-                id: id.to_string(),
+                id,
                 database_id: database_id.to_string(),
                 title: title.to_string(),
                 content: String::new(),
