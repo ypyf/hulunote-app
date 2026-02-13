@@ -1683,8 +1683,9 @@ pub fn NotePage() -> impl IntoView {
 
     // Drive global sync controller from tracked route changes.
     let sync = expect_context::<crate::state::NoteSyncController>();
+    let sync_for_route = sync.clone();
     Effect::new(move |_| {
-        sync.set_route(db_id(), note_id());
+        sync_for_route.set_route(db_id(), note_id());
     });
 
     let title_value: RwSignal<String> = RwSignal::new(String::new());
@@ -2130,6 +2131,7 @@ pub fn NotePage() -> impl IntoView {
         let _draft_value2 = draft_value;
         let title_norm = normalize_roam_page_title(&t);
         let navigate2 = navigate;
+        let sync2 = sync.clone();
 
         spawn_local(async move {
             // If exists, navigate.
@@ -2183,64 +2185,23 @@ pub fn NotePage() -> impl IntoView {
                 }
             });
 
-            // Create first nav (local-first): create a tmp node in local snapshot + drafts.
-            // Sync controller will create it on backend when online and swap tmp->real.
-            let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
-            let (root_container_id, mut base_navs) = match api_client.get_note_navs(&note.id).await
-            {
-                Ok(navs) => {
-                    let cid = navs
-                        .iter()
-                        .find(|n| n.parid == root_container_parent_id)
-                        .map(|n| n.id.clone())
-                        .unwrap_or_else(|| root_container_parent_id.to_string());
-                    (cid, navs)
-                }
-                Err(_) => (root_container_parent_id.to_string(), vec![]),
+            // Ensure the new note has a starting node (single source of truth).
+            let mut base_navs = api_client.get_note_navs(&note.id).await.unwrap_or_default();
+            let tmp_id = sync2
+                .ensure_note_has_start_node_local(
+                    &db,
+                    &note.id,
+                    Some(t.clone()),
+                    &mut base_navs,
+                    &initial_content,
+                )
+                .unwrap_or_default();
+
+            let url = if tmp_id.trim().is_empty() {
+                format!("/db/{}/note/{}", db, note.id)
+            } else {
+                format!("/db/{}/note/{}?focus_nav={}", db, note.id, tmp_id)
             };
-
-            let tmp_id = crate::editor::make_tmp_nav_id(
-                js_sys::Date::now() as u64,
-                (js_sys::Math::random() * 1e9) as u64,
-            );
-
-            // Persist snapshot (so refresh won't drop the first node).
-            base_navs.push(crate::models::Nav {
-                id: tmp_id.clone(),
-                note_id: note.id.clone(),
-                parid: root_container_id.clone(),
-                same_deep_order: 1.0,
-                content: initial_content.clone(),
-                is_display: true,
-                is_delete: false,
-                properties: None,
-            });
-            crate::cache::save_note_snapshot(
-                &db,
-                &note.id,
-                Some(t.clone()),
-                base_navs.clone(),
-                crate::util::now_ms(),
-            );
-
-            // Seed drafts for content/meta.
-            crate::drafts::touch_nav(&db, &note.id, &tmp_id, &initial_content);
-            crate::drafts::touch_nav_meta(
-                &db,
-                &note.id,
-                &crate::models::Nav {
-                    id: tmp_id.clone(),
-                    note_id: note.id.clone(),
-                    parid: root_container_id.clone(),
-                    same_deep_order: 1.0,
-                    content: initial_content.clone(),
-                    is_display: true,
-                    is_delete: false,
-                    properties: None,
-                },
-            );
-
-            let url = format!("/db/{}/note/{}?focus_nav={}", db, note.id, tmp_id);
 
             navigate2.with_value(|nav| {
                 nav(&url, leptos_router::NavigateOptions::default());

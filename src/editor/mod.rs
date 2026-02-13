@@ -773,43 +773,7 @@ pub fn OutlineEditor(
 
         let sync = expect_context::<NoteSyncController>();
 
-        // Helper: ensure an empty note has at least one editable nav.
-        let ensure_non_empty = |_db_id: &str, note_id: &str, xs: &mut Vec<Nav>| -> Option<String> {
-            let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
-            let root_candidates = xs
-                .iter()
-                .filter(|n| n.parid == root_container_parent_id)
-                .collect::<Vec<_>>();
-            let Some(root_container_id) = root_candidates.first().map(|n| n.id.clone()) else {
-                return None;
-            };
-
-            let has_any_real = xs
-                .iter()
-                .any(|n| !n.is_delete && n.parid == root_container_id);
-            if has_any_real {
-                return None;
-            }
-
-            // Insert a temporary node under the root container.
-            let tmp_id = make_tmp_nav_id(
-                js_sys::Date::now() as u64,
-                (js_sys::Math::random() * 1e9) as u64,
-            );
-
-            xs.push(Nav {
-                id: tmp_id.clone(),
-                note_id: note_id.to_string(),
-                parid: root_container_id,
-                same_deep_order: 1.0,
-                content: String::new(),
-                is_display: true,
-                is_delete: false,
-                properties: None,
-            });
-
-            Some(tmp_id)
-        };
+        // Helper moved into NoteSyncController: ensure the note has a starting node.
 
         // If we already know the backend is unreachable, don't even try fetching.
         if !sync.is_backend_online() {
@@ -819,20 +783,9 @@ pub fn OutlineEditor(
                 error.set(None);
                 let mut xs = snap.navs;
 
-                let maybe_tmp = ensure_non_empty(&db_id_now, &id, &mut xs);
+                let maybe_tmp =
+                    sync.ensure_note_has_start_node_local(&db_id_now, &id, snap.title, &mut xs, "");
                 if let Some(tmp_id) = maybe_tmp {
-                    save_note_snapshot(
-                        &db_id_now,
-                        &id,
-                        snap.title,
-                        xs.clone(),
-                        crate::util::now_ms(),
-                    );
-                    let _ = sync.on_nav_changed(&tmp_id, "");
-                    if let Some(n) = xs.iter().find(|n| n.id == tmp_id) {
-                        sync.on_nav_meta_changed(n);
-                    }
-
                     editing_id.set(Some(tmp_id.clone()));
                     editing_value.set(String::new());
                     editing_snapshot.set(Some((tmp_id.clone(), String::new())));
@@ -886,20 +839,18 @@ pub fn OutlineEditor(
                         }
                     }
 
-                    let maybe_tmp = ensure_non_empty(&db_id2, &id, &mut xs);
-
-                    save_note_snapshot(&db_id2, &id, title, xs.clone(), crate::util::now_ms());
+                    let title2 = title.clone();
+                    let maybe_tmp =
+                        sync2.ensure_note_has_start_node_local(&db_id2, &id, title2, &mut xs, "");
 
                     if let Some(tmp_id) = maybe_tmp {
-                        sync2.on_nav_changed(&tmp_id, "");
-                        if let Some(n) = xs.iter().find(|n| n.id == tmp_id) {
-                            sync2.on_nav_meta_changed(n);
-                        }
-
                         editing_id.set(Some(tmp_id.clone()));
                         editing_value.set(String::new());
                         editing_snapshot.set(Some((tmp_id.clone(), String::new())));
                         target_cursor_col.set(Some(0));
+                    } else {
+                        // Persist snapshot for normal notes.
+                        save_note_snapshot(&db_id2, &id, title, xs.clone(), crate::util::now_ms());
                     }
 
                     apply_nav_meta_overrides(&db_id2, &id, &mut xs);

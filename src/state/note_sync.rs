@@ -155,6 +155,74 @@ impl NoteSyncController {
         self.current_note_id.set(note_id);
     }
 
+    /// Ensure a newly-created note has at least one editable starting node.
+    ///
+    /// This is the single local-first entry point for "seed first nav" behavior:
+    /// - determines root container id (best-effort)
+    /// - inserts a local optimistic node if the note is empty
+    /// - persists snapshot + drafts (content + meta)
+    ///
+    /// Returns the inserted tmp nav id when seeding happened.
+    pub fn ensure_note_has_start_node_local(
+        &self,
+        db_id: &str,
+        note_id: &str,
+        note_title: Option<String>,
+        navs: &mut Vec<crate::models::Nav>,
+        initial_content: &str,
+    ) -> Option<String> {
+        let root_container_parent_id = crate::util::ROOT_CONTAINER_PARENT_ID;
+
+        // Root container node is identified by `parid == ROOT_CONTAINER_PARENT_ID`.
+        let root_container_id = navs
+            .iter()
+            .find(|n| n.parid == root_container_parent_id)
+            .map(|n| n.id.clone())
+            // Fallback: keep prior behavior (best-effort local seed even if root is missing).
+            .unwrap_or_else(|| root_container_parent_id.to_string());
+
+        let has_any_child = navs
+            .iter()
+            .any(|n| !n.is_delete && n.parid == root_container_id);
+        if has_any_child {
+            return None;
+        }
+
+        // Insert an optimistic node under the root container.
+        let tmp_id = crate::editor::make_tmp_nav_id(
+            js_sys::Date::now() as u64,
+            (js_sys::Math::random() * 1e9) as u64,
+        );
+
+        let nav = crate::models::Nav {
+            id: tmp_id.clone(),
+            note_id: note_id.to_string(),
+            parid: root_container_id,
+            same_deep_order: 1.0,
+            content: initial_content.to_string(),
+            is_display: true,
+            is_delete: false,
+            properties: None,
+        };
+
+        navs.push(nav.clone());
+
+        // Persist snapshot so refresh won't drop it.
+        crate::cache::save_note_snapshot(
+            db_id,
+            note_id,
+            note_title,
+            navs.clone(),
+            crate::util::now_ms(),
+        );
+
+        // Persist drafts so sync worker can create it on backend when online.
+        crate::drafts::touch_nav(db_id, note_id, &tmp_id, initial_content);
+        crate::drafts::touch_nav_meta(db_id, note_id, &nav);
+
+        Some(tmp_id)
+    }
+
     /// Called by OutlineEditor when editing nav changes.
     pub fn set_editing_nav(&self, nav_id: Option<String>) {
         self.current_editing_nav_id.set(nav_id);
