@@ -1,7 +1,10 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
-use crate::drafts::{get_nav_override, get_unsynced_nav_drafts, mark_nav_synced, touch_nav};
+use crate::drafts::{
+    get_due_unsynced_nav_drafts, get_nav_override, get_unsynced_nav_drafts, mark_nav_sync_failed,
+    mark_nav_synced, touch_nav,
+};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::util::now_ms;
@@ -803,6 +806,8 @@ pub fn OutlineEditor(
 
                 if api_client.upsert_nav(req).await.is_ok() {
                     mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+                } else {
+                    mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
                 }
             }
         });
@@ -844,6 +849,8 @@ pub fn OutlineEditor(
 
             if api_client.upsert_nav(req).await.is_ok() {
                 mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+            } else {
+                mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
             }
         });
     });
@@ -899,10 +906,84 @@ pub fn OutlineEditor(
         }
     });
 
-    // Best-effort flush on page hide (refresh/close/navigation).
-    // Keep this beacon/keepalive-friendly: flush only the current editing nav (if any) plus a
-    // small number of most-recent unsynced drafts.
+    // Retry queue worker (standard local-first): periodically flush due drafts.
+    // Uses `retry_count/next_retry_ms` to back off after failures.
+    let retry_interval_ms: i32 = 2000;
+    let retry_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
+
     let note_id_fn3 = note_id.clone();
+    let retry_tick = StoredValue::new(move || {
+        let db_id = app_state
+            .0
+            .current_database_id
+            .get_untracked()
+            .unwrap_or_default();
+        let note_id_now = note_id_fn3();
+        if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
+            return;
+        }
+
+        let due = get_due_unsynced_nav_drafts(&db_id, &note_id_now, now_ms(), 2);
+        if due.is_empty() {
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            for (nav_id, content, updated_ms) in due {
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id_now.clone(),
+                    id: Some(nav_id.clone()),
+                    parid: None,
+                    content: Some(content),
+                    order: None,
+                    is_display: None,
+                    is_delete: None,
+                    properties: None,
+                };
+
+                if api_client.upsert_nav(req).await.is_ok() {
+                    mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+                } else {
+                    mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
+                }
+            }
+        });
+    });
+
+    // Start retry timer.
+    Effect::new(move |_| {
+        // start once
+        if retry_timer_id.get_untracked().is_some() {
+            return;
+        }
+
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+
+        let tick = retry_tick;
+        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+            tick.with_value(|f| f());
+        }) as Box<dyn FnMut()>);
+
+        let tid = win
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                retry_interval_ms,
+            )
+            .unwrap_or(0);
+        retry_timer_id.set(Some(tid));
+        cb.forget();
+    });
+
+    // Kick retry tick on reconnect.
+    let _online_handle = window_event_listener(ev::online, move |_ev: web_sys::Event| {
+        retry_tick.with_value(|f| f());
+    });
+
+    // Best-effort flush on page hide (refresh/close/navigation) — keep it beacon/keepalive-friendly.
+    let note_id_fn4 = note_id.clone();
     let _pagehide_handle =
         window_event_listener(ev::pagehide, move |_ev: web_sys::PageTransitionEvent| {
             let k_recent: usize = 5;
@@ -912,7 +993,7 @@ pub fn OutlineEditor(
                 .current_database_id
                 .get_untracked()
                 .unwrap_or_default();
-            let note_id_now = note_id_fn3();
+            let note_id_now = note_id_fn4();
             if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
                 return;
             }
@@ -922,20 +1003,17 @@ pub fn OutlineEditor(
                 return;
             }
 
-            // Sort by last update, newest first.
             drafts.sort_by(|a, b| b.2.cmp(&a.2));
 
             let editing = editing_id.get_untracked();
             let mut picked: Vec<(String, String, i64)> = Vec::new();
 
-            // 1) Always try to flush current editing nav first.
             if let Some(editing_nav) = editing {
                 if let Some(d) = drafts.iter().find(|(id, _, _)| id == &editing_nav) {
                     picked.push(d.clone());
                 }
             }
 
-            // 2) Add top-K recent unsynced drafts (excluding the one already picked).
             for d in drafts.into_iter() {
                 if picked.iter().any(|(id, _, _)| id == &d.0) {
                     continue;
@@ -962,6 +1040,8 @@ pub fn OutlineEditor(
 
                     if api_client.upsert_nav(req).await.is_ok() {
                         mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+                    } else {
+                        mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
                     }
                 }
             });
@@ -1278,6 +1358,7 @@ pub fn OutlineNode(
                         kids.into_iter().map(|c| c.id).collect::<Vec<String>>(),
                     );
 
+                    let schedule_autosave = schedule_autosave;
                     view! {
                         <For
                             each=move || kid_ids_sv.get_value()

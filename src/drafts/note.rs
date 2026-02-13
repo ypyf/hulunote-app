@@ -8,6 +8,12 @@ pub(crate) struct FieldDraft {
     pub value: String,
     pub updated_ms: i64,
     pub synced_ms: i64,
+
+    /// Retry queue state (local-first sync): when a backend sync fails, we schedule a retry.
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default)]
+    pub next_retry_ms: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -109,8 +115,71 @@ pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_m
         .entry(nav_id.to_string())
         .or_insert_with(FieldDraft::default);
     f.synced_ms = f.synced_ms.max(synced_ms);
+
+    // Reset retry state on success.
+    f.retry_count = 0;
+    f.next_retry_ms = 0;
+
     d.updated_ms = now_ms();
     save_note_draft(&d);
+}
+
+fn compute_retry_delay_ms(retry_count: u32) -> i64 {
+    // Exponential backoff with cap (1s, 2s, 4s, ... up to 60s).
+    let base = 1000_i64;
+    let max = 60_000_i64;
+    let exp = 2_i64.saturating_pow(retry_count.min(16));
+    (base.saturating_mul(exp)).min(max)
+}
+
+pub(crate) fn mark_nav_sync_failed(db_id: &str, note_id: &str, nav_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() || nav_id.trim().is_empty() {
+        return;
+    }
+
+    let mut d = load_note_draft(db_id, note_id);
+    let f = d
+        .navs
+        .entry(nav_id.to_string())
+        .or_insert_with(FieldDraft::default);
+
+    // Bump retry schedule.
+    f.retry_count = f.retry_count.saturating_add(1);
+    let delay = compute_retry_delay_ms(f.retry_count);
+    f.next_retry_ms = now_ms().saturating_add(delay);
+
+    d.updated_ms = now_ms();
+    save_note_draft(&d);
+}
+
+pub(crate) fn get_due_unsynced_nav_drafts(
+    db_id: &str,
+    note_id: &str,
+    now_ms: i64,
+    limit: usize,
+) -> Vec<(String, String, i64)> {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return vec![];
+    }
+
+    let mut out = vec![];
+    let d = load_note_draft(db_id, note_id);
+
+    for (nav_id, f) in d.navs.iter() {
+        if f.updated_ms <= f.synced_ms {
+            continue;
+        }
+
+        // If next_retry_ms is 0 (never failed) or in the past, it's due.
+        if f.next_retry_ms == 0 || f.next_retry_ms <= now_ms {
+            out.push((nav_id.clone(), f.value.clone(), f.updated_ms));
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    out
 }
 
 pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str) -> String {
