@@ -129,7 +129,8 @@ fn roam_delete_state(has_any_text: bool, semantic_br_count: u32) -> RoamDeleteSt
 
 #[cfg(test)]
 fn should_persist_nav_id(nav_id: &str) -> bool {
-    !nav_id.trim().is_empty() && !is_tmp_nav_id(nav_id)
+    let id = nav_id.trim();
+    !id.is_empty() && crate::util::is_uuid_like(id)
 }
 
 fn ensure_trailing_break(doc: &web_sys::Document, root: &web_sys::Node) -> Option<web_sys::Node> {
@@ -3270,6 +3271,8 @@ mod editor_delete_behavior_tests {
         assert!(should_persist_nav_id(
             "00000000-0000-0000-0000-000000000000"
         ));
-        assert!(should_persist_nav_id("abc"));
+        // Any non-empty, non-optimistic backend id is ok.
+        // ("abc" is not a valid backend uuid)
+        assert!(!should_persist_nav_id("abc"));
     }
 }
