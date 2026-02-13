@@ -2251,6 +2251,13 @@ pub fn OutlineNode(
                                                                     ce_set_text(&input_el, &next);
                                                                     editing_value.set(next.clone());
 
+                                                                    // Local-first: persist immediately so refresh won't lose the completed token.
+                                                                    let nav_id_now = nav_id_sv.get_value();
+                                                                    let sync_sv2 = sync_sv;
+                                                                    let _ = sync_sv2.try_with_value(|s| {
+                                                                        s.on_nav_changed(&nav_id_now, &next);
+                                                                    });
+
                                                                     let caret_after = start_utf16
                                                                         + 2
                                                                         + (chosen.encode_utf16().count() as u32)
