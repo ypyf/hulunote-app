@@ -8,7 +8,6 @@ pub(crate) enum ApiErrorKind {
     Network,
     Http,
     Parse,
-    Other,
 }
 
 #[derive(Clone, Debug)]
@@ -52,12 +51,7 @@ impl ApiError {
         }
     }
 
-    fn other(msg: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Other,
-            message: msg.into(),
-        }
-    }
+// (removed) ApiError::other
 }
 
 pub(crate) type ApiResult<T> = Result<T, ApiError>;

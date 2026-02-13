@@ -63,13 +63,7 @@ impl NoteSyncController {
         self.last_backend_error.get_untracked()
     }
 
-    fn is_network_error(e: &str) -> bool {
-        let e = e.to_lowercase();
-        e.contains("failed to fetch")
-            || e.contains("error sending request")
-            || e.contains("connection refused")
-            || e.contains("err_connection_refused")
-    }
+// (removed) string-based network error detection; use ApiErrorKind::Network
 
     pub(crate) fn mark_backend_online(&self) {
         self.backend_online.set(true);
@@ -77,12 +71,7 @@ impl NoteSyncController {
         self.offline_next_probe_ms.set(0);
     }
 
-    pub(crate) fn mark_backend_offline(&self, e: &str) {
-        if Self::is_network_error(e) {
-            self.backend_online.set(false);
-            self.last_backend_error.set(Some(e.to_string()));
-        }
-    }
+// (removed) mark_backend_offline(&str); use mark_backend_offline_api(ApiError)
 
     pub(crate) fn mark_backend_offline_api(&self, e: &crate::api::ApiError) {
         if e.kind == crate::api::ApiErrorKind::Network {

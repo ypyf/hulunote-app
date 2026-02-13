@@ -125,6 +125,7 @@ fn roam_delete_state(has_any_text: bool, semantic_br_count: u32) -> RoamDeleteSt
     }
 }
 
+#[cfg(test)]
 fn should_persist_nav_id(nav_id: &str) -> bool {
     !nav_id.trim().is_empty() && !is_tmp_nav_id(nav_id)
 }
@@ -554,6 +555,7 @@ pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> boo
     true
 }
 
+#[cfg(test)]
 pub(crate) fn swap_tmp_nav_id(navs: &mut [Nav], tmp_id: &str, real_id: &str) -> bool {
     if let Some(n) = navs.iter_mut().find(|n| n.id == tmp_id) {
         n.id = real_id.to_string();
@@ -569,6 +571,7 @@ pub(crate) fn get_nav_content(navs: &[Nav], nav_id: &str) -> Option<String> {
         .map(|n| n.content.clone())
 }
 
+#[cfg(test)]
 pub(crate) fn backfill_content_request(
     note_id: &str,
     real_id: &str,
