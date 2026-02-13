@@ -2,7 +2,7 @@ use crate::api::CreateOrUpdateNavRequest;
 use crate::cache::{load_note_snapshot, save_note_snapshot};
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
-use crate::drafts::{get_nav_override, touch_nav};
+use crate::drafts::{apply_nav_meta_overrides, get_nav_override, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::state::NoteSyncController;
@@ -773,7 +773,9 @@ pub fn OutlineEditor(
                 offline.set(true);
                 offline_missing_snapshot.set(false);
                 error.set(None);
-                navs.set(snap.navs);
+                let mut xs = snap.navs;
+                apply_nav_meta_overrides(&db_id_now, &id, &mut xs);
+                navs.set(xs);
             } else {
                 offline.set(true);
                 offline_missing_snapshot.set(true);
@@ -805,7 +807,10 @@ pub fn OutlineEditor(
                         .find(|n| n.id == id)
                         .map(|n| n.title);
                     save_note_snapshot(&db_id2, &id, title, list.clone(), crate::util::now_ms());
-                    navs.set(list);
+
+                    let mut xs = list;
+                    apply_nav_meta_overrides(&db_id2, &id, &mut xs);
+                    navs.set(xs);
                 }
                 Err(e) => {
                     sync2.mark_backend_offline(&e);
@@ -816,7 +821,9 @@ pub fn OutlineEditor(
                             offline.set(true);
                             offline_missing_snapshot.set(false);
                             error.set(None);
-                            navs.set(snap.navs);
+                            let mut xs = snap.navs;
+                            apply_nav_meta_overrides(&db_id2, &id, &mut xs);
+                            navs.set(xs);
                         } else {
                             offline.set(true);
                             offline_missing_snapshot.set(true);
@@ -1020,7 +1027,7 @@ pub fn OutlineNode(
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
     let nav_id_for_render = nav_id.clone();
-    let note_id_for_toggle = note_id.clone();
+    // note_id_for_toggle removed (no direct backend sync here)
 
     // (handler ids are captured per-render; avoid moving values out of the render closure)
 
@@ -1139,20 +1146,14 @@ pub fn OutlineNode(
             }
         });
 
-        let api_client = app_state.0.api_client.get_untracked();
-        let req = CreateOrUpdateNavRequest {
-            note_id: note_id_for_toggle.clone(),
-            id: Some(nav_id_for_toggle.clone()),
-            parid: None,
-            content: None,
-            order: None,
-            is_display: Some(new_display),
-            is_delete: None,
-            properties: None,
-        };
-        spawn_local(async move {
-            let _ = api_client.upsert_nav(req).await;
-        });
+        // Local-first: persist metadata change to local draft; sync controller handles network.
+        if let Some(n) = navs
+            .get_untracked()
+            .into_iter()
+            .find(|n| n.id == nav_id_for_toggle)
+        {
+            let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+        }
     });
 
     let indent_px = (depth * 18) as i32;
@@ -1335,7 +1336,7 @@ pub fn OutlineNode(
                                         })
                                         .unwrap_or(true);
 
-                                    let note_id_now = note_id_sv.get_value();
+                                    let _note_id_now = note_id_sv.get_value();
                                     let all = navs.get_untracked();
                                     let Some((new_parid, new_order)) =
                                         compute_reorder_target(&all, &dragged_id, &target_id, insert_after)
@@ -1351,21 +1352,16 @@ pub fn OutlineNode(
                                         }
                                     });
 
-                                    // Persist to backend.
-                                    let api_client = app_state.0.api_client.get_untracked();
-                                    let req = CreateOrUpdateNavRequest {
-                                        note_id: note_id_now,
-                                        id: Some(dragged_id),
-                                        parid: Some(new_parid),
-                                        content: None,
-                                        order: Some(new_order),
-                                        is_display: None,
-                                        is_delete: None,
-                                        properties: None,
-                                    };
-                                    spawn_local(async move {
-                                        let _ = api_client.upsert_nav(req).await;
+                                    // Local-first: persist metadata change to local draft; sync controller handles network.
+                                    let mut nav_for_meta = None;
+                                    navs.update(|xs| {
+                                        if let Some(x) = xs.iter().find(|x| x.id == dragged_id) {
+                                            nav_for_meta = Some(x.clone());
+                                        }
                                     });
+                                    if let Some(nm) = nav_for_meta {
+                                        let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&nm));
+                                    }
                                 }
                             >
                             <button

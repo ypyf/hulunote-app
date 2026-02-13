@@ -1,7 +1,8 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::drafts::{
-    get_due_unsynced_nav_drafts, get_unsynced_nav_drafts, list_dirty_notes, mark_nav_sync_failed,
-    mark_nav_synced, touch_nav,
+    get_due_unsynced_nav_drafts, get_due_unsynced_nav_meta_drafts, get_unsynced_nav_drafts,
+    list_dirty_notes, mark_nav_meta_sync_failed, mark_nav_meta_synced, mark_nav_sync_failed,
+    mark_nav_synced, touch_nav, touch_nav_meta, NavMetaDraft,
 };
 use crate::state::AppContext;
 use crate::util::now_ms;
@@ -172,6 +173,15 @@ impl NoteSyncController {
         self.schedule_autosave(nav_id.to_string());
     }
 
+    pub fn on_nav_meta_changed(&self, nav: &crate::models::Nav) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+
+        touch_nav_meta(&db_id, &note_id, nav);
+        self.schedule_autosave(format!("meta:{}", nav.id));
+    }
+
     fn flush_nav_draft(&self, nav_id: String) {
         // Never spam backend when offline; rely on retry worker probes.
         if !self.backend_online.get_untracked() {
@@ -182,6 +192,12 @@ impl NoteSyncController {
             return;
         };
         if nav_id.trim().is_empty() {
+            return;
+        }
+
+        // meta:{nav_id} is used for metadata autosave.
+        if let Some(id) = nav_id.strip_prefix("meta:") {
+            self.flush_nav_meta_draft(id.to_string());
             return;
         }
 
@@ -215,6 +231,54 @@ impl NoteSyncController {
                 Err(e) => {
                     s2.mark_backend_offline(&e);
                     mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                }
+            }
+        });
+    }
+
+    fn flush_nav_meta_draft(&self, nav_id: String) {
+        // Never spam backend when offline; rely on retry worker probes.
+        if !self.backend_online.get_untracked() {
+            return;
+        }
+
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+        if nav_id.trim().is_empty() {
+            return;
+        }
+
+        let Some((_, meta, updated_ms)) =
+            get_due_unsynced_nav_meta_drafts(&db_id, &note_id, now_ms(), 50)
+                .into_iter()
+                .find(|(id, _, _)| id == &nav_id)
+        else {
+            return;
+        };
+
+        let api_client = self.app_state.0.api_client.get_untracked();
+        let s2 = self.clone();
+        spawn_local(async move {
+            let req = CreateOrUpdateNavRequest {
+                note_id: note_id.clone(),
+                id: Some(nav_id.clone()),
+                parid: Some(meta.parid),
+                content: None,
+                order: Some(meta.same_deep_order),
+                is_display: Some(meta.is_display),
+                is_delete: Some(meta.is_delete),
+                properties: meta.properties,
+            };
+
+            match api_client.upsert_nav(req).await {
+                Ok(_) => {
+                    s2.mark_backend_online();
+                    mark_nav_meta_synced(&db_id, &note_id, &nav_id, updated_ms);
+                }
+                Err(e) => {
+                    s2.mark_backend_offline(&e);
+                    mark_nav_meta_sync_failed(&db_id, &note_id, &nav_id);
                 }
             }
         });
@@ -270,29 +334,45 @@ impl NoteSyncController {
         }
 
         // Limit work per tick.
-        let mut picked: Vec<(String, String, String, String, i64)> = vec![]; // db, note, nav, content, updated
+        let mut picked_content: Vec<(String, String, String, String, i64)> = vec![]; // db, note, nav, content, updated
+        let mut picked_meta: Vec<(String, String, String, NavMetaDraft, i64)> = vec![]; // db, note, nav, meta, updated
 
         for (db_id, note_id) in candidates.into_iter() {
-            let due = get_due_unsynced_nav_drafts(&db_id, &note_id, now, 2);
-            for (nav_id, content, updated_ms) in due {
-                picked.push((db_id.clone(), note_id.clone(), nav_id, content, updated_ms));
-                if picked.len() >= 2 {
+            // content
+            let due_c = get_due_unsynced_nav_drafts(&db_id, &note_id, now, 2);
+            for (nav_id, content, updated_ms) in due_c {
+                picked_content.push((db_id.clone(), note_id.clone(), nav_id, content, updated_ms));
+                if picked_content.len() + picked_meta.len() >= 2 {
                     break;
                 }
             }
-            if picked.len() >= 2 {
+
+            if picked_content.len() + picked_meta.len() >= 2 {
+                break;
+            }
+
+            // meta
+            let due_m = get_due_unsynced_nav_meta_drafts(&db_id, &note_id, now, 2);
+            for (nav_id, meta, updated_ms) in due_m {
+                picked_meta.push((db_id.clone(), note_id.clone(), nav_id, meta, updated_ms));
+                if picked_content.len() + picked_meta.len() >= 2 {
+                    break;
+                }
+            }
+
+            if picked_content.len() + picked_meta.len() >= 2 {
                 break;
             }
         }
 
-        if picked.is_empty() {
+        if picked_content.is_empty() && picked_meta.is_empty() {
             return;
         }
 
         let api_client = self.app_state.0.api_client.get_untracked();
         let s2 = self.clone();
         spawn_local(async move {
-            for (db_id, note_id, nav_id, content, updated_ms) in picked {
+            for (db_id, note_id, nav_id, content, updated_ms) in picked_content {
                 let req = CreateOrUpdateNavRequest {
                     note_id: note_id.clone(),
                     id: Some(nav_id.clone()),
@@ -312,6 +392,30 @@ impl NoteSyncController {
                     Err(e) => {
                         s2.mark_backend_offline(&e);
                         mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                    }
+                }
+            }
+
+            for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta {
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id.clone(),
+                    id: Some(nav_id.clone()),
+                    parid: Some(meta.parid),
+                    content: None,
+                    order: Some(meta.same_deep_order),
+                    is_display: Some(meta.is_display),
+                    is_delete: Some(meta.is_delete),
+                    properties: meta.properties,
+                };
+
+                match api_client.upsert_nav(req).await {
+                    Ok(_) => {
+                        s2.mark_backend_online();
+                        mark_nav_meta_synced(&db_id, &note_id, &nav_id, updated_ms);
+                    }
+                    Err(e) => {
+                        s2.mark_backend_offline(&e);
+                        mark_nav_meta_sync_failed(&db_id, &note_id, &nav_id);
                     }
                 }
             }
