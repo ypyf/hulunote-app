@@ -192,6 +192,12 @@ impl NoteSyncController {
             return;
         }
 
+        // tmp-* ids are optimistic local nodes. They must NOT be upserted by id;
+        // they will be created via meta-draft (id=None) and then swapped to a real id.
+        if nav_id.starts_with("tmp-") {
+            return;
+        }
+
         // meta:{nav_id} is used for metadata autosave.
         if let Some(id) = nav_id.strip_prefix("meta:") {
             self.flush_nav_meta_draft(id.to_string());
@@ -553,6 +559,10 @@ impl NoteSyncController {
         let s2 = self.clone();
         spawn_local(async move {
             for (nav_id, content, updated_ms) in picked {
+                if nav_id.starts_with("tmp-") {
+                    continue;
+                }
+
                 let req = CreateOrUpdateNavRequest {
                     note_id: note_id.clone(),
                     id: Some(nav_id.clone()),
