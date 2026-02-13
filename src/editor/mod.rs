@@ -7,7 +7,6 @@ use crate::drafts::{apply_nav_meta_overrides, get_nav_override, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::state::NoteSyncController;
-// use crate::util::now_ms;
 use crate::util::ROOT_CONTAINER_PARENT_ID;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::ev;
@@ -446,6 +445,7 @@ pub(crate) fn should_exit_edit_on_click_target(target: Option<web_sys::EventTarg
     true
 }
 
+#[cfg(test)]
 pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> bool {
     let _ = input_el.focus();
 
@@ -2924,25 +2924,10 @@ pub fn OutlineNode(
                                                 }
 
                                                 // Shift+Enter: soft line break inside a node (do NOT create a new Nav).
+                                                // Let the browser handle DOM mutations, and rely on the `on:input` handler
+                                                // to update drafts + schedule sync. This avoids regressions where a custom
+                                                // insertion interacts badly with the trailing placeholder `<br>`.
                                                 if key == "Enter" && ev.shift_key() {
-                                                    if let Some(input_el) = input() {
-                                                        // Prefer our DOM insertion to keep behavior consistent.
-                                                        // But if it fails (e.g. transient selection issues right after typing),
-                                                        // fall back to the browser default Shift+Enter behavior.
-                                                        let is_empty = ce_text(&input_el).trim().is_empty()
-                                                            && input_el.inner_html().trim().is_empty();
-
-                                                        let ok = insert_soft_line_break_dom(&input_el);
-                                                        let will_prevent = ok || is_empty;
-                                                        if will_prevent {
-                                                            ev.prevent_default();
-                                                        }
-
-                                                        if ok {
-                                                            // Sync signal from DOM.
-                                                            editing_value.set(ce_text(&input_el));
-                                                        }
-                                                    }
                                                     return;
                                                 }
 
