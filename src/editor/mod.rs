@@ -6,6 +6,7 @@ use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::util::now_ms;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
+use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -731,6 +732,34 @@ pub fn OutlineEditor(
 
     // Focus handled by OutlineNode (see below).
     // (focus moved to OutlineNode)
+
+    // Click-to-exit: clicking on non-editable blank space in the outline (or outside the outline)
+    // should exit editing mode. We cannot rely on `focusout.relatedTarget` here because clicking a
+    // non-focusable element often yields `relatedTarget=None`.
+    let _mouse_handle = window_event_listener(ev::mousedown, move |ev: web_sys::MouseEvent| {
+        let Some(target) = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        else {
+            return;
+        };
+
+        // If we are not currently editing, do nothing.
+        if editing_id.get_untracked().is_none() {
+            return;
+        }
+
+        let in_editor = target.closest("[data-nav-id]").ok().flatten().is_some();
+
+        // Clicking inside a contenteditable editor should not exit edit mode.
+        if in_editor {
+            return;
+        }
+
+        // Clicking anywhere else exits edit mode (blank space in outline, sidebar, etc.).
+        editing_id.set(None);
+        editing_snapshot.set(None);
+    });
 
     // Keep the contenteditable DOM in sync when switching nodes.
     // IMPORTANT: do not re-apply on every keystroke (would break IME / caret).
