@@ -154,6 +154,45 @@ Implement:
 - Backlinks continue to work (via `Nav.content` mirror).
 - No teardown/disposed reactive panics during navigation/unmount.
 
+## 9. Local-first sync architecture
+
+### 9.1 Design goals
+
+- **Local-first**: keystrokes persist to local draft storage immediately.
+- **Best-effort sync**: background syncing retries with backoff; leaving the page triggers a small flush.
+- **No disposed reactive panics**: global listeners/intervals must not read reactive values that can be disposed on unmount.
+- **Route-safe**: switching notes via sidebar must update the main content reliably.
+
+### 9.2 Responsibilities
+
+**OutlineEditor / OutlineNode (UI/editor layer)**
+
+- Render the outline and manage editor UI state:
+  - `editing_id`, `editing_value`, caret/focus behavior, drag/drop, autocomplete.
+- On input:
+  - write local draft (`touch_nav`) immediately.
+  - notify sync layer (e.g. `NoteSyncController::on_nav_changed`).
+- Must **NOT** own sync timers / retry queues / pagehide-online listeners.
+  - Rationale: these callbacks outlive component mounts and easily cause "disposed" panics.
+
+**NoteSyncController (sync/service layer, global singleton in `src/state`)**
+
+- Own all sync-related side effects:
+  - per-nav debounce timers
+  - retry queue (e.g. `retry_count`/`next_retry_ms`)
+  - global listeners (`online`, `pagehide`) and background interval worker
+- Uses **untracked** access to route context cached by `NotePage` (via `set_route`).
+- Provides narrow, testable APIs used by the UI layer:
+  - `set_route(db_id, note_id)`
+  - `set_editing_nav(Some(nav_id)|None)`
+  - `on_nav_changed(nav_id, content)`
+
+### 9.3 Invariants / rules
+
+- Router params (`use_params`) are **tracked** where UI needs reactive updates (views/Effects).
+- Event handlers / async tasks use **untracked** reads or cached plain values.
+- Any global listener / interval must live in the sync layer (or another top-level controller), not inside the editor UI components.
+
 ## Open Questions
 
 1) Link resolution:
