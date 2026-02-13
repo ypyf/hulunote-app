@@ -1,7 +1,7 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
-use crate::drafts::{get_nav_override, mark_nav_synced, touch_nav};
+use crate::drafts::{get_nav_override, get_unsynced_nav_drafts, mark_nav_synced, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::util::now_ms;
@@ -10,6 +10,8 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
@@ -759,20 +761,149 @@ pub fn OutlineEditor(
     // Focus handled by OutlineNode (see below).
     // (focus moved to OutlineNode)
 
-    // Click-to-exit: clicking on non-editable blank space in the outline (or outside the outline)
-    // should exit editing mode. We cannot rely on `focusout.relatedTarget` here because clicking a
-    // non-focusable element often yields `relatedTarget=None`.
+    // Debounced autosave for nav drafts (per-nav).
+    // - on:input writes local drafts immediately (localStorage)
+    // - debounce flush persists the current nav draft to backend
+    let autosave_ms: i32 = 1200;
+    let autosave_timers: StoredValue<Arc<Mutex<HashMap<String, i32>>>> =
+        StoredValue::new(Arc::new(Mutex::new(HashMap::new())));
+
+    let note_id_fn = note_id.clone();
+
+    // Flush all unsynced nav drafts for this note (used for pagehide / exit).
+    let flush_note_drafts = StoredValue::new(move || {
+        let db_id = app_state
+            .0
+            .current_database_id
+            .get_untracked()
+            .unwrap_or_default();
+        let note_id_now = note_id_fn();
+        if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
+            return;
+        }
+
+        let api_client = app_state.0.api_client.get_untracked();
+        let drafts = get_unsynced_nav_drafts(&db_id, &note_id_now);
+        if drafts.is_empty() {
+            return;
+        }
+
+        spawn_local(async move {
+            for (nav_id, content, updated_ms) in drafts {
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id_now.clone(),
+                    id: Some(nav_id.clone()),
+                    parid: None,
+                    content: Some(content),
+                    order: None,
+                    is_display: None,
+                    is_delete: None,
+                    properties: None,
+                };
+
+                if api_client.upsert_nav(req).await.is_ok() {
+                    mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+                }
+            }
+        });
+    });
+
+    // Flush one nav draft.
+    let note_id_fn2 = note_id.clone();
+    let flush_nav_draft = StoredValue::new(move |nav_id: String| {
+        let db_id = app_state
+            .0
+            .current_database_id
+            .get_untracked()
+            .unwrap_or_default();
+        let note_id_now = note_id_fn2();
+        if db_id.trim().is_empty() || note_id_now.trim().is_empty() || nav_id.trim().is_empty() {
+            return;
+        }
+
+        // Read from localStorage drafts (source of truth).
+        let Some((_, content, updated_ms)) = get_unsynced_nav_drafts(&db_id, &note_id_now)
+            .into_iter()
+            .find(|(id, _, _)| id == &nav_id)
+        else {
+            return;
+        };
+
+        let api_client = app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let req = CreateOrUpdateNavRequest {
+                note_id: note_id_now.clone(),
+                id: Some(nav_id.clone()),
+                parid: None,
+                content: Some(content),
+                order: None,
+                is_display: None,
+                is_delete: None,
+                properties: None,
+            };
+
+            if api_client.upsert_nav(req).await.is_ok() {
+                mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+            }
+        });
+    });
+
+    let schedule_autosave = StoredValue::new(move |nav_id: String| {
+        if nav_id.trim().is_empty() {
+            return;
+        }
+
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+
+        let timers = autosave_timers.get_value();
+        if let Ok(mut map) = timers.lock() {
+            if let Some(tid) = map.remove(&nav_id) {
+                let _ = win.clear_timeout_with_handle(tid);
+            }
+        }
+
+        let flush = flush_nav_draft;
+        let nav_id2 = nav_id.clone();
+        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+            flush.with_value(|f| f(nav_id2));
+        });
+
+        let tid = win
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                autosave_ms,
+            )
+            .unwrap_or(0);
+        if let Ok(mut map) = timers.lock() {
+            map.insert(nav_id, tid);
+        };
+    });
+
+    let schedule_autosave_cb: Callback<String> = Callback::new(move |nav_id: String| {
+        schedule_autosave.with_value(|f| f(nav_id));
+    });
+
+    // Click-to-exit: clicking on non-editable blank space exits editing mode.
     let _mouse_handle = window_event_listener(ev::mousedown, move |ev: web_sys::MouseEvent| {
-        // If we are not currently editing, do nothing.
         if editing_id.get_untracked().is_none() {
             return;
         }
 
         if should_exit_edit_on_mousedown_target(ev.target()) {
+            // Best-effort flush before exiting.
+            flush_note_drafts.with_value(|f| f());
             editing_id.set(None);
             editing_snapshot.set(None);
         }
     });
+
+    // Best-effort flush on page hide (refresh/close/navigation).
+    let _pagehide_handle =
+        window_event_listener(ev::pagehide, move |_ev: web_sys::PageTransitionEvent| {
+            flush_note_drafts.with_value(|f| f());
+        });
 
     // Keep the contenteditable DOM in sync when switching nodes.
     // IMPORTANT: do not re-apply on every keystroke (would break IME / caret).
@@ -864,6 +995,7 @@ pub fn OutlineEditor(
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
+                                                schedule_autosave=schedule_autosave_cb
                                             />
                                         }
                                     }
@@ -892,6 +1024,7 @@ pub fn OutlineNode(
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Div>,
     focused_nav_id: RwSignal<Option<String>>,
+    schedule_autosave: Callback<String>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let ac = expect_context::<AutocompleteCtx>();
@@ -1103,6 +1236,7 @@ pub fn OutlineNode(
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
+                                        schedule_autosave=schedule_autosave
                                     />
                                 }
                             }
@@ -1781,6 +1915,7 @@ pub fn OutlineNode(
                                                 let note_id = note_id_sv.get_value();
                                                 let nav_id = nav_id_sv.get_value();
                                                 touch_nav(&db_id, &note_id, &nav_id, &v);
+                                                schedule_autosave.run(nav_id.clone());
 
                                                 // Autocomplete: detect an unclosed `[[...` immediately before the caret.
                                                 let (caret_utf16, _caret_end_utf16, _len) = ce_selection_utf16(&el);

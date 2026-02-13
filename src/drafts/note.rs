@@ -130,6 +130,24 @@ pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str)
     }
 }
 
+pub(crate) fn get_unsynced_nav_drafts(db_id: &str, note_id: &str) -> Vec<(String, String, i64)> {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return vec![];
+    }
+
+    let d = load_note_draft(db_id, note_id);
+    d.navs
+        .iter()
+        .filter_map(|(nav_id, f)| {
+            if f.updated_ms > f.synced_ms {
+                Some((nav_id.clone(), f.value.clone(), f.updated_ms))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn get_nav_override(
     db_id: &str,
     note_id: &str,
