@@ -900,9 +900,71 @@ pub fn OutlineEditor(
     });
 
     // Best-effort flush on page hide (refresh/close/navigation).
+    // Keep this beacon/keepalive-friendly: flush only the current editing nav (if any) plus a
+    // small number of most-recent unsynced drafts.
+    let note_id_fn3 = note_id.clone();
     let _pagehide_handle =
         window_event_listener(ev::pagehide, move |_ev: web_sys::PageTransitionEvent| {
-            flush_note_drafts.with_value(|f| f());
+            let k_recent: usize = 5;
+
+            let db_id = app_state
+                .0
+                .current_database_id
+                .get_untracked()
+                .unwrap_or_default();
+            let note_id_now = note_id_fn3();
+            if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
+                return;
+            }
+
+            let mut drafts = get_unsynced_nav_drafts(&db_id, &note_id_now);
+            if drafts.is_empty() {
+                return;
+            }
+
+            // Sort by last update, newest first.
+            drafts.sort_by(|a, b| b.2.cmp(&a.2));
+
+            let editing = editing_id.get_untracked();
+            let mut picked: Vec<(String, String, i64)> = Vec::new();
+
+            // 1) Always try to flush current editing nav first.
+            if let Some(editing_nav) = editing {
+                if let Some(d) = drafts.iter().find(|(id, _, _)| id == &editing_nav) {
+                    picked.push(d.clone());
+                }
+            }
+
+            // 2) Add top-K recent unsynced drafts (excluding the one already picked).
+            for d in drafts.into_iter() {
+                if picked.iter().any(|(id, _, _)| id == &d.0) {
+                    continue;
+                }
+                picked.push(d);
+                if picked.len() >= k_recent {
+                    break;
+                }
+            }
+
+            let api_client = app_state.0.api_client.get_untracked();
+            spawn_local(async move {
+                for (nav_id, content, updated_ms) in picked {
+                    let req = CreateOrUpdateNavRequest {
+                        note_id: note_id_now.clone(),
+                        id: Some(nav_id.clone()),
+                        parid: None,
+                        content: Some(content),
+                        order: None,
+                        is_display: None,
+                        is_delete: None,
+                        properties: None,
+                    };
+
+                    if api_client.upsert_nav(req).await.is_ok() {
+                        mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
+                    }
+                }
+            });
         });
 
     // Keep the contenteditable DOM in sync when switching nodes.
