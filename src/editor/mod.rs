@@ -1,11 +1,12 @@
 use crate::api::CreateOrUpdateNavRequest;
+use crate::cache::{load_note_snapshot, save_note_snapshot};
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
-use crate::drafts::{get_nav_override, mark_nav_synced, touch_nav};
+use crate::drafts::{get_nav_override, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::state::NoteSyncController;
-use crate::util::now_ms;
+// use crate::util::now_ms;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::ev;
 use leptos::html;
@@ -744,12 +745,42 @@ pub fn OutlineEditor(
         ac_open.set(true);
     });
 
+    let offline: RwSignal<bool> = RwSignal::new(false);
+    let offline_missing_snapshot: RwSignal<bool> = RwSignal::new(false);
+
     // Load navs when note_id changes.
     let note_id_for_effect = note_id.clone();
     Effect::new(move |_| {
         let id = note_id_for_effect();
+        let db_id_now = app_state
+            .0
+            .current_database_id
+            .get_untracked()
+            .unwrap_or_default();
+
         if id.trim().is_empty() {
             navs.set(vec![]);
+            offline.set(false);
+            offline_missing_snapshot.set(false);
+            return;
+        }
+
+        let sync = expect_context::<NoteSyncController>();
+
+        // If we already know the backend is unreachable, don't even try fetching.
+        if !sync.is_backend_online() {
+            if let Some(snap) = load_note_snapshot(&db_id_now, &id) {
+                offline.set(true);
+                offline_missing_snapshot.set(false);
+                error.set(None);
+                navs.set(snap.navs);
+            } else {
+                offline.set(true);
+                offline_missing_snapshot.set(true);
+                error.set(None);
+                navs.set(vec![]);
+            }
+            loading.set(false);
             return;
         }
 
@@ -757,10 +788,48 @@ pub fn OutlineEditor(
         error.set(None);
 
         let api_client = app_state.0.api_client.get_untracked();
+        let sync2 = sync.clone();
+        let db_id2 = db_id_now.clone();
         spawn_local(async move {
             match api_client.get_note_navs(&id).await {
-                Ok(list) => navs.set(list),
-                Err(e) => error.set(Some(e)),
+                Ok(list) => {
+                    sync2.mark_backend_online();
+                    offline.set(false);
+                    offline_missing_snapshot.set(false);
+                    // Save a read-only snapshot (including title) for offline access.
+                    let title = app_state
+                        .0
+                        .notes
+                        .get_untracked()
+                        .into_iter()
+                        .find(|n| n.id == id)
+                        .map(|n| n.title);
+                    save_note_snapshot(&db_id2, &id, title, list.clone(), crate::util::now_ms());
+                    navs.set(list);
+                }
+                Err(e) => {
+                    sync2.mark_backend_offline(&e);
+
+                    // Backend unreachable: fall back to snapshot (read cache), and suppress errors.
+                    if !sync2.is_backend_online() {
+                        if let Some(snap) = load_note_snapshot(&db_id2, &id) {
+                            offline.set(true);
+                            offline_missing_snapshot.set(false);
+                            error.set(None);
+                            navs.set(snap.navs);
+                        } else {
+                            offline.set(true);
+                            offline_missing_snapshot.set(true);
+                            error.set(None);
+                            navs.set(vec![]);
+                        }
+                    } else {
+                        // Non-connectivity error.
+                        offline.set(false);
+                        offline_missing_snapshot.set(false);
+                        error.set(Some(e));
+                    }
+                }
             }
             loading.set(false);
         });
@@ -837,6 +906,20 @@ pub fn OutlineEditor(
                 {move || error.get().map(|e| view! {
                     <div class="mt-2 text-xs text-destructive">{e}</div>
                 })}
+            </Show>
+
+            <Show when=move || offline.get() fallback=|| ().into_view()>
+                <div class="mt-2 text-xs text-muted-foreground">
+                    {move || {
+                        if offline_missing_snapshot.get() {
+                            "Offline: this note is not cached yet, so its outline cannot be shown. Reconnect once to cache it."
+                                .to_string()
+                        } else {
+                            "Offline: showing cached snapshot. You can keep editing; changes are saved locally and will sync when online."
+                                .to_string()
+                        }
+                    }}
+                </div>
             </Show>
 
             // Opening missing pages does not show an error banner here.
@@ -1403,20 +1486,13 @@ pub fn OutlineNode(
                                                             });
 
                                                         if should_save {
-                                                            let api_client = app_state.0.api_client.get_untracked();
-                                                            let note_id_now = note_id_sv.get_value();
-                                                            let req = CreateOrUpdateNavRequest {
-                                                                note_id: note_id_now,
-                                                                id: Some(current_id.clone()),
-                                                                parid: None,
-                                                                content: Some(current_content),
-                                                                order: None,
-                                                                is_display: None,
-                                                                is_delete: None,
-                                                                properties: None,
-                                                            };
-                                                            spawn_local(async move {
-                                                                let _ = api_client.upsert_nav(req).await;
+                                                            // Local-first: save to local draft; network sync is handled by
+                                                            // NoteSyncController (debounce + retry + offline backoff).
+                                                            let sync_sv = sync_sv;
+                                                            let current_id2 = current_id.clone();
+                                                            let current_content2 = current_content.clone();
+                                                            let _ = sync_sv.try_with_value(|s| {
+                                                                s.on_nav_changed(&current_id2, &current_content2);
                                                             });
                                                         }
                                                     }
@@ -1578,6 +1654,17 @@ pub fn OutlineNode(
                                                                                     let notes = app_state_hover.0.notes.get_untracked();
                                                                                     let api_client = app_state_hover.0.api_client.get_untracked();
                                                                                     let app_state_hover2 = app_state_hover.clone();
+                                                                                    let sync = expect_context::<NoteSyncController>();
+                                                                                    let sync2 = sync.clone();
+
+                                                                                    if !sync.is_backend_online() {
+                                                                                        preview_loading.set(false);
+                                                                                        preview_error.set(None);
+                                                                                        preview_lines.set(vec![
+                                                                                            "Offline: preview unavailable".to_string(),
+                                                                                        ]);
+                                                                                        return;
+                                                                                    }
 
                                                                                     spawn_local(async move {
                                                                                         let mut note_id_opt = notes
@@ -1601,7 +1688,15 @@ pub fn OutlineNode(
                                                                                                         .map(|n| n.id.clone());
                                                                                                 }
                                                                                                 Err(e) => {
-                                                                                                    preview_error.set(Some(e));
+                                                                                                    sync2.mark_backend_offline(&e);
+                                                                                                    if !sync2.is_backend_online() {
+                                                                                                        preview_error.set(None);
+                                                                                                        preview_lines.set(vec![
+                                                                                                            "Offline: preview unavailable".to_string(),
+                                                                                                        ]);
+                                                                                                    } else {
+                                                                                                        preview_error.set(Some(e));
+                                                                                                    }
                                                                                                 }
                                                                                             }
                                                                                         }
@@ -1656,7 +1751,15 @@ pub fn OutlineNode(
                                                                                                 preview_lines.set(out);
                                                                                             }
                                                                                             Err(e) => {
-                                                                                                preview_error.set(Some(e));
+                                                                                                sync2.mark_backend_offline(&e);
+                                                                                                if !sync2.is_backend_online() {
+                                                                                                    preview_error.set(None);
+                                                                                                    preview_lines.set(vec![
+                                                                                                        "Offline: preview unavailable".to_string(),
+                                                                                                    ]);
+                                                                                                } else {
+                                                                                                    preview_error.set(Some(e));
+                                                                                                }
                                                                                             }
                                                                                         }
                                                                                         preview_loading.set(false);
@@ -1941,34 +2044,13 @@ pub fn OutlineNode(
                                                         let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                     });
 
-                                                    let api_client = app_state.0.api_client.get_untracked();
-                                                    let db_id = app_state
-                                                        .0
-                                                        .current_database_id
-                                                        .get_untracked()
-                                                        .unwrap_or_default();
-                                                    let note_id_now2 = note_id_now.clone();
+                                                    // Local-first: always persist to local draft. Network sync is handled
+                                                    // by the global NoteSyncController (debounce + retry + offline backoff).
+                                                    let sync_sv = sync_sv;
                                                     let nav_id_now2 = nav_id_now.clone();
-
-                                                    let req = CreateOrUpdateNavRequest {
-                                                        note_id: note_id_now,
-                                                        id: Some(nav_id_now.clone()),
-                                                        parid: None,
-                                                        content: Some(new_content),
-                                                        order: None,
-                                                        is_display: None,
-                                                        is_delete: None,
-                                                        properties: None,
-                                                    };
-                                                    spawn_local(async move {
-                                                        if api_client.upsert_nav(req).await.is_ok() {
-                                                            mark_nav_synced(
-                                                                &db_id,
-                                                                &note_id_now2,
-                                                                &nav_id_now2,
-                                                                now_ms(),
-                                                            );
-                                                        }
+                                                    let new_content2 = new_content.clone();
+                                                    let _ = sync_sv.try_with_value(|s| {
+                                                        s.on_nav_changed(&nav_id_now2, &new_content2);
                                                     });
                                                 }
                                             }

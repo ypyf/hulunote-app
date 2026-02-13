@@ -1,7 +1,7 @@
 use crate::storage::{load_json_from_storage, save_json_to_storage};
 use crate::util::now_ms;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub(crate) struct FieldDraft {
@@ -33,6 +33,83 @@ fn key(db_id: &str, note_id: &str) -> String {
     format!("hulunote_draft_note::{db_id}::{note_id}")
 }
 
+fn index_key() -> &'static str {
+    "hulunote_draft_index"
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+struct DraftIndex {
+    /// Set of dirty note keys: "{db_id}::{note_id}".
+    #[serde(default)]
+    notes: BTreeSet<String>,
+}
+
+fn note_index_key(db_id: &str, note_id: &str) -> String {
+    format!("{db_id}::{note_id}")
+}
+
+fn index_load() -> DraftIndex {
+    load_json_from_storage::<DraftIndex>(index_key()).unwrap_or_default()
+}
+
+fn index_save(ix: &DraftIndex) {
+    save_json_to_storage(index_key(), ix);
+}
+
+fn index_touch_note(db_id: &str, note_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return;
+    }
+
+    let mut ix = index_load();
+    ix.notes.insert(note_index_key(db_id, note_id));
+    index_save(&ix);
+}
+
+fn index_remove_note(db_id: &str, note_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return;
+    }
+
+    let mut ix = index_load();
+    ix.notes.remove(&note_index_key(db_id, note_id));
+    index_save(&ix);
+}
+
+fn is_note_fully_synced(d: &NoteDraft) -> bool {
+    let title_synced = d
+        .title
+        .as_ref()
+        .map(|f| f.updated_ms <= f.synced_ms)
+        .unwrap_or(true);
+    if !title_synced {
+        return false;
+    }
+
+    d.navs.values().all(|f| f.updated_ms <= f.synced_ms)
+}
+
+fn index_prune_if_synced(db_id: &str, note_id: &str) {
+    let d = load_note_draft(db_id, note_id);
+    if is_note_fully_synced(&d) {
+        index_remove_note(db_id, note_id);
+    }
+}
+
+pub(crate) fn list_dirty_notes(limit: usize) -> Vec<(String, String)> {
+    let ix = index_load();
+    ix.notes
+        .into_iter()
+        .take(limit)
+        .filter_map(|k| {
+            let mut parts = k.split("::");
+            let db = parts.next()?.to_string();
+            let note = parts.next()?.to_string();
+            Some((db, note))
+        })
+        .collect()
+}
+
 fn load_note_draft(db_id: &str, note_id: &str) -> NoteDraft {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return NoteDraft::default();
@@ -57,6 +134,8 @@ pub(crate) fn touch_title(db_id: &str, note_id: &str, title: &str) {
         return;
     }
 
+    index_touch_note(db_id, note_id);
+
     let mut d = load_note_draft(db_id, note_id);
     let now = now_ms();
 
@@ -75,6 +154,8 @@ pub(crate) fn touch_nav(db_id: &str, note_id: &str, nav_id: &str, content: &str)
     if db_id.trim().is_empty() || note_id.trim().is_empty() || nav_id.trim().is_empty() {
         return;
     }
+
+    index_touch_note(db_id, note_id);
 
     let mut d = load_note_draft(db_id, note_id);
     let now = now_ms();
@@ -99,9 +180,16 @@ pub(crate) fn mark_title_synced(db_id: &str, note_id: &str, synced_ms: i64) {
     let mut d = load_note_draft(db_id, note_id);
     let mut f = d.title.unwrap_or_default();
     f.synced_ms = f.synced_ms.max(synced_ms);
+
+    // Reset retry state on success.
+    f.retry_count = 0;
+    f.next_retry_ms = 0;
+
     d.title = Some(f);
     d.updated_ms = now_ms();
     save_note_draft(&d);
+
+    index_prune_if_synced(db_id, note_id);
 }
 
 pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_ms: i64) {
@@ -122,6 +210,8 @@ pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_m
 
     d.updated_ms = now_ms();
     save_note_draft(&d);
+
+    index_prune_if_synced(db_id, note_id);
 }
 
 fn compute_retry_delay_ms(retry_count: u32) -> i64 {
@@ -136,6 +226,8 @@ pub(crate) fn mark_nav_sync_failed(db_id: &str, note_id: &str, nav_id: &str) {
     if db_id.trim().is_empty() || note_id.trim().is_empty() || nav_id.trim().is_empty() {
         return;
     }
+
+    index_touch_note(db_id, note_id);
 
     let mut d = load_note_draft(db_id, note_id);
     let f = d

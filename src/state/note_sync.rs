@@ -1,7 +1,7 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::drafts::{
-    get_due_unsynced_nav_drafts, get_unsynced_nav_drafts, mark_nav_sync_failed, mark_nav_synced,
-    touch_nav,
+    get_due_unsynced_nav_drafts, get_unsynced_nav_drafts, list_dirty_notes, mark_nav_sync_failed,
+    mark_nav_synced, touch_nav,
 };
 use crate::state::AppContext;
 use crate::util::now_ms;
@@ -26,6 +26,13 @@ use wasm_bindgen::JsCast;
 pub(crate) struct NoteSyncController {
     app_state: AppContext,
 
+    /// Connectivity state to backend API.
+    backend_online: RwSignal<bool>,
+    last_backend_error: RwSignal<Option<String>>,
+
+    /// When offline, we still probe occasionally to detect recovery, but never spam requests.
+    offline_next_probe_ms: RwSignal<i64>,
+
     /// Current route context (set by NotePage via tracked Effect).
     current_db_id: RwSignal<String>,
     current_note_id: RwSignal<String>,
@@ -45,7 +52,59 @@ pub(crate) struct NoteSyncController {
 }
 
 impl NoteSyncController {
+    pub fn is_backend_online(&self) -> bool {
+        self.backend_online.get_untracked()
+    }
+
+    #[allow(dead_code)]
+    pub fn last_backend_error(&self) -> Option<String> {
+        self.last_backend_error.get_untracked()
+    }
+
+    fn is_network_error(e: &str) -> bool {
+        let e = e.to_lowercase();
+        e.contains("failed to fetch")
+            || e.contains("error sending request")
+            || e.contains("connection refused")
+            || e.contains("err_connection_refused")
+    }
+
+    pub(crate) fn mark_backend_online(&self) {
+        self.backend_online.set(true);
+        self.last_backend_error.set(None);
+        self.offline_next_probe_ms.set(0);
+    }
+
+    pub(crate) fn mark_backend_offline(&self, e: &str) {
+        if Self::is_network_error(e) {
+            self.backend_online.set(false);
+            self.last_backend_error.set(Some(e.to_string()));
+        }
+    }
+
+    fn should_probe_offline(&self, now_ms: i64) -> bool {
+        if self.backend_online.get_untracked() {
+            return true;
+        }
+
+        let next = self.offline_next_probe_ms.get_untracked();
+        if next == 0 || now_ms >= next {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn schedule_next_offline_probe(&self, now_ms: i64) {
+        // Conservative: one probe every 15s while offline.
+        self.offline_next_probe_ms.set(now_ms + 15_000);
+    }
+
     pub fn new(app_state: AppContext) -> Self {
+        let backend_online = RwSignal::new(true);
+        let last_backend_error = RwSignal::new(None);
+        let offline_next_probe_ms = RwSignal::new(0);
+
         let current_db_id = RwSignal::new(String::new());
         let current_note_id = RwSignal::new(String::new());
         let current_editing_nav_id = RwSignal::new(None);
@@ -62,6 +121,9 @@ impl NoteSyncController {
 
         let s = Self {
             app_state,
+            backend_online,
+            last_backend_error,
+            offline_next_probe_ms,
             current_db_id,
             current_note_id,
             current_editing_nav_id,
@@ -111,6 +173,11 @@ impl NoteSyncController {
     }
 
     fn flush_nav_draft(&self, nav_id: String) {
+        // Never spam backend when offline; rely on retry worker probes.
+        if !self.backend_online.get_untracked() {
+            return;
+        }
+
         let Some((db_id, note_id)) = self.db_note_untracked() else {
             return;
         };
@@ -127,6 +194,7 @@ impl NoteSyncController {
         };
 
         let api_client = self.app_state.0.api_client.get_untracked();
+        let s2 = self.clone();
         spawn_local(async move {
             let req = CreateOrUpdateNavRequest {
                 note_id: note_id.clone(),
@@ -139,10 +207,15 @@ impl NoteSyncController {
                 properties: None,
             };
 
-            if api_client.upsert_nav(req).await.is_ok() {
-                mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
-            } else {
-                mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+            match api_client.upsert_nav(req).await {
+                Ok(_) => {
+                    s2.mark_backend_online();
+                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                }
+                Err(e) => {
+                    s2.mark_backend_offline(&e);
+                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                }
             }
         });
     }
@@ -181,18 +254,45 @@ impl NoteSyncController {
     }
 
     fn retry_tick(&self) {
-        let Some((db_id, note_id)) = self.db_note_untracked() else {
-            return;
-        };
+        // Global retry: pick a few dirty notes and flush due items.
+        let now = now_ms();
 
-        let due = get_due_unsynced_nav_drafts(&db_id, &note_id, now_ms(), 2);
-        if due.is_empty() {
+        if !self.should_probe_offline(now) {
+            return;
+        }
+
+        if !self.backend_online.get_untracked() {
+            self.schedule_next_offline_probe(now);
+        }
+        let candidates = list_dirty_notes(3);
+        if candidates.is_empty() {
+            return;
+        }
+
+        // Limit work per tick.
+        let mut picked: Vec<(String, String, String, String, i64)> = vec![]; // db, note, nav, content, updated
+
+        for (db_id, note_id) in candidates.into_iter() {
+            let due = get_due_unsynced_nav_drafts(&db_id, &note_id, now, 2);
+            for (nav_id, content, updated_ms) in due {
+                picked.push((db_id.clone(), note_id.clone(), nav_id, content, updated_ms));
+                if picked.len() >= 2 {
+                    break;
+                }
+            }
+            if picked.len() >= 2 {
+                break;
+            }
+        }
+
+        if picked.is_empty() {
             return;
         }
 
         let api_client = self.app_state.0.api_client.get_untracked();
+        let s2 = self.clone();
         spawn_local(async move {
-            for (nav_id, content, updated_ms) in due {
+            for (db_id, note_id, nav_id, content, updated_ms) in picked {
                 let req = CreateOrUpdateNavRequest {
                     note_id: note_id.clone(),
                     id: Some(nav_id.clone()),
@@ -204,10 +304,15 @@ impl NoteSyncController {
                     properties: None,
                 };
 
-                if api_client.upsert_nav(req).await.is_ok() {
-                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
-                } else {
-                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                match api_client.upsert_nav(req).await {
+                    Ok(_) => {
+                        s2.mark_backend_online();
+                        mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                    }
+                    Err(e) => {
+                        s2.mark_backend_offline(&e);
+                        mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                    }
                 }
             }
         });
@@ -256,6 +361,11 @@ impl NoteSyncController {
     }
 
     fn pagehide_flush(&self) {
+        // When offline, pagehide flush would just spam failures.
+        if !self.backend_online.get_untracked() {
+            return;
+        }
+
         let Some((db_id, note_id)) = self.db_note_untracked() else {
             return;
         };
@@ -286,6 +396,7 @@ impl NoteSyncController {
         }
 
         let api_client = self.app_state.0.api_client.get_untracked();
+        let s2 = self.clone();
         spawn_local(async move {
             for (nav_id, content, updated_ms) in picked {
                 let req = CreateOrUpdateNavRequest {
@@ -299,10 +410,15 @@ impl NoteSyncController {
                     properties: None,
                 };
 
-                if api_client.upsert_nav(req).await.is_ok() {
-                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
-                } else {
-                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                match api_client.upsert_nav(req).await {
+                    Ok(_) => {
+                        s2.mark_backend_online();
+                        mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                    }
+                    Err(e) => {
+                        s2.mark_backend_offline(&e);
+                        mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                    }
                 }
             }
         });

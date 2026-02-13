@@ -1,4 +1,5 @@
 use crate::api::CreateOrUpdateNavRequest;
+use crate::cache::load_note_snapshot;
 use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
     CardHeader, CardTitle, Input, Label, Spinner,
@@ -1830,6 +1831,7 @@ pub fn NotePage() -> impl IntoView {
             app_state.0.notes_error.set(None);
 
             let api_client = app_state.0.api_client.get_untracked();
+            let sync_sv = StoredValue::new(expect_context::<crate::state::NoteSyncController>());
             spawn_local(async move {
                 let result = api_client.get_all_note_list(&db).await;
 
@@ -1850,7 +1852,13 @@ pub fn NotePage() -> impl IntoView {
                             app_state.0.current_user.set(None);
                             let _ = window().location().set_href("/login");
                         } else {
-                            app_state.0.notes_error.set(Some(e));
+                            let _ = sync_sv.try_with_value(|s| s.mark_backend_offline(&e));
+                            let offline_now = sync_sv
+                                .try_with_value(|s| !s.is_backend_online())
+                                .unwrap_or(false);
+                            if !offline_now {
+                                app_state.0.notes_error.set(Some(e));
+                            }
                         }
                     }
                 }
@@ -1860,10 +1868,22 @@ pub fn NotePage() -> impl IntoView {
     });
 
     // Phase 7: load all navs in current DB for backlink computation.
+    let sync_sv = StoredValue::new(expect_context::<crate::state::NoteSyncController>());
     Effect::new(move |_| {
         let db = db_id();
         if db.trim().is_empty() {
             all_db_navs.set(vec![]);
+            return;
+        }
+
+        // Local-first UX: when offline, we don't fetch backlinks.
+        let offline_now = sync_sv
+            .try_with_value(|s| !s.is_backend_online())
+            .unwrap_or(false);
+        if offline_now {
+            all_db_navs.set(vec![]);
+            all_db_navs_loading.set(false);
+            all_db_navs_error.set(None);
             return;
         }
 
@@ -1884,7 +1904,10 @@ pub fn NotePage() -> impl IntoView {
             }
 
             match result {
-                Ok(navs) => all_db_navs.set(navs),
+                Ok(navs) => {
+                    let _ = sync_sv.try_with_value(|s| s.mark_backend_online());
+                    all_db_navs.set(navs)
+                }
                 Err(e) => {
                     if e == "Unauthorized" {
                         let mut c = app_state.0.api_client.get_untracked();
@@ -1893,7 +1916,17 @@ pub fn NotePage() -> impl IntoView {
                         app_state.0.current_user.set(None);
                         let _ = window().location().set_href("/login");
                     } else {
-                        all_db_navs_error.set(Some(e));
+                        let _ = sync_sv.try_with_value(|s| s.mark_backend_offline(&e));
+                        // Local-first UX: hide backlink errors when backend is unreachable.
+                        let offline_now = sync_sv
+                            .try_with_value(|s| !s.is_backend_online())
+                            .unwrap_or(false);
+                        if offline_now {
+                            all_db_navs.set(vec![]);
+                            all_db_navs_error.set(None);
+                        } else {
+                            all_db_navs_error.set(Some(e));
+                        }
                     }
                 }
             }
@@ -1937,8 +1970,24 @@ pub fn NotePage() -> impl IntoView {
             // Phase 5.5: recent notes (local)
             write_recent_note(&db, &id, &n.title);
         } else {
-            // Fallback: at least record ids.
-            write_recent_note(&db, &id, &id);
+            // Fallback: if notes list isn't available (e.g. offline), try snapshot title.
+            if let Some(snap) = load_note_snapshot(&db, &id) {
+                if let Some(t) = snap.title {
+                    if title_note_id.get() != id {
+                        title_note_id.set(id.clone());
+                        let v = get_title_override(&db, &id, &t);
+                        title_value.set(v.clone());
+                        title_original.set(v);
+                    }
+
+                    write_recent_note(&db, &id, &t);
+                } else {
+                    write_recent_note(&db, &id, &id);
+                }
+            } else {
+                // Fallback: at least record ids.
+                write_recent_note(&db, &id, &id);
+            }
         }
 
         // Keep recent DB fresh too.
