@@ -1,0 +1,51 @@
+use crate::models::Nav;
+use crate::storage::{load_json_from_storage, save_json_to_storage};
+use serde::{Deserialize, Serialize};
+
+fn key(db_id: &str, note_id: &str) -> String {
+    format!("hulunote_note_snapshot::{db_id}::{note_id}")
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct NoteSnapshot {
+    pub saved_ms: i64,
+    pub db_id: String,
+    pub note_id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub navs: Vec<Nav>,
+}
+
+pub(crate) fn save_note_snapshot(
+    db_id: &str,
+    note_id: &str,
+    title: Option<String>,
+    navs: Vec<Nav>,
+    saved_ms: i64,
+) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return;
+    }
+
+    let snap = NoteSnapshot {
+        saved_ms,
+        db_id: db_id.to_string(),
+        note_id: note_id.to_string(),
+        title,
+        navs,
+    };
+
+    save_json_to_storage(&key(db_id, note_id), &snap);
+}
+
+pub(crate) fn load_note_snapshot(db_id: &str, note_id: &str) -> Option<NoteSnapshot> {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return None;
+    }
+    load_json_from_storage::<NoteSnapshot>(&key(db_id, note_id))
+}
+
+#[allow(dead_code)]
+pub(crate) fn has_note_snapshot(db_id: &str, note_id: &str) -> bool {
+    load_note_snapshot(db_id, note_id).is_some()
+}
