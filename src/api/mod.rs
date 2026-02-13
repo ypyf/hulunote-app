@@ -51,7 +51,7 @@ impl ApiError {
         }
     }
 
-// (removed) ApiError::other
+    // (removed) ApiError::other
 }
 
 pub(crate) type ApiResult<T> = Result<T, ApiError>;

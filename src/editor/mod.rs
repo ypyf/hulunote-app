@@ -966,11 +966,25 @@ pub fn OutlineEditor(
 
                 {move || {
                     let all = navs.get();
-                    let root = "00000000-0000-0000-0000-000000000000";
+                    let root_zero = "00000000-0000-0000-0000-000000000000";
+
+                    // Backend schema: explicit ROOT container node has parid == all-zero.
+                    // Real top-level nodes have parid == root_container.id.
+                    let root_parid = {
+                        let root_candidates = all
+                            .iter()
+                            .filter(|n| n.parid == root_zero)
+                            .collect::<Vec<_>>();
+                        if root_candidates.len() == 1 {
+                            root_candidates[0].id.as_str()
+                        } else {
+                            root_zero
+                        }
+                    };
 
                     let mut roots = all
                         .iter()
-                        .filter(|n| n.parid == root)
+                        .filter(|n| n.parid == root_parid)
                         .cloned()
                         .collect::<Vec<_>>();
                     roots.sort_by(|a, b| a
@@ -2826,23 +2840,30 @@ pub fn OutlineNode(
                                                         editing_id.set(None);
                                                     }
 
-                                                    // Persist soft delete to backend.
-                                                    let api_client = app_state.0.api_client.get_untracked();
-                                                    spawn_local(async move {
-                                                        for id in subtree {
-                                                            let req = CreateOrUpdateNavRequest {
-                                                                note_id: note_id_now.clone(),
-                                                                id: Some(id),
-                                                                parid: None,
-                                                                content: None,
-                                                                order: None,
-                                                                is_display: None,
-                                                                is_delete: Some(true),
-                                                                properties: None,
-                                                            };
-                                                            let _ = api_client.upsert_nav(req).await;
+                                                    // Local-first: persist deletes as meta drafts; sync controller handles network.
+                                                    let db_id_now = app_state
+                                                        .0
+                                                        .current_database_id
+                                                        .get_untracked()
+                                                        .unwrap_or_default();
+
+                                                    // Drop tmp nodes locally (they never existed on backend).
+                                                    let real_ids: Vec<String> = subtree
+                                                        .iter()
+                                                        .filter(|id| !is_tmp_nav_id(id))
+                                                        .cloned()
+                                                        .collect();
+
+                                                    // Remove local drafts/snapshot so refresh doesn't resurrect deleted nodes.
+                                                    crate::drafts::remove_navs_from_drafts(&db_id_now, &note_id_now, &subtree);
+                                                    crate::cache::remove_navs_from_snapshot(&db_id_now, &note_id_now, &subtree);
+
+                                                    for id in real_ids.into_iter() {
+                                                        if let Some(mut n) = all.iter().find(|n| n.id == id).cloned() {
+                                                            n.is_delete = true;
+                                                            let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
                                                         }
-                                                    });
+                                                    }
 
                                                     return;
                                                 }

@@ -462,6 +462,38 @@ pub(crate) fn swap_tmp_nav_id_in_drafts(db_id: &str, note_id: &str, tmp_id: &str
     }
 }
 
+pub(crate) fn remove_navs_from_drafts(db_id: &str, note_id: &str, ids: &[String]) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() || ids.is_empty() {
+        return;
+    }
+
+    let mut d = load_note_draft(db_id, note_id);
+    let before = d.navs.len() + d.nav_meta.len();
+
+    for id in ids.iter() {
+        d.navs.remove(id);
+        d.nav_meta.remove(id);
+    }
+
+    // Also rewrite meta drafts whose parid references removed nodes.
+    for (_id, f) in d.nav_meta.iter_mut() {
+        if f.updated_ms <= f.synced_ms {
+            continue;
+        }
+        let mut meta = serde_json::from_str::<NavMetaDraft>(&f.value).unwrap_or_default();
+        if ids.iter().any(|id| id == &meta.parid) {
+            meta.parid = "00000000-0000-0000-0000-000000000000".to_string();
+            f.value = serde_json::to_string(&meta).unwrap_or_default();
+        }
+    }
+
+    if d.navs.len() + d.nav_meta.len() != before {
+        d.updated_ms = now_ms();
+        save_note_draft(&d);
+        index_prune_if_synced(db_id, note_id);
+    }
+}
+
 pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str) -> String {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return server_title.to_string();

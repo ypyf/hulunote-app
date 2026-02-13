@@ -2184,11 +2184,21 @@ pub fn NotePage() -> impl IntoView {
             });
 
             // Create first nav.
-            let root = "00000000-0000-0000-0000-000000000000";
+            // Backend may have an explicit root container node; create under it when present.
+            let root_zero = "00000000-0000-0000-0000-000000000000";
+            let root_parid = match api_client.get_note_navs(&note.id).await {
+                Ok(navs) => navs
+                    .into_iter()
+                    .find(|n| n.parid == root_zero)
+                    .map(|n| n.id)
+                    .unwrap_or_else(|| root_zero.to_string()),
+                Err(_) => root_zero.to_string(),
+            };
+
             let create_req = CreateOrUpdateNavRequest {
                 note_id: note.id.clone(),
                 id: None,
-                parid: Some(root.to_string()),
+                parid: Some(root_parid),
                 content: Some(initial_content.clone()),
                 order: Some(0.0),
                 is_display: Some(true),
