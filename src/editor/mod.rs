@@ -770,6 +770,44 @@ pub fn OutlineEditor(
 
         let sync = expect_context::<NoteSyncController>();
 
+        // Helper: ensure an empty note has at least one editable nav.
+        let ensure_non_empty = |_db_id: &str, note_id: &str, xs: &mut Vec<Nav>| -> Option<String> {
+            let root_zero = "00000000-0000-0000-0000-000000000000";
+            let root_candidates = xs
+                .iter()
+                .filter(|n| n.parid == root_zero)
+                .collect::<Vec<_>>();
+            let Some(root_container_id) = root_candidates.first().map(|n| n.id.clone()) else {
+                return None;
+            };
+
+            let has_any_real = xs
+                .iter()
+                .any(|n| !n.is_delete && n.parid == root_container_id);
+            if has_any_real {
+                return None;
+            }
+
+            // Insert a temporary node under the root container.
+            let tmp_id = make_tmp_nav_id(
+                js_sys::Date::now() as u64,
+                (js_sys::Math::random() * 1e9) as u64,
+            );
+
+            xs.push(Nav {
+                id: tmp_id.clone(),
+                note_id: note_id.to_string(),
+                parid: root_container_id,
+                same_deep_order: 1.0,
+                content: String::new(),
+                is_display: true,
+                is_delete: false,
+                properties: None,
+            });
+
+            Some(tmp_id)
+        };
+
         // If we already know the backend is unreachable, don't even try fetching.
         if !sync.is_backend_online() {
             if let Some(snap) = load_note_snapshot(&db_id_now, &id) {
@@ -777,6 +815,27 @@ pub fn OutlineEditor(
                 offline_missing_snapshot.set(false);
                 error.set(None);
                 let mut xs = snap.navs;
+
+                let maybe_tmp = ensure_non_empty(&db_id_now, &id, &mut xs);
+                if let Some(tmp_id) = maybe_tmp {
+                    save_note_snapshot(
+                        &db_id_now,
+                        &id,
+                        snap.title,
+                        xs.clone(),
+                        crate::util::now_ms(),
+                    );
+                    let _ = sync.on_nav_changed(&tmp_id, "");
+                    if let Some(n) = xs.iter().find(|n| n.id == tmp_id) {
+                        sync.on_nav_meta_changed(n);
+                    }
+
+                    editing_id.set(Some(tmp_id.clone()));
+                    editing_value.set(String::new());
+                    editing_snapshot.set(Some((tmp_id.clone(), String::new())));
+                    target_cursor_col.set(Some(0));
+                }
+
                 apply_nav_meta_overrides(&db_id_now, &id, &mut xs);
                 navs.set(xs);
             } else {
@@ -824,7 +883,21 @@ pub fn OutlineEditor(
                         }
                     }
 
+                    let maybe_tmp = ensure_non_empty(&db_id2, &id, &mut xs);
+
                     save_note_snapshot(&db_id2, &id, title, xs.clone(), crate::util::now_ms());
+
+                    if let Some(tmp_id) = maybe_tmp {
+                        sync2.on_nav_changed(&tmp_id, "");
+                        if let Some(n) = xs.iter().find(|n| n.id == tmp_id) {
+                            sync2.on_nav_meta_changed(n);
+                        }
+
+                        editing_id.set(Some(tmp_id.clone()));
+                        editing_value.set(String::new());
+                        editing_snapshot.set(Some((tmp_id.clone(), String::new())));
+                        target_cursor_col.set(Some(0));
+                    }
 
                     apply_nav_meta_overrides(&db_id2, &id, &mut xs);
                     navs.set(xs);
@@ -993,8 +1066,9 @@ pub fn OutlineEditor(
                         .unwrap_or(std::cmp::Ordering::Equal));
 
                     if roots.is_empty() {
-                        view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
-                            .into_any()
+                        // Intentionally render nothing here. Empty notes are auto-seeded with a first node,
+                        // and during route/load transitions this avoids a distracting flash of "No nodes".
+                        ().into_view().into_any()
                     } else {
                         let nid_sv = StoredValue::new(note_id());
                         let root_ids_sv = StoredValue::new(
