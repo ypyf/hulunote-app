@@ -45,7 +45,28 @@ pub(crate) fn load_note_snapshot(db_id: &str, note_id: &str) -> Option<NoteSnaps
     load_json_from_storage::<NoteSnapshot>(&key(db_id, note_id))
 }
 
-#[allow(dead_code)]
-pub(crate) fn has_note_snapshot(db_id: &str, note_id: &str) -> bool {
-    load_note_snapshot(db_id, note_id).is_some()
+pub(crate) fn swap_tmp_nav_id_in_snapshot(db_id: &str, note_id: &str, tmp_id: &str, real_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() || tmp_id.trim().is_empty() {
+        return;
+    }
+
+    let Some(mut snap) = load_note_snapshot(db_id, note_id) else {
+        return;
+    };
+
+    let mut changed = false;
+    for n in snap.navs.iter_mut() {
+        if n.id == tmp_id {
+            n.id = real_id.to_string();
+            changed = true;
+        }
+        if n.parid == tmp_id {
+            n.parid = real_id.to_string();
+            changed = true;
+        }
+    }
+
+    if changed {
+        save_note_snapshot(db_id, note_id, snap.title, snap.navs, snap.saved_ms);
+    }
 }

@@ -425,6 +425,43 @@ pub(crate) fn apply_nav_meta_overrides(db_id: &str, note_id: &str, navs: &mut [N
     }
 }
 
+pub(crate) fn swap_tmp_nav_id_in_drafts(db_id: &str, note_id: &str, tmp_id: &str, real_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() || tmp_id.trim().is_empty() {
+        return;
+    }
+
+    let mut d = load_note_draft(db_id, note_id);
+    let mut changed = false;
+
+    if let Some(f) = d.navs.remove(tmp_id) {
+        d.navs.insert(real_id.to_string(), f);
+        changed = true;
+    }
+
+    if let Some(f) = d.nav_meta.remove(tmp_id) {
+        d.nav_meta.insert(real_id.to_string(), f);
+        changed = true;
+    }
+
+    // If other meta drafts reference tmp_id as parid, rewrite them.
+    for (_id, f) in d.nav_meta.iter_mut() {
+        if f.updated_ms <= f.synced_ms {
+            continue;
+        }
+        let mut meta = serde_json::from_str::<NavMetaDraft>(&f.value).unwrap_or_default();
+        if meta.parid == tmp_id {
+            meta.parid = real_id.to_string();
+            f.value = serde_json::to_string(&meta).unwrap_or_default();
+            changed = true;
+        }
+    }
+
+    if changed {
+        d.updated_ms = now_ms();
+        save_note_draft(&d);
+    }
+}
+
 pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str) -> String {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return server_title.to_string();

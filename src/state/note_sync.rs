@@ -1,8 +1,9 @@
 use crate::api::CreateOrUpdateNavRequest;
+use crate::cache::swap_tmp_nav_id_in_snapshot;
 use crate::drafts::{
     get_due_unsynced_nav_drafts, get_due_unsynced_nav_meta_drafts, get_unsynced_nav_drafts,
     list_dirty_notes, mark_nav_meta_sync_failed, mark_nav_meta_synced, mark_nav_sync_failed,
-    mark_nav_synced, touch_nav, touch_nav_meta, NavMetaDraft,
+    mark_nav_synced, swap_tmp_nav_id_in_drafts, touch_nav, touch_nav_meta, NavMetaDraft,
 };
 use crate::state::AppContext;
 use crate::util::now_ms;
@@ -379,7 +380,55 @@ impl NoteSyncController {
         let api_client = self.app_state.0.api_client.get_untracked();
         let s2 = self.clone();
         spawn_local(async move {
+            // 1) Handle pending creates (tmp nav ids) first.
+            //    Strategy: create with id=None using meta draft; then swap tmp->real in snapshot+drafts.
+            for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta.iter() {
+                if !nav_id.starts_with("tmp-") {
+                    continue;
+                }
+
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id.clone(),
+                    id: None,
+                    parid: Some(meta.parid.clone()),
+                    content: Some("".to_string()),
+                    order: Some(meta.same_deep_order),
+                    is_display: Some(meta.is_display),
+                    is_delete: Some(meta.is_delete),
+                    properties: meta.properties.clone(),
+                };
+
+                match api_client.upsert_nav(req).await {
+                    Ok(resp) => {
+                        s2.mark_backend_online();
+                        let new_id = resp
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if new_id.trim().is_empty() {
+                            continue;
+                        }
+
+                        swap_tmp_nav_id_in_drafts(db_id, note_id, nav_id, &new_id);
+                        swap_tmp_nav_id_in_snapshot(db_id, note_id, nav_id, &new_id);
+
+                        // Mark meta as synced under the real id.
+                        mark_nav_meta_synced(db_id, note_id, &new_id, *updated_ms);
+                    }
+                    Err(e) => {
+                        s2.mark_backend_offline_api(&e);
+                        mark_nav_meta_sync_failed(db_id, note_id, nav_id);
+                    }
+                }
+            }
+
+            // 2) Sync content drafts (skip tmp ids; they will be backfilled after create).
             for (db_id, note_id, nav_id, content, updated_ms) in picked_content {
+                if nav_id.starts_with("tmp-") {
+                    continue;
+                }
+
                 let req = CreateOrUpdateNavRequest {
                     note_id: note_id.clone(),
                     id: Some(nav_id.clone()),
@@ -403,7 +452,12 @@ impl NoteSyncController {
                 }
             }
 
+            // 3) Sync meta drafts (non-tmp updates).
             for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta {
+                if nav_id.starts_with("tmp-") {
+                    continue;
+                }
+
                 let req = CreateOrUpdateNavRequest {
                     note_id: note_id.clone(),
                     id: Some(nav_id.clone()),

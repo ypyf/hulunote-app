@@ -2858,17 +2858,10 @@ pub fn OutlineNode(
                                                         }
                                                     });
 
-                                                    let api_client = app_state.0.api_client.get_untracked();
-                                                    let save_req = CreateOrUpdateNavRequest {
-                                                        note_id: note_id_now.clone(),
-                                                        id: Some(nav_id_now.clone()),
-                                                        parid: None,
-                                                        content: Some(current_content.clone()),
-                                                        order: None,
-                                                        is_display: None,
-                                                        is_delete: None,
-                                                        properties: None,
-                                                    };
+                                                    // Local-first: save current node content via sync controller.
+                                                    let _ = sync_sv.try_with_value(|s| {
+                                                        s.on_nav_changed(&nav_id_now, &current_content);
+                                                    });
 
                                                     // Create sibling
                                                     let all = navs.get_untracked();
@@ -2923,60 +2916,19 @@ pub fn OutlineNode(
                                                     editing_snapshot.set(Some((tmp_id.clone(), String::new())));
                                                     target_cursor_col.set(Some(0));
 
-                                                    spawn_local(async move {
-                                                        // If the current node is still a temporary (optimistic) node, do NOT
-                                                        // send an update with a tmp id. The backend will reject it (400 Invalid nav ID).
-                                                        // We'll backfill content once the real id is known.
-                                                        if should_persist_nav_id(&nav_id_now) {
-                                                            let _ = api_client.upsert_nav(save_req).await;
-                                                        }
+                                                    // Local-first: persist new node meta to drafts; retry worker will
+                                                    // create it on the backend when online and swap tmp->real.
+                                                    if let Some(n) = navs
+                                                        .get_untracked()
+                                                        .into_iter()
+                                                        .find(|n| n.id == tmp_id)
+                                                    {
+                                                        let _ = sync_sv.try_with_value(|s| s.on_nav_meta_changed(&n));
+                                                    }
 
-                                                        let create_req = CreateOrUpdateNavRequest {
-                                                            note_id: note_id_now.clone(),
-                                                            id: None,
-                                                            parid: Some(parid.clone()),
-                                                            content: Some("".to_string()),
-                                                            order: Some(new_order),
-                                                            is_display: Some(true),
-                                                            is_delete: Some(false),
-                                                            properties: None,
-                                                        };
-
-                                                        if let Ok(resp) = api_client.upsert_nav(create_req).await {
-                                                            let new_id = resp
-                                                                .get("id")
-                                                                .and_then(|v| v.as_str())
-                                                                .unwrap_or("")
-                                                                .to_string();
-
-                                                            if !new_id.trim().is_empty() {
-                                                                // Swap tmp id -> real id.
-                                                                let content_now = get_nav_content(
-                                                                    &navs.get_untracked(),
-                                                                    &tmp_id,
-                                                                )
-                                                                .unwrap_or_default();
-
-                                                                navs.update(|xs| {
-                                                                    let _ = swap_tmp_nav_id(xs, &tmp_id, &new_id);
-                                                                });
-
-                                                                // If still editing the tmp node, switch to the real id.
-                                                                if editing_id.get_untracked().as_deref() == Some(tmp_id.as_str()) {
-                                                                    editing_id.set(Some(new_id.clone()));
-                                                                    editing_snapshot.set(Some((new_id.clone(), content_now.clone())));
-                                                                }
-
-                                                                // Persist current content (if user typed before backend returned).
-                                                                if let Some(save_req) = backfill_content_request(
-                                                                    &note_id_now,
-                                                                    &new_id,
-                                                                    &content_now,
-                                                                ) {
-                                                                    let _ = api_client.upsert_nav(save_req).await;
-                                                                }
-                                                            }
-                                                        }
+                                                    // Also persist empty content so the draft exists.
+                                                    let _ = sync_sv.try_with_value(|s| {
+                                                        s.on_nav_changed(&tmp_id, "");
                                                     });
                                                 }
                                             }
