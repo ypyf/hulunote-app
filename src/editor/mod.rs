@@ -7,7 +7,7 @@ use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::state::NoteSyncController;
 // use crate::util::now_ms;
-use crate::util::ROOT_ZERO_UUID;
+use crate::util::ROOT_CONTAINER_PARENT_ID;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::ev;
 use leptos::html;
@@ -773,10 +773,10 @@ pub fn OutlineEditor(
 
         // Helper: ensure an empty note has at least one editable nav.
         let ensure_non_empty = |_db_id: &str, note_id: &str, xs: &mut Vec<Nav>| -> Option<String> {
-            let root_zero = ROOT_ZERO_UUID;
+            let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
             let root_candidates = xs
                 .iter()
-                .filter(|n| n.parid == root_zero)
+                .filter(|n| n.parid == root_container_parent_id)
                 .collect::<Vec<_>>();
             let Some(root_container_id) = root_candidates.first().map(|n| n.id.clone()) else {
                 return None;
@@ -1040,19 +1040,19 @@ pub fn OutlineEditor(
 
                 {move || {
                     let all = navs.get();
-                    let root_zero = ROOT_ZERO_UUID;
+                    let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
 
                     // Backend schema: explicit ROOT container node has parid == all-zero.
                     // Real top-level nodes have parid == root_container.id.
                     let root_parid = {
                         let root_candidates = all
                             .iter()
-                            .filter(|n| n.parid == root_zero)
+                            .filter(|n| n.parid == root_container_parent_id)
                             .collect::<Vec<_>>();
                         if root_candidates.len() == 1 {
                             root_candidates[0].id.as_str()
                         } else {
-                            root_zero
+                            root_container_parent_id
                         }
                     };
 
@@ -1819,7 +1819,7 @@ pub fn OutlineNode(
 
                                                                                         match api_client.get_note_navs(&note_id).await {
                                                                                             Ok(navs) => {
-                                                                                                let root = ROOT_ZERO_UUID;
+                                                                                                let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
                                                                                                 let mut by_parent: std::collections::HashMap<String, Vec<Nav>> =
                                                                                                     std::collections::HashMap::new();
                                                                                                 for n in navs.into_iter() {
@@ -1858,7 +1858,7 @@ pub fn OutlineNode(
                                                                                                         }
                                                                                                     }
                                                                                                 }
-                                                                                                walk(&by_parent, root, 0, &mut out, 8);
+                                                                                                walk(&by_parent, root_container_parent_id, 0, &mut out, 8);
                                                                                                 preview_lines.set(out);
                                                                                             }
                                                                                             Err(e) => {
@@ -2315,7 +2315,7 @@ pub fn OutlineNode(
                                                 };
 
                                                 fn visible_preorder(all: &[Nav]) -> Vec<String> {
-                                                    let root = ROOT_ZERO_UUID;
+                                                    let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
 
                                                     fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
                                                         let mut out = all
@@ -2341,7 +2341,7 @@ pub fn OutlineNode(
                                                     }
 
                                                     let mut out: Vec<String> = vec![];
-                                                    collect(all, root, &mut out);
+                                                    collect(all, root_container_parent_id, &mut out);
                                                     out
                                                 }
 
@@ -2504,7 +2504,7 @@ pub fn OutlineNode(
                                                             return;
                                                         };
 
-                                                        let root = ROOT_ZERO_UUID;
+                                                        let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
 
                                                         // Prefer previous sibling when it exists.
                                                         // If there is no previous sibling (i.e. first child), go to parent.
@@ -2526,7 +2526,7 @@ pub fn OutlineNode(
                                                             .cloned();
 
                                                         if prev.is_none() {
-                                                            if me.parid != root {
+                                                            if me.parid != root_container_parent_id {
                                                                 if let Some(parent) = all.iter().find(|n| n.id == me.parid) {
                                                                     editing_id.set(Some(parent.id.clone()));
                                                                     editing_value.set(parent.content.clone());
@@ -2719,8 +2719,8 @@ pub fn OutlineNode(
                                                     } else {
                                                         // Outdent: become sibling of parent.
                                                         let parent_id = me.parid.clone();
-                                                        let root = ROOT_ZERO_UUID;
-                                                        if parent_id == root {
+                                                        let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
+                                                        if parent_id == root_container_parent_id {
                                                             return;
                                                         }
 

@@ -13,7 +13,7 @@ use crate::storage::{
     CURRENT_DB_KEY, SIDEBAR_COLLAPSED_KEY,
 };
 use crate::util::next_available_daily_note_title;
-use crate::util::ROOT_ZERO_UUID;
+use crate::util::ROOT_CONTAINER_PARENT_ID;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title};
 use leptos::ev;
 use leptos::html;
@@ -2186,14 +2186,14 @@ pub fn NotePage() -> impl IntoView {
 
             // Create first nav.
             // Backend may have an explicit root container node; create under it when present.
-            let root_zero = ROOT_ZERO_UUID;
+            let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
             let root_parid = match api_client.get_note_navs(&note.id).await {
                 Ok(navs) => navs
                     .into_iter()
-                    .find(|n| n.parid == root_zero)
+                    .find(|n| n.parid == root_container_parent_id)
                     .map(|n| n.id)
-                    .unwrap_or_else(|| root_zero.to_string()),
-                Err(_) => root_zero.to_string(),
+                    .unwrap_or_else(|| root_container_parent_id.to_string()),
+                Err(_) => root_container_parent_id.to_string(),
             };
 
             let create_req = CreateOrUpdateNavRequest {
@@ -2521,14 +2521,15 @@ pub fn NotePage() -> impl IntoView {
                                                             // Parent chain (context) for this nav.
                                                             let mut chain: Vec<String> = vec![];
                                                             let mut cur = nav_by_id.get(&nav_id).cloned();
-                                                            let root = ROOT_ZERO_UUID.to_string();
+                                                            let root_container_parent_id =
+                                                                ROOT_CONTAINER_PARENT_ID.to_string();
                                                             let mut guard = 0;
                                                             while let Some(n) = cur {
                                                                 guard += 1;
                                                                 if guard > 32 {
                                                                     break;
                                                                 }
-                                                                if n.parid == root {
+                                                                if n.parid == root_container_parent_id {
                                                                     break;
                                                                 }
                                                                 if let Some(p) = nav_by_id.get(&n.parid) {

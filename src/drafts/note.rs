@@ -1,6 +1,6 @@
 use crate::models::Nav;
 use crate::storage::{load_json_from_storage, save_json_to_storage};
-use crate::util::{now_ms, ROOT_ZERO_UUID};
+use crate::util::{now_ms, ROOT_CONTAINER_PARENT_ID};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -482,7 +482,7 @@ pub(crate) fn remove_navs_from_drafts(db_id: &str, note_id: &str, ids: &[String]
         }
         let mut meta = serde_json::from_str::<NavMetaDraft>(&f.value).unwrap_or_default();
         if ids.iter().any(|id| id == &meta.parid) {
-            meta.parid = ROOT_ZERO_UUID.to_string();
+            meta.parid = ROOT_CONTAINER_PARENT_ID.to_string();
             f.value = serde_json::to_string(&meta).unwrap_or_default();
         }
     }
