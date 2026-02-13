@@ -6,7 +6,7 @@ use crate::drafts::{
     mark_nav_synced, swap_tmp_nav_id_in_drafts, touch_nav, touch_nav_meta, NavMetaDraft,
 };
 use crate::state::AppContext;
-use crate::util::now_ms;
+use crate::util::{is_uuid_like, now_ms};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -192,9 +192,9 @@ impl NoteSyncController {
             return;
         }
 
-        // tmp-* ids are optimistic local nodes. They must NOT be upserted by id;
-        // they will be created via meta-draft (id=None) and then swapped to a real id.
-        if nav_id.starts_with("tmp-") {
+        // Local optimistic ids must NOT be upserted by id; they will be created via meta-draft
+        // (id=None) and then swapped to a real backend UUID.
+        if !is_uuid_like(&nav_id) {
             return;
         }
 
@@ -252,8 +252,8 @@ impl NoteSyncController {
             return;
         }
 
-        // tmp-* ids must be created with id=None (see retry worker). Never upsert them by id.
-        if nav_id.starts_with("tmp-") {
+        // Local optimistic ids must be created with id=None (see retry worker). Never upsert them by id.
+        if !is_uuid_like(&nav_id) {
             return;
         }
 
@@ -383,7 +383,7 @@ impl NoteSyncController {
             // 1) Handle pending creates (tmp nav ids) first.
             //    Strategy: create with id=None using meta draft; then swap tmp->real in snapshot+drafts.
             for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta.iter() {
-                if !nav_id.starts_with("tmp-") {
+                if is_uuid_like(nav_id) {
                     continue;
                 }
 
@@ -423,9 +423,9 @@ impl NoteSyncController {
                 }
             }
 
-            // 2) Sync content drafts (skip tmp ids; they will be backfilled after create).
+            // 2) Sync content drafts (skip optimistic local ids; they will be backfilled after create).
             for (db_id, note_id, nav_id, content, updated_ms) in picked_content {
-                if nav_id.starts_with("tmp-") {
+                if !is_uuid_like(&nav_id) {
                     continue;
                 }
 
@@ -452,9 +452,9 @@ impl NoteSyncController {
                 }
             }
 
-            // 3) Sync meta drafts (non-tmp updates).
+            // 3) Sync meta drafts (non-optimistic updates).
             for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta {
-                if nav_id.starts_with("tmp-") {
+                if !is_uuid_like(&nav_id) {
                     continue;
                 }
 
@@ -564,7 +564,7 @@ impl NoteSyncController {
         let s2 = self.clone();
         spawn_local(async move {
             for (nav_id, content, updated_ms) in picked {
-                if nav_id.starts_with("tmp-") {
+                if !is_uuid_like(&nav_id) {
                     continue;
                 }
 
