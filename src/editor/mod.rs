@@ -806,9 +806,23 @@ pub fn OutlineEditor(
                         .into_iter()
                         .find(|n| n.id == id)
                         .map(|n| n.title);
-                    save_note_snapshot(&db_id2, &id, title, list.clone(), crate::util::now_ms());
-
+                    // Merge local snapshot navs (e.g. offline-created tmp nodes) so a reconnect fetch
+                    // doesn't wipe them from the UI.
                     let mut xs = list;
+                    if let Some(snap) = load_note_snapshot(&db_id2, &id) {
+                        let mut have: std::collections::BTreeSet<String> =
+                            xs.iter().map(|n| n.id.clone()).collect();
+                        for n in snap.navs.into_iter() {
+                            if have.contains(&n.id) {
+                                continue;
+                            }
+                            have.insert(n.id.clone());
+                            xs.push(n);
+                        }
+                    }
+
+                    save_note_snapshot(&db_id2, &id, title, xs.clone(), crate::util::now_ms());
+
                     apply_nav_meta_overrides(&db_id2, &id, &mut xs);
                     navs.set(xs);
                 }
@@ -2930,6 +2944,27 @@ pub fn OutlineNode(
                                                     let _ = sync_sv.try_with_value(|s| {
                                                         s.on_nav_changed(&tmp_id, "");
                                                     });
+
+                                                    // Persist snapshot so refresh won't drop the offline-created tmp node.
+                                                    let db_id_now = app_state
+                                                        .0
+                                                        .current_database_id
+                                                        .get_untracked()
+                                                        .unwrap_or_default();
+                                                    let title = app_state
+                                                        .0
+                                                        .notes
+                                                        .get_untracked()
+                                                        .into_iter()
+                                                        .find(|n| n.id == note_id_now)
+                                                        .map(|n| n.title);
+                                                    save_note_snapshot(
+                                                        &db_id_now,
+                                                        &note_id_now,
+                                                        title,
+                                                        navs.get_untracked(),
+                                                        crate::util::now_ms(),
+                                                    );
                                                 }
                                             }
                                         >
