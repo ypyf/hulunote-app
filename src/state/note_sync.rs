@@ -252,6 +252,11 @@ impl NoteSyncController {
             return;
         }
 
+        // tmp-* ids must be created with id=None (see retry worker). Never upsert them by id.
+        if nav_id.starts_with("tmp-") {
+            return;
+        }
+
         let Some((_, meta, updated_ms)) =
             get_due_unsynced_nav_meta_drafts(&db_id, &note_id, now_ms(), 50)
                 .into_iter()
