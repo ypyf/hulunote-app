@@ -1654,12 +1654,19 @@ pub fn NotePage() -> impl IntoView {
     let params = leptos_router::hooks::use_params::<NoteRouteParams>();
     let navigate = StoredValue::new(use_navigate());
 
-    // Use closures so params access happens inside a reactive tracking context.
-    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+    // Route params are often read in event handlers / async tasks (outside reactive tracking).
+    // Use untracked reads here to avoid warnings.
+    let db_id = move || {
+        params
+            .get_untracked()
+            .ok()
+            .and_then(|p| p.db_id)
+            .unwrap_or_default()
+    };
 
     let note_id = move || {
         params
-            .get()
+            .get_untracked()
             .ok()
             .and_then(|p| p.note_id)
             .unwrap_or_default()
