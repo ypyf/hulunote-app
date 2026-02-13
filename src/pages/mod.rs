@@ -2251,6 +2251,8 @@ pub fn NotePage() -> impl IntoView {
         });
     });
 
+    let title_input_class = "h-10 min-w-0 flex-1 text-2xl font-semibold";
+
     view! {
         <>
             <Show when=move || is_draft_mode() fallback=|| ().into_view()>
@@ -2259,8 +2261,10 @@ pub fn NotePage() -> impl IntoView {
                         <div class="flex items-center gap-2">
                             <Input
                                 bind_value=draft_title_value
-                                class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                                class=title_input_class
                                 placeholder="Untitled"
+                                // Draft mode: no backend note yet, so title is purely local.
+                                on:input=move |_ev: web_sys::Event| {}
                             />
 
                             <div class="h-5 w-5 shrink-0">
@@ -2328,7 +2332,7 @@ pub fn NotePage() -> impl IntoView {
                 <div class="flex items-center gap-2">
                     <Input
                         bind_value=title_value
-                        class="h-10 min-w-0 flex-1 text-lg font-semibold"
+                        class=title_input_class
                         placeholder="Untitled"
                         on:input=move |ev: web_sys::Event| {
                             let db = db_id_untracked();
