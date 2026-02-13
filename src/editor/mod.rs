@@ -1,7 +1,7 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::cache::{load_note_snapshot, save_note_snapshot};
 use crate::components::hooks::use_random::use_random_id_for;
-use crate::components::ui::{Command, CommandItem, CommandList};
+use crate::components::ui::{Command, CommandItem, CommandList, Spinner};
 use crate::drafts::{apply_nav_meta_overrides, get_nav_override, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
@@ -970,8 +970,18 @@ pub fn OutlineEditor(
                         .unwrap_or(std::cmp::Ordering::Equal));
 
                     if roots.is_empty() {
-                        view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
+                        if loading.get() {
+                            view! {
+                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Spinner class="size-3" />
+                                    "Loading…"
+                                </div>
+                            }
                             .into_any()
+                        } else {
+                            view! { <div class="text-xs text-muted-foreground">"No nodes"</div> }
+                                .into_any()
+                        }
                     } else {
                         let nid_sv = StoredValue::new(note_id());
                         let root_ids_sv = StoredValue::new(
