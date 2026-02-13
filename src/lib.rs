@@ -25,8 +25,8 @@ mod wasm_tests {
         touch_title,
     };
     use crate::editor::{
-        insert_soft_line_break_dom, should_exit_edit_on_focusout_related_target,
-        should_exit_edit_on_mousedown_target,
+        insert_soft_line_break_dom, should_exit_edit_on_click_target,
+        should_exit_edit_on_focusout_related_target,
     };
     use crate::models::AccountInfo;
     use crate::storage::{load_user_from_storage, save_user_to_storage};
@@ -350,15 +350,15 @@ mod wasm_tests {
             // - leaving outline must exit.
             assert!(should_exit_edit_on_focusout_related_target(Some(outside_t)));
 
-            // mousedown:
+            // click-to-exit:
             // - clicking inside editor must NOT exit.
-            assert!(!should_exit_edit_on_mousedown_target(Some(editor_t)));
+            assert!(!should_exit_edit_on_click_target(Some(editor_t)));
             // - clicking blank / outside must exit.
-            assert!(should_exit_edit_on_mousedown_target(Some(blank_t)));
+            assert!(should_exit_edit_on_click_target(Some(blank_t)));
             let outside2 = doc.create_element("div").expect("create outside2");
             root.append_child(&outside2).expect("append outside2");
             let outside2_t: web_sys::EventTarget = outside2.unchecked_into();
-            assert!(should_exit_edit_on_mousedown_target(Some(outside2_t)));
+            assert!(should_exit_edit_on_click_target(Some(outside2_t)));
         });
     }
 }

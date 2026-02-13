@@ -420,7 +420,7 @@ pub(crate) fn should_exit_edit_on_focusout_related_target(
     el.closest(".outline-editor").ok().flatten().is_none()
 }
 
-pub(crate) fn should_exit_edit_on_mousedown_target(target: Option<web_sys::EventTarget>) -> bool {
+pub(crate) fn should_exit_edit_on_click_target(target: Option<web_sys::EventTarget>) -> bool {
     let Some(t) = target else {
         return false;
     };
@@ -428,8 +428,17 @@ pub(crate) fn should_exit_edit_on_mousedown_target(target: Option<web_sys::Event
         return false;
     };
 
-    // Clicking inside an editor ([data-nav-id] contenteditable) should NOT exit.
-    el.closest("[data-nav-id]").ok().flatten().is_none()
+    // If the click is inside the contenteditable editor, keep editing.
+    if el.closest("[data-nav-id]").ok().flatten().is_some() {
+        return false;
+    }
+
+    // If the click is on an outline row, let row logic handle switching edit target.
+    if el.closest(".outline-row").ok().flatten().is_some() {
+        return false;
+    }
+
+    true
 }
 
 pub(crate) fn insert_soft_line_break_dom(input_el: &web_sys::HtmlElement) -> bool {
@@ -783,17 +792,10 @@ pub fn OutlineEditor(
             return;
         };
 
-        // If the click is inside the contenteditable editor, keep editing.
-        if target.closest("[data-nav-id]").ok().flatten().is_some() {
+        if !should_exit_edit_on_click_target(Some(target.unchecked_into())) {
             return;
         }
 
-        // If the click is on an outline row, let row logic handle switching edit target.
-        if target.closest(".outline-row").ok().flatten().is_some() {
-            return;
-        }
-
-        // Otherwise, exit editing.
         if editing_id.try_get_untracked().flatten().as_deref() == Some(current.as_str()) {
             editing_id.set(None);
             editing_snapshot.set(None);
