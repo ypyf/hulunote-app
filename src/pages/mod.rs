@@ -1654,9 +1654,17 @@ pub fn NotePage() -> impl IntoView {
     let params = leptos_router::hooks::use_params::<NoteRouteParams>();
     let navigate = StoredValue::new(use_navigate());
 
-    // Route params are often read in event handlers / async tasks (outside reactive tracking).
-    // Use untracked reads here to avoid warnings.
-    let db_id = move || {
+    // Route params: keep both tracked (for Effects/views) and untracked (for event handlers).
+    let db_id = move || params.get().ok().and_then(|p| p.db_id).unwrap_or_default();
+    let note_id = move || {
+        params
+            .get()
+            .ok()
+            .and_then(|p| p.note_id)
+            .unwrap_or_default()
+    };
+
+    let db_id_untracked = move || {
         params
             .get_untracked()
             .ok()
@@ -1664,13 +1672,19 @@ pub fn NotePage() -> impl IntoView {
             .unwrap_or_default()
     };
 
-    let note_id = move || {
+    let note_id_untracked = move || {
         params
             .get_untracked()
             .ok()
             .and_then(|p| p.note_id)
             .unwrap_or_default()
     };
+
+    // Drive global sync controller from tracked route changes.
+    let sync = expect_context::<crate::state::NoteSyncController>();
+    Effect::new(move |_| {
+        sync.set_route(db_id(), note_id());
+    });
 
     let title_value: RwSignal<String> = RwSignal::new(String::new());
     // Original title snapshot for the current note (used to avoid redundant saves).
@@ -1939,8 +1953,8 @@ pub fn NotePage() -> impl IntoView {
         if saving.get_untracked() {
             return;
         }
-        let id = note_id();
-        let db = db_id();
+        let id = note_id_untracked();
+        let db = db_id_untracked();
         let new_title = title_value.get_untracked();
         if id.trim().is_empty() {
             return;
@@ -2257,8 +2271,8 @@ pub fn NotePage() -> impl IntoView {
                         class="h-10 min-w-0 flex-1 text-lg font-semibold"
                         placeholder="Untitled"
                         on:input=move |ev: web_sys::Event| {
-                            let db = db_id();
-                            let id = note_id();
+                            let db = db_id_untracked();
+                            let id = note_id_untracked();
                             if db.trim().is_empty() || id.trim().is_empty() {
                                 return;
                             }

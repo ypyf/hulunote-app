@@ -1,20 +1,15 @@
 use crate::api::CreateOrUpdateNavRequest;
 use crate::components::hooks::use_random::use_random_id_for;
 use crate::components::ui::{Command, CommandItem, CommandList};
-use crate::drafts::{
-    get_due_unsynced_nav_drafts, get_nav_override, get_unsynced_nav_drafts, mark_nav_sync_failed,
-    mark_nav_synced, touch_nav,
-};
+use crate::drafts::{get_nav_override, mark_nav_synced, touch_nav};
 use crate::models::{Nav, Note};
 use crate::state::AppContext;
+use crate::state::NoteSyncController;
 use crate::util::now_ms;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
-use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
@@ -764,296 +759,13 @@ pub fn OutlineEditor(
     // Focus handled by OutlineNode (see below).
     // (focus moved to OutlineNode)
 
-    // Debounced autosave for nav drafts (per-nav).
-    // - on:input writes local drafts immediately (localStorage)
-    // - debounce flush persists the current nav draft to backend
-    let autosave_ms: i32 = 1200;
-    let autosave_timers: StoredValue<Arc<Mutex<HashMap<String, i32>>>> =
-        StoredValue::new(Arc::new(Mutex::new(HashMap::new())));
+    // Sync controller (global, local-first)
+    let sync_sv = StoredValue::new(expect_context::<NoteSyncController>());
 
-    let note_id_fn = note_id.clone();
-
-    // Flush all unsynced nav drafts for this note (used for pagehide / exit).
-    let flush_note_drafts = StoredValue::new(move || {
-        let db_id = app_state
-            .0
-            .current_database_id
-            .get_untracked()
-            .unwrap_or_default();
-        let note_id_now = note_id_fn();
-        if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
-            return;
-        }
-
-        let api_client = app_state.0.api_client.get_untracked();
-        let drafts = get_unsynced_nav_drafts(&db_id, &note_id_now);
-        if drafts.is_empty() {
-            return;
-        }
-
-        spawn_local(async move {
-            for (nav_id, content, updated_ms) in drafts {
-                let req = CreateOrUpdateNavRequest {
-                    note_id: note_id_now.clone(),
-                    id: Some(nav_id.clone()),
-                    parid: None,
-                    content: Some(content),
-                    order: None,
-                    is_display: None,
-                    is_delete: None,
-                    properties: None,
-                };
-
-                if api_client.upsert_nav(req).await.is_ok() {
-                    mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
-                } else {
-                    mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
-                }
-            }
-        });
-    });
-
-    // Flush one nav draft.
-    let note_id_fn2 = note_id.clone();
-    let flush_nav_draft = StoredValue::new(move |nav_id: String| {
-        let db_id = app_state
-            .0
-            .current_database_id
-            .get_untracked()
-            .unwrap_or_default();
-        let note_id_now = note_id_fn2();
-        if db_id.trim().is_empty() || note_id_now.trim().is_empty() || nav_id.trim().is_empty() {
-            return;
-        }
-
-        // Read from localStorage drafts (source of truth).
-        let Some((_, content, updated_ms)) = get_unsynced_nav_drafts(&db_id, &note_id_now)
-            .into_iter()
-            .find(|(id, _, _)| id == &nav_id)
-        else {
-            return;
-        };
-
-        let api_client = app_state.0.api_client.get_untracked();
-        spawn_local(async move {
-            let req = CreateOrUpdateNavRequest {
-                note_id: note_id_now.clone(),
-                id: Some(nav_id.clone()),
-                parid: None,
-                content: Some(content),
-                order: None,
-                is_display: None,
-                is_delete: None,
-                properties: None,
-            };
-
-            if api_client.upsert_nav(req).await.is_ok() {
-                mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
-            } else {
-                mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
-            }
-        });
-    });
-
-    let schedule_autosave = StoredValue::new(move |nav_id: String| {
-        if nav_id.trim().is_empty() {
-            return;
-        }
-
-        let Some(win) = web_sys::window() else {
-            return;
-        };
-
-        let timers = autosave_timers.get_value();
-        if let Ok(mut map) = timers.lock() {
-            if let Some(tid) = map.remove(&nav_id) {
-                let _ = win.clear_timeout_with_handle(tid);
-            }
-        }
-
-        let flush = flush_nav_draft;
-        let nav_id2 = nav_id.clone();
-        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
-            flush.with_value(|f| f(nav_id2));
-        });
-
-        let tid = win
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                cb.as_ref().unchecked_ref(),
-                autosave_ms,
-            )
-            .unwrap_or(0);
-        if let Ok(mut map) = timers.lock() {
-            map.insert(nav_id, tid);
-        };
-    });
-
-    let schedule_autosave_cb: Callback<String> = Callback::new(move |nav_id: String| {
-        schedule_autosave.with_value(|f| f(nav_id));
-    });
-
-    // Click-to-exit: clicking on non-editable blank space exits editing mode.
-    let _mouse_handle = window_event_listener(ev::mousedown, move |ev: web_sys::MouseEvent| {
-        if editing_id.try_get_untracked().flatten().is_none() {
-            return;
-        }
-
-        if should_exit_edit_on_mousedown_target(ev.target()) {
-            // Best-effort flush before exiting.
-            let _ = flush_note_drafts.try_with_value(|f| f());
-            editing_id.set(None);
-            editing_snapshot.set(None);
-        }
-    });
-
-    // Retry queue worker (standard local-first): periodically flush due drafts.
-    // Uses `retry_count/next_retry_ms` to back off after failures.
-    let retry_interval_ms: i32 = 2000;
-    let retry_timer_id: RwSignal<Option<i32>> = RwSignal::new(None);
-
-    let note_id_fn3 = note_id.clone();
-    let retry_tick = StoredValue::new(move || {
-        let db_id = app_state
-            .0
-            .current_database_id
-            .get_untracked()
-            .unwrap_or_default();
-        let note_id_now = note_id_fn3();
-        if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
-            return;
-        }
-
-        let due = get_due_unsynced_nav_drafts(&db_id, &note_id_now, now_ms(), 2);
-        if due.is_empty() {
-            return;
-        }
-
-        let api_client = app_state.0.api_client.get_untracked();
-        spawn_local(async move {
-            for (nav_id, content, updated_ms) in due {
-                let req = CreateOrUpdateNavRequest {
-                    note_id: note_id_now.clone(),
-                    id: Some(nav_id.clone()),
-                    parid: None,
-                    content: Some(content),
-                    order: None,
-                    is_display: None,
-                    is_delete: None,
-                    properties: None,
-                };
-
-                if api_client.upsert_nav(req).await.is_ok() {
-                    mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
-                } else {
-                    mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
-                }
-            }
-        });
-    });
-
-    // Start retry timer.
+    // Keep sync controller aware of which nav is being edited (for pagehide flush priority).
     Effect::new(move |_| {
-        // start once
-        if retry_timer_id.get_untracked().is_some() {
-            return;
-        }
-
-        let Some(win) = web_sys::window() else {
-            return;
-        };
-
-        let tick = retry_tick;
-        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            let _ = tick.try_with_value(|f| f());
-        }) as Box<dyn FnMut()>);
-
-        let tid = win
-            .set_interval_with_callback_and_timeout_and_arguments_0(
-                cb.as_ref().unchecked_ref(),
-                retry_interval_ms,
-            )
-            .unwrap_or(0);
-        retry_timer_id.set(Some(tid));
-
-        // Stop the interval when the editor unmounts to avoid calling disposed reactive values.
-        on_cleanup(move || {
-            if let Some(win) = web_sys::window() {
-                let _ = win.clear_interval_with_handle(tid);
-            }
-        });
-
-        cb.forget();
+        let _ = sync_sv.try_with_value(|s| s.set_editing_nav(editing_id.get()));
     });
-
-    // Kick retry tick on reconnect.
-    let _online_handle = window_event_listener(ev::online, move |_ev: web_sys::Event| {
-        let _ = retry_tick.try_with_value(|f| f());
-    });
-
-    // Best-effort flush on page hide (refresh/close/navigation) — keep it beacon/keepalive-friendly.
-    let note_id_fn4 = note_id.clone();
-    let _pagehide_handle =
-        window_event_listener(ev::pagehide, move |_ev: web_sys::PageTransitionEvent| {
-            let k_recent: usize = 5;
-
-            let db_id = app_state
-                .0
-                .current_database_id
-                .get_untracked()
-                .unwrap_or_default();
-            let note_id_now = note_id_fn4();
-            if db_id.trim().is_empty() || note_id_now.trim().is_empty() {
-                return;
-            }
-
-            let mut drafts = get_unsynced_nav_drafts(&db_id, &note_id_now);
-            if drafts.is_empty() {
-                return;
-            }
-
-            drafts.sort_by(|a, b| b.2.cmp(&a.2));
-
-            let editing = editing_id.try_get_untracked().flatten();
-            let mut picked: Vec<(String, String, i64)> = Vec::new();
-
-            if let Some(editing_nav) = editing {
-                if let Some(d) = drafts.iter().find(|(id, _, _)| id == &editing_nav) {
-                    picked.push(d.clone());
-                }
-            }
-
-            for d in drafts.into_iter() {
-                if picked.iter().any(|(id, _, _)| id == &d.0) {
-                    continue;
-                }
-                picked.push(d);
-                if picked.len() >= k_recent {
-                    break;
-                }
-            }
-
-            let api_client = app_state.0.api_client.get_untracked();
-            spawn_local(async move {
-                for (nav_id, content, updated_ms) in picked {
-                    let req = CreateOrUpdateNavRequest {
-                        note_id: note_id_now.clone(),
-                        id: Some(nav_id.clone()),
-                        parid: None,
-                        content: Some(content),
-                        order: None,
-                        is_display: None,
-                        is_delete: None,
-                        properties: None,
-                    };
-
-                    if api_client.upsert_nav(req).await.is_ok() {
-                        mark_nav_synced(&db_id, &note_id_now, &nav_id, updated_ms);
-                    } else {
-                        mark_nav_sync_failed(&db_id, &note_id_now, &nav_id);
-                    }
-                }
-            });
-        });
 
     // Keep the contenteditable DOM in sync when switching nodes.
     // IMPORTANT: do not re-apply on every keystroke (would break IME / caret).
@@ -1145,7 +857,6 @@ pub fn OutlineEditor(
                                                 target_cursor_col=target_cursor_col
                                                 editing_ref=editing_ref
                                                 focused_nav_id=focused_nav_id
-                                                schedule_autosave=schedule_autosave_cb
                                             />
                                         }
                                     }
@@ -1174,9 +885,9 @@ pub fn OutlineNode(
     target_cursor_col: RwSignal<Option<u32>>,
     editing_ref: NodeRef<html::Div>,
     focused_nav_id: RwSignal<Option<String>>,
-    schedule_autosave: Callback<String>,
 ) -> impl IntoView {
     let app_state = expect_context::<AppContext>();
+    let sync_sv = StoredValue::new(expect_context::<NoteSyncController>());
     let ac = expect_context::<AutocompleteCtx>();
     let navigate = leptos_router::hooks::use_navigate();
 
@@ -1366,7 +1077,6 @@ pub fn OutlineNode(
                         kids.into_iter().map(|c| c.id).collect::<Vec<String>>(),
                     );
 
-                    let schedule_autosave = schedule_autosave;
                     view! {
                         <For
                             each=move || kid_ids_sv.get_value()
@@ -1387,7 +1097,6 @@ pub fn OutlineNode(
                                         target_cursor_col=target_cursor_col
                                         editing_ref=editing_ref
                                         focused_nav_id=focused_nav_id
-                                        schedule_autosave=schedule_autosave
                                     />
                                 }
                             }
@@ -2065,8 +1774,11 @@ pub fn OutlineNode(
                                                     .unwrap_or_default();
                                                 let note_id = note_id_sv.get_value();
                                                 let nav_id = nav_id_sv.get_value();
+                                                // Write local draft immediately.
                                                 touch_nav(&db_id, &note_id, &nav_id, &v);
-                                                schedule_autosave.run(nav_id.clone());
+
+                                                // Schedule debounced autosave via global controller.
+                                                let _ = sync_sv.try_with_value(|s| s.on_nav_changed(&nav_id, &v));
 
                                                 // Autocomplete: detect an unclosed `[[...` immediately before the caret.
                                                 let (caret_utf16, _caret_end_utf16, _len) = ce_selection_utf16(&el);

@@ -9,7 +9,9 @@ use leptos_router::path;
 
 #[component]
 pub fn App() -> impl IntoView {
-    provide_context(AppContext(AppState::new()));
+    let ctx = AppContext(AppState::new());
+    provide_context(ctx.clone());
+    provide_context(crate::state::NoteSyncController::new(ctx));
 
     // IMPORTANT:
     // - Leptos CSR requires the `csr` feature on `leptos`.

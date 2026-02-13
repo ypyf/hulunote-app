@@ -1,0 +1,310 @@
+use crate::api::CreateOrUpdateNavRequest;
+use crate::drafts::{
+    get_due_unsynced_nav_drafts, get_unsynced_nav_drafts, mark_nav_sync_failed, mark_nav_synced,
+    touch_nav,
+};
+use crate::state::AppContext;
+use crate::util::now_ms;
+use leptos::ev;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use wasm_bindgen::JsCast;
+
+/// Global, local-first sync controller for note nav drafts.
+///
+/// Responsibilities:
+/// - local draft writes (localStorage)
+/// - per-nav debounce autosave
+/// - retry queue (retry_count/next_retry_ms)
+/// - best-effort pagehide flush (beacon/keepalive-friendly)
+///
+/// Non-responsibilities:
+/// - outline UI state (editing id, focus, etc.)
+#[derive(Clone)]
+pub(crate) struct NoteSyncController {
+    app_state: AppContext,
+
+    /// Current route context (set by NotePage via tracked Effect).
+    current_db_id: RwSignal<String>,
+    current_note_id: RwSignal<String>,
+    current_editing_nav_id: RwSignal<Option<String>>,
+
+    /// Per-nav debounce timers.
+    autosave_ms: i32,
+    autosave_timers: Arc<Mutex<HashMap<String, i32>>>,
+
+    /// Retry worker.
+    retry_timer_id: RwSignal<Option<i32>>,
+    retry_interval_ms: i32,
+
+    /// Global listeners (keep handles alive).
+    _online_handle: StoredValue<Option<WindowListenerHandle>>,
+    _pagehide_handle: StoredValue<Option<WindowListenerHandle>>,
+}
+
+impl NoteSyncController {
+    pub fn new(app_state: AppContext) -> Self {
+        let current_db_id = RwSignal::new(String::new());
+        let current_note_id = RwSignal::new(String::new());
+        let current_editing_nav_id = RwSignal::new(None);
+
+        let autosave_ms = 1200;
+        let autosave_timers = Arc::new(Mutex::new(HashMap::new()));
+
+        let retry_timer_id = RwSignal::new(None);
+        let retry_interval_ms = 2000;
+
+        // We'll fill these in start() so they can reference `self` via clones.
+        let _online_handle = StoredValue::new(None);
+        let _pagehide_handle = StoredValue::new(None);
+
+        let s = Self {
+            app_state,
+            current_db_id,
+            current_note_id,
+            current_editing_nav_id,
+            autosave_ms,
+            autosave_timers,
+            retry_timer_id,
+            retry_interval_ms,
+            _online_handle,
+            _pagehide_handle,
+        };
+
+        s.start_global_listeners();
+        s.start_retry_worker();
+
+        s
+    }
+
+    fn db_note_untracked(&self) -> Option<(String, String)> {
+        let db = self.current_db_id.get_untracked();
+        let note = self.current_note_id.get_untracked();
+        if db.trim().is_empty() || note.trim().is_empty() {
+            None
+        } else {
+            Some((db, note))
+        }
+    }
+
+    /// Called by NotePage (tracked Effect) when route changes.
+    pub fn set_route(&self, db_id: String, note_id: String) {
+        self.current_db_id.set(db_id);
+        self.current_note_id.set(note_id);
+    }
+
+    /// Called by OutlineEditor when editing nav changes.
+    pub fn set_editing_nav(&self, nav_id: Option<String>) {
+        self.current_editing_nav_id.set(nav_id);
+    }
+
+    /// Called by OutlineEditor on each input.
+    pub fn on_nav_changed(&self, nav_id: &str, content: &str) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+
+        touch_nav(&db_id, &note_id, nav_id, content);
+        self.schedule_autosave(nav_id.to_string());
+    }
+
+    fn flush_nav_draft(&self, nav_id: String) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+        if nav_id.trim().is_empty() {
+            return;
+        }
+
+        // Source of truth: local drafts.
+        let Some((_, content, updated_ms)) = get_unsynced_nav_drafts(&db_id, &note_id)
+            .into_iter()
+            .find(|(id, _, _)| id == &nav_id)
+        else {
+            return;
+        };
+
+        let api_client = self.app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            let req = CreateOrUpdateNavRequest {
+                note_id: note_id.clone(),
+                id: Some(nav_id.clone()),
+                parid: None,
+                content: Some(content),
+                order: None,
+                is_display: None,
+                is_delete: None,
+                properties: None,
+            };
+
+            if api_client.upsert_nav(req).await.is_ok() {
+                mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+            } else {
+                mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+            }
+        });
+    }
+
+    fn schedule_autosave(&self, nav_id: String) {
+        if nav_id.trim().is_empty() {
+            return;
+        }
+
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+
+        if let Ok(mut map) = self.autosave_timers.lock() {
+            if let Some(tid) = map.remove(&nav_id) {
+                let _ = win.clear_timeout_with_handle(tid);
+            }
+        }
+
+        let s2 = self.clone();
+        let nav_id2 = nav_id.clone();
+        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+            s2.flush_nav_draft(nav_id2);
+        });
+
+        let tid = win
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                self.autosave_ms,
+            )
+            .unwrap_or(0);
+
+        if let Ok(mut map) = self.autosave_timers.lock() {
+            map.insert(nav_id, tid);
+        }
+    }
+
+    fn retry_tick(&self) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+
+        let due = get_due_unsynced_nav_drafts(&db_id, &note_id, now_ms(), 2);
+        if due.is_empty() {
+            return;
+        }
+
+        let api_client = self.app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            for (nav_id, content, updated_ms) in due {
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id.clone(),
+                    id: Some(nav_id.clone()),
+                    parid: None,
+                    content: Some(content),
+                    order: None,
+                    is_display: None,
+                    is_delete: None,
+                    properties: None,
+                };
+
+                if api_client.upsert_nav(req).await.is_ok() {
+                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                } else {
+                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                }
+            }
+        });
+    }
+
+    fn start_retry_worker(&self) {
+        if self.retry_timer_id.get_untracked().is_some() {
+            return;
+        }
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+
+        let s2 = self.clone();
+        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+            s2.retry_tick();
+        }) as Box<dyn FnMut()>);
+
+        let tid = win
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                self.retry_interval_ms,
+            )
+            .unwrap_or(0);
+        self.retry_timer_id.set(Some(tid));
+
+        // Global controller lives for app lifetime; no on_cleanup needed.
+        cb.forget();
+    }
+
+    fn start_global_listeners(&self) {
+        // online -> kick retry
+        let s2 = self.clone();
+        let online = window_event_listener(ev::online, move |_ev: web_sys::Event| {
+            s2.retry_tick();
+        });
+        self._online_handle.set_value(Some(online));
+
+        // pagehide -> flush current editing + recent K
+        let s3 = self.clone();
+        let pagehide =
+            window_event_listener(ev::pagehide, move |_ev: web_sys::PageTransitionEvent| {
+                s3.pagehide_flush();
+            });
+        self._pagehide_handle.set_value(Some(pagehide));
+    }
+
+    fn pagehide_flush(&self) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+
+        let mut drafts = get_unsynced_nav_drafts(&db_id, &note_id);
+        if drafts.is_empty() {
+            return;
+        }
+        drafts.sort_by(|a, b| b.2.cmp(&a.2));
+
+        let k_recent: usize = 5;
+        let mut picked: Vec<(String, String, i64)> = Vec::new();
+
+        if let Some(editing_nav) = self.current_editing_nav_id.get_untracked() {
+            if let Some(d) = drafts.iter().find(|(id, _, _)| id == &editing_nav) {
+                picked.push(d.clone());
+            }
+        }
+
+        for d in drafts.into_iter() {
+            if picked.iter().any(|(id, _, _)| id == &d.0) {
+                continue;
+            }
+            picked.push(d);
+            if picked.len() >= k_recent {
+                break;
+            }
+        }
+
+        let api_client = self.app_state.0.api_client.get_untracked();
+        spawn_local(async move {
+            for (nav_id, content, updated_ms) in picked {
+                let req = CreateOrUpdateNavRequest {
+                    note_id: note_id.clone(),
+                    id: Some(nav_id.clone()),
+                    parid: None,
+                    content: Some(content),
+                    order: None,
+                    is_display: None,
+                    is_delete: None,
+                    properties: None,
+                };
+
+                if api_client.upsert_nav(req).await.is_ok() {
+                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                } else {
+                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                }
+            }
+        });
+    }
+}

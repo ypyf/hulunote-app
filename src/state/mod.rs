@@ -1,3 +1,7 @@
+mod note_sync;
+
+pub(crate) use note_sync::NoteSyncController;
+
 use crate::api::ApiClient;
 use crate::models::{AccountInfo, Database, Note};
 use crate::storage::{load_user_from_storage, CURRENT_DB_KEY, SIDEBAR_COLLAPSED_KEY};
