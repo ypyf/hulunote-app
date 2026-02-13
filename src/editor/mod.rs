@@ -7,6 +7,7 @@ use crate::state::AppContext;
 use crate::state::NoteSyncController;
 use crate::util::now_ms;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
+use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -765,6 +766,38 @@ pub fn OutlineEditor(
     // Keep sync controller aware of which nav is being edited (for pagehide flush priority).
     Effect::new(move |_| {
         let _ = sync_sv.try_with_value(|s| s.set_editing_nav(editing_id.get()));
+    });
+
+    // Click outside editor to exit editing mode.
+    // Use a window click listener (bubble phase) so we don't swallow the target click (e.g. sidebar navigation).
+    let _click_handle = window_event_listener(ev::click, move |ev: web_sys::MouseEvent| {
+        // Only act if currently editing.
+        let Some(current) = editing_id.try_get_untracked().flatten() else {
+            return;
+        };
+
+        let Some(target) = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        else {
+            return;
+        };
+
+        // If the click is inside the contenteditable editor, keep editing.
+        if target.closest("[data-nav-id]").ok().flatten().is_some() {
+            return;
+        }
+
+        // If the click is on an outline row, let row logic handle switching edit target.
+        if target.closest(".outline-row").ok().flatten().is_some() {
+            return;
+        }
+
+        // Otherwise, exit editing.
+        if editing_id.try_get_untracked().flatten().as_deref() == Some(current.as_str()) {
+            editing_id.set(None);
+            editing_snapshot.set(None);
+        }
     });
 
     // Keep the contenteditable DOM in sync when switching nodes.
