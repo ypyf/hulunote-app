@@ -7,6 +7,7 @@ use crate::models::{Nav, Note};
 use crate::state::AppContext;
 use crate::state::NoteSyncController;
 // use crate::util::now_ms;
+use crate::util::ROOT_ZERO_UUID;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title, parse_wiki_tokens, WikiToken};
 use leptos::ev;
 use leptos::html;
@@ -772,7 +773,7 @@ pub fn OutlineEditor(
 
         // Helper: ensure an empty note has at least one editable nav.
         let ensure_non_empty = |_db_id: &str, note_id: &str, xs: &mut Vec<Nav>| -> Option<String> {
-            let root_zero = "00000000-0000-0000-0000-000000000000";
+            let root_zero = ROOT_ZERO_UUID;
             let root_candidates = xs
                 .iter()
                 .filter(|n| n.parid == root_zero)
@@ -1039,7 +1040,7 @@ pub fn OutlineEditor(
 
                 {move || {
                     let all = navs.get();
-                    let root_zero = "00000000-0000-0000-0000-000000000000";
+                    let root_zero = ROOT_ZERO_UUID;
 
                     // Backend schema: explicit ROOT container node has parid == all-zero.
                     // Real top-level nodes have parid == root_container.id.
@@ -1818,7 +1819,7 @@ pub fn OutlineNode(
 
                                                                                         match api_client.get_note_navs(&note_id).await {
                                                                                             Ok(navs) => {
-                                                                                                let root = "00000000-0000-0000-0000-000000000000";
+                                                                                                let root = ROOT_ZERO_UUID;
                                                                                                 let mut by_parent: std::collections::HashMap<String, Vec<Nav>> =
                                                                                                     std::collections::HashMap::new();
                                                                                                 for n in navs.into_iter() {
@@ -2314,7 +2315,7 @@ pub fn OutlineNode(
                                                 };
 
                                                 fn visible_preorder(all: &[Nav]) -> Vec<String> {
-                                                    let root = "00000000-0000-0000-0000-000000000000";
+                                                    let root = ROOT_ZERO_UUID;
 
                                                     fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
                                                         let mut out = all
@@ -2503,7 +2504,7 @@ pub fn OutlineNode(
                                                             return;
                                                         };
 
-                                                        let root = "00000000-0000-0000-0000-000000000000";
+                                                        let root = ROOT_ZERO_UUID;
 
                                                         // Prefer previous sibling when it exists.
                                                         // If there is no previous sibling (i.e. first child), go to parent.
@@ -2718,7 +2719,7 @@ pub fn OutlineNode(
                                                     } else {
                                                         // Outdent: become sibling of parent.
                                                         let parent_id = me.parid.clone();
-                                                        let root = "00000000-0000-0000-0000-000000000000";
+                                                        let root = ROOT_ZERO_UUID;
                                                         if parent_id == root {
                                                             return;
                                                         }

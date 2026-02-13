@@ -13,6 +13,7 @@ use crate::storage::{
     CURRENT_DB_KEY, SIDEBAR_COLLAPSED_KEY,
 };
 use crate::util::next_available_daily_note_title;
+use crate::util::ROOT_ZERO_UUID;
 use crate::wiki::{extract_wiki_links, normalize_roam_page_title};
 use leptos::ev;
 use leptos::html;
@@ -2185,7 +2186,7 @@ pub fn NotePage() -> impl IntoView {
 
             // Create first nav.
             // Backend may have an explicit root container node; create under it when present.
-            let root_zero = "00000000-0000-0000-0000-000000000000";
+            let root_zero = ROOT_ZERO_UUID;
             let root_parid = match api_client.get_note_navs(&note.id).await {
                 Ok(navs) => navs
                     .into_iter()
@@ -2520,7 +2521,7 @@ pub fn NotePage() -> impl IntoView {
                                                             // Parent chain (context) for this nav.
                                                             let mut chain: Vec<String> = vec![];
                                                             let mut cur = nav_by_id.get(&nav_id).cloned();
-                                                            let root = "00000000-0000-0000-0000-000000000000".to_string();
+                                                            let root = ROOT_ZERO_UUID.to_string();
                                                             let mut guard = 0;
                                                             while let Some(n) = cur {
                                                                 guard += 1;

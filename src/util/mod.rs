@@ -46,6 +46,13 @@ pub(crate) fn next_available_daily_note_title(existing_notes: &[Note]) -> String
     next_available_daily_note_title_for_date(&today_yyyymmdd_local(), existing_notes)
 }
 
+/// Special parent id used by backend to mark the (hidden) ROOT container node.
+///
+/// Backend schema:
+/// - Exactly one nav per note has `parid == ROOT_ZERO_UUID` (the ROOT container).
+/// - Real top-level nodes have `parid == <root_container.id>` (not all-zero).
+pub(crate) const ROOT_ZERO_UUID: &str = "00000000-0000-0000-0000-000000000000";
+
 pub(crate) fn now_ms() -> i64 {
     js_sys::Date::now().round() as i64
 }
