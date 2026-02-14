@@ -1057,7 +1057,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             let db_id = n.db_id.clone();
                                                             let db_id_href = db_id.clone();
                                                             let note_id = n.note_id.clone();
-                                                            let title = n.title.clone();
+                                                            // Use local draft if available (local-first).
+                                                            let title = get_title_override(&db_id, &note_id, &n.title);
 
                                                             let db_name_opt = dbs
                                                                 .iter()
