@@ -2328,7 +2328,6 @@ pub fn NotePage() -> impl IntoView {
                     if let Some(err) = all_db_navs_error.get() {
                         return view! {
                             <div class="mt-4 rounded-md border bg-card p-3">
-                                <div class="text-xs text-muted-foreground">"Backlinks"</div>
                                 <div class="mt-2 text-xs text-destructive">{err}</div>
                             </div>
                         }
@@ -2382,8 +2381,6 @@ pub fn NotePage() -> impl IntoView {
 
                     view! {
                         <div class="mt-4 rounded-md border bg-card p-3">
-                            <div class="text-xs text-muted-foreground">"Backlinks"</div>
-
                             <div class="mt-2 space-y-2">
                                 {refs
                                     .into_iter()
