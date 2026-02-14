@@ -3,8 +3,8 @@ use crate::cache::swap_tmp_nav_id_in_snapshot;
 use crate::drafts::{
     get_due_unsynced_nav_drafts, get_due_unsynced_nav_meta_drafts, get_unsynced_nav_drafts,
     list_dirty_notes, mark_nav_meta_sync_failed, mark_nav_meta_synced, mark_nav_sync_failed,
-    mark_nav_synced, mark_title_synced, swap_tmp_nav_id_in_drafts, touch_nav, touch_nav_meta,
-    touch_title, NavMetaDraft,
+    mark_nav_synced, mark_title_synced, mark_title_sync_failed, swap_tmp_nav_id_in_drafts, touch_nav,
+    touch_nav_meta, touch_title, NavMetaDraft,
 };
 use crate::state::AppContext;
 use crate::util::{is_uuid_like, now_ms};
@@ -258,7 +258,8 @@ impl NoteSyncController {
         self.schedule_autosave(format!("title:{}", note_id));
     }
 
-    fn flush_nav_draft(&self, nav_id: String) {
+
+    fn flush_draft_item(&self, item_id: String) {
         // Never spam backend when offline; rely on retry worker probes.
         if !self.backend_online.get_untracked() {
             return;
@@ -267,32 +268,58 @@ impl NoteSyncController {
         let Some((db_id, note_id)) = self.db_note_untracked() else {
             return;
         };
-        if nav_id.trim().is_empty() {
-            return;
-        }
-
-        // Local optimistic ids must NOT be upserted by id; they will be created via meta-draft
-        // (id=None) and then swapped to a real backend UUID.
-        if !is_uuid_like(&nav_id) {
+        if item_id.trim().is_empty() {
             return;
         }
 
         // meta:{nav_id} is used for metadata autosave.
-        if let Some(id) = nav_id.strip_prefix("meta:") {
+        if let Some(id) = item_id.strip_prefix("meta:") {
             self.flush_nav_meta_draft(id.to_string());
             return;
         }
 
         // title:{note_id} is used for title autosave.
-        if let Some(note_id_for_title) = nav_id.strip_prefix("title:") {
-            self.flush_title_draft(note_id_for_title.to_string());
+        if let Some(note_id_for_title) = item_id.strip_prefix("title:") {
+            // Flush title - read from note draft's title field.
+            let draft = crate::drafts::load_note_draft(&db_id, note_id_for_title);
+            let Some(title) = draft.title else {
+                return;
+            };
+            if title.updated_ms <= title.synced_ms {
+                return;
+            }
+
+            let api_client = self.app_state.0.api_client.get_untracked();
+            let db_id_clone = db_id.clone();
+            let note_id_clone = note_id_for_title.to_string();
+            let app_state_notes = self.app_state.0.notes.clone();
+            spawn_local(async move {
+                match api_client.update_note_title(&note_id_clone, &title.value).await {
+                    Ok(_) => {
+                        mark_title_synced(&db_id_clone, &note_id_clone, title.updated_ms);
+                        // Refresh notes list after successful title update.
+                        if let Ok(notes) = api_client.get_all_note_list(&db_id_clone).await {
+                            app_state_notes.set(notes);
+                        }
+                    }
+                    Err(_) => {
+                        mark_title_sync_failed(&db_id_clone, &note_id_clone);
+                    }
+                }
+            });
+            return;
+        }
+
+        // Local optimistic ids must NOT be upserted by id; they will be created via meta-draft
+        // (id=None) and then swapped to a real backend UUID.
+        if !is_uuid_like(&item_id) {
             return;
         }
 
         // Source of truth: local drafts.
         let Some((_, content, updated_ms)) = get_unsynced_nav_drafts(&db_id, &note_id)
             .into_iter()
-            .find(|(id, _, _)| id == &nav_id)
+            .find(|(id, _, _)| id == &item_id)
         else {
             return;
         };
@@ -302,7 +329,7 @@ impl NoteSyncController {
         spawn_local(async move {
             let req = CreateOrUpdateNavRequest {
                 note_id: note_id.clone(),
-                id: Some(nav_id.clone()),
+                id: Some(item_id.clone()),
                 parid: None,
                 content: Some(content),
                 order: None,
@@ -314,11 +341,11 @@ impl NoteSyncController {
             match api_client.upsert_nav(req).await {
                 Ok(_) => {
                     s2.mark_backend_online();
-                    mark_nav_synced(&db_id, &note_id, &nav_id, updated_ms);
+                    mark_nav_synced(&db_id, &note_id, &item_id, updated_ms);
                 }
                 Err(e) => {
                     s2.mark_backend_offline_api(&e);
-                    mark_nav_sync_failed(&db_id, &note_id, &nav_id);
+                    mark_nav_sync_failed(&db_id, &note_id, &item_id);
                 }
             }
         });
@@ -377,52 +404,6 @@ impl NoteSyncController {
         });
     }
 
-    fn flush_title_draft(&self, note_id: String) {
-        // Never spam backend when offline; rely on retry worker probes.
-        if !self.backend_online.get_untracked() {
-            return;
-        }
-
-        let Some((db_id, _)) = self.db_note_untracked() else {
-            return;
-        };
-        if note_id.trim().is_empty() {
-            return;
-        }
-
-        let api_client = self.app_state.0.api_client.get_untracked();
-        let db_id_clone = db_id.clone();
-        let note_id_clone = note_id.clone();
-        spawn_local(async move {
-            // Get title from drafts.
-            let draft = crate::drafts::load_note_draft(&db_id_clone, &note_id_clone);
-            let Some(title) = draft.title else {
-                return;
-            };
-
-            // Only flush if there's an unsynced change.
-            if title.updated_ms <= title.synced_ms {
-                return;
-            }
-
-            match api_client.update_note_title(&note_id_clone, &title.value).await {
-                Ok(_) => {
-                    mark_title_synced(&db_id_clone, &note_id_clone, title.updated_ms);
-
-                    // Refresh notes list after successful title update.
-                    if let Ok(_notes) = api_client.get_all_note_list(&db_id_clone).await {
-                        // Update global notes cache.
-                        // Note: we can't easily update AppState from here without context.
-                        // For now, let the next NotePage navigation refresh it, or add a signal for this.
-                    }
-                }
-                Err(_) => {
-                    // Title sync failure is logged but not fatal; retry worker will pick it up.
-                }
-            }
-        });
-    }
-
     fn schedule_autosave(&self, nav_id: String) {
         if nav_id.trim().is_empty() {
             return;
@@ -441,7 +422,7 @@ impl NoteSyncController {
         let s2 = self.clone();
         let nav_id2 = nav_id.clone();
         let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
-            s2.flush_nav_draft(nav_id2);
+            s2.flush_draft_item(nav_id2);
         });
 
         let tid = win
@@ -475,8 +456,21 @@ impl NoteSyncController {
         // Limit work per tick.
         let mut picked_content: Vec<(String, String, String, String, i64)> = vec![]; // db, note, nav, content, updated
         let mut picked_meta: Vec<(String, String, String, NavMetaDraft, i64)> = vec![]; // db, note, nav, meta, updated
+        let mut picked_title: Vec<(String, String, String, i64)> = vec![]; // db, note, title_value, updated
 
         for (db_id, note_id) in candidates.into_iter() {
+            // title
+            let draft = crate::drafts::load_note_draft(&db_id, &note_id);
+            if let Some(title) = draft.title {
+                if title.updated_ms > title.synced_ms && title.next_retry_ms <= now {
+                    picked_title.push((db_id.clone(), note_id.clone(), title.value.clone(), title.updated_ms));
+                }
+            }
+
+            if picked_title.len() >= 1 {
+                break;
+            }
+
             // content
             let due_c = get_due_unsynced_nav_drafts(&db_id, &note_id, now, 2);
             for (nav_id, content, updated_ms) in due_c {
@@ -504,13 +498,28 @@ impl NoteSyncController {
             }
         }
 
-        if picked_content.is_empty() && picked_meta.is_empty() {
+        if picked_content.is_empty() && picked_meta.is_empty() && picked_title.is_empty() {
             return;
         }
 
         let api_client = self.app_state.0.api_client.get_untracked();
         let s2 = self.clone();
         spawn_local(async move {
+            // Handle title retries first.
+            for (db_id, note_id, title_value, updated_ms) in picked_title {
+                match api_client.update_note_title(&note_id, &title_value).await {
+                    Ok(_) => {
+                        s2.mark_backend_online();
+                        mark_title_synced(&db_id, &note_id, updated_ms);
+                    }
+                    Err(e) => {
+                        // Note: update_note_title returns String error, not ApiError.
+                        let _ = e;
+                        mark_title_sync_failed(&db_id, &note_id);
+                    }
+                }
+            }
+
             // 1) Handle pending creates (tmp nav ids) first.
             //    Strategy: create with id=None using meta draft; then swap tmp->real in snapshot+drafts.
             for (db_id, note_id, nav_id, meta, updated_ms) in picked_meta.iter() {
@@ -666,6 +675,24 @@ impl NoteSyncController {
             return;
         };
 
+        // Flush title draft.
+        let draft = crate::drafts::load_note_draft(&db_id, &note_id);
+        if let Some(title) = draft.title {
+            if title.updated_ms > title.synced_ms {
+                let api_client = self.app_state.0.api_client.get_untracked();
+                let db_id_clone = db_id.clone();
+                let note_id_clone = note_id.clone();
+                let title_value = title.value.clone();
+                let updated_ms = title.updated_ms;
+                spawn_local(async move {
+                    if api_client.update_note_title(&note_id_clone, &title_value).await.is_ok() {
+                        mark_title_synced(&db_id_clone, &note_id_clone, updated_ms);
+                    }
+                });
+            }
+        }
+
+        // Flush nav content drafts.
         let mut drafts = get_unsynced_nav_drafts(&db_id, &note_id);
         if drafts.is_empty() {
             return;

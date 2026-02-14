@@ -3,7 +3,7 @@ use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
     CardHeader, CardTitle, Input, Label, Spinner,
 };
-use crate::drafts::{get_title_override, touch_title};
+use crate::drafts::get_title_override;
 use crate::editor::OutlineEditor;
 use crate::models::{Nav, Note};
 use crate::state::{AppContext, DbUiActions};
@@ -1300,6 +1300,8 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                             ButtonVariant::Ghost
                                                         };
                                                         let id = n.id.clone();
+                                                        // Use title override to match note title behavior
+                                                        let display_title = get_title_override(&db_id, &id, &n.title);
                                                         view! {
                                                             <Button
                                                                 variant=variant
@@ -1308,7 +1310,7 @@ pub fn AppLayout(children: ChildrenFn) -> impl IntoView {
                                                                 attr:aria-current=move || if is_selected { Some("page") } else { None }
                                                                 href=format!("/db/{}/note/{}", db_id, id)
                                                             >
-                                                                {n.title}
+                                                                {display_title}
                                                             </Button>
                                                         }
                                                         .into_any()
@@ -1928,58 +1930,63 @@ pub fn NotePage() -> impl IntoView {
     });
 
     // Keep local edit state in sync with loaded notes + write recent note.
+    // Track app_state.0.notes to re-sync when notes are loaded from backend.
     Effect::new(move |_| {
+        let _ = app_state.0.notes.get();
         let id = note_id();
         let db = db_id();
         if id.trim().is_empty() || db.trim().is_empty() {
             return;
         }
 
-        if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
-            // If we navigated to a different note, sync title input immediately.
+        // Local-first: always load draft from localStorage directly, regardless of notes state.
+        let draft = crate::drafts::load_note_draft(&db, &id);
+        // Always use local draft if it exists - local data takes precedence over backend.
+        let draft_title = draft.title
+            .map(|f| f.value)
+            .unwrap_or_default();
+
+        if !draft_title.is_empty() {
+            // Local draft exists with unsynced changes - always use it (local-first priority).
             if title_note_id.get() != id {
                 title_note_id.set(id.clone());
-
-                // Local-first title draft (note-level aggregate): restore only if newer than synced.
-                let v = get_title_override(&db, &id, &n.title);
-                title_value.set(v.clone());
-                title_original.set(v);
-
-                // Clear any pending title debounce when switching notes.
+                // Clear any pending debounce.
                 if let Some(win) = web_sys::window() {
                     if let Some(tid) = title_debounce_timer_id.get_untracked() {
                         let _ = win.clear_timeout_with_handle(tid);
                     }
                 }
                 title_debounce_timer_id.set(None);
-            } else if title_value.get().trim().is_empty() {
-                // Only overwrite local input when it's empty (avoid clobbering user typing).
-                let v = get_title_override(&db, &id, &n.title);
-                title_value.set(v.clone());
-                title_original.set(v);
             }
+            title_value.set(draft_title.clone());
+            title_original.set(draft_title);
+            return;
+        }
 
-            // Phase 5.5: recent notes (local)
+        // No local draft - use note from backend.
+        if let Some(n) = app_state.0.notes.get().into_iter().find(|n| n.id == id) {
+            if title_note_id.get() != id {
+                title_note_id.set(id.clone());
+                title_value.set(n.title.clone());
+                title_original.set(n.title.clone());
+            } else if title_value.get().trim().is_empty() {
+                title_value.set(n.title.clone());
+                title_original.set(n.title.clone());
+            }
             write_recent_note(&db, &id, &n.title);
-        } else {
-            // Fallback: if notes list isn't available (e.g. offline), try snapshot title.
-            if let Some(snap) = load_note_snapshot(&db, &id) {
-                if let Some(t) = snap.title {
-                    if title_note_id.get() != id {
-                        title_note_id.set(id.clone());
-                        let v = get_title_override(&db, &id, &t);
-                        title_value.set(v.clone());
-                        title_original.set(v);
-                    }
-
-                    write_recent_note(&db, &id, &t);
-                } else {
-                    write_recent_note(&db, &id, &id);
+        } else if let Some(snap) = load_note_snapshot(&db, &id) {
+            if let Some(t) = snap.title {
+                if title_note_id.get() != id {
+                    title_note_id.set(id.clone());
+                    title_value.set(t.clone());
+                    title_original.set(t.clone());
                 }
+                write_recent_note(&db, &id, &t);
             } else {
-                // Fallback: at least record ids.
                 write_recent_note(&db, &id, &id);
             }
+        } else {
+            write_recent_note(&db, &id, &id);
         }
 
         // Keep recent DB fresh too.
@@ -2011,6 +2018,13 @@ pub fn NotePage() -> impl IntoView {
 
         // Update UI immediately for responsive feedback.
         title_original.set(new_title.clone());
+
+        // Immediately update local notes cache so sidebar reflects the change.
+        app_state.0.notes.update(|xs| {
+            if let Some(n) = xs.iter_mut().find(|n| n.id == id) {
+                n.title = new_title.clone();
+            }
+        });
 
         // Route through NoteSyncController for debounce + retry + offline handling.
         let _ = sync_sv.try_with_value(|s| s.on_title_changed(&new_title));
@@ -2278,9 +2292,9 @@ pub fn NotePage() -> impl IntoView {
                                 .map(|t| t.value())
                                 .unwrap_or_else(|| title_value.get_untracked());
 
-                            // Write to draft immediately (local-first).
-                            // Sync is handled by NoteSyncController via save_title on blur.
-                            touch_title(&db, &id, &v);
+                            // Write to draft immediately and schedule autosave (consistent with nav editing).
+                            // Sync is handled by NoteSyncController (autosave + blur flush).
+                            let _ = sync_sv.try_with_value(|s| s.on_title_changed(&v));
                         }
                         on:blur=move |_| save_title()
                         on:keydown=move |ev: web_sys::KeyboardEvent| {
@@ -2953,19 +2967,22 @@ pub fn DbHomePage() -> impl IntoView {
                                 >
                                     <div class="space-y-1">
                                         {move || {
+                                            let db = db_id();
                                             app_state
                                                 .0
                                                 .notes
                                                 .get()
                                                 .into_iter()
                                                 .map(|n| {
+                                                    // Use title override to match note title behavior (local-first).
+                                                    let display_title = get_title_override(&db, &n.id, &n.title);
                                                     view! {
                                                         <a
-                                                            href=format!("/db/{}/note/{}", db_id(), n.id)
+                                                            href=format!("/db/{}/note/{}", db, n.id)
                                                             class="block rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-surface-hover"
                                                         >
                                                             <div class="min-w-0">
-                                                                <div class="truncate text-sm font-medium">{n.title}</div>
+                                                                <div class="truncate text-sm font-medium">{display_title}</div>
                                                                 <div class="truncate text-xs text-muted-foreground">{n.updated_at}</div>
                                                             </div>
                                                         </a>

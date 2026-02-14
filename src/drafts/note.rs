@@ -242,6 +242,26 @@ pub(crate) fn mark_title_synced(db_id: &str, note_id: &str, synced_ms: i64) {
     index_prune_if_synced(db_id, note_id);
 }
 
+pub(crate) fn mark_title_sync_failed(db_id: &str, note_id: &str) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() {
+        return;
+    }
+
+    index_touch_note(db_id, note_id);
+
+    let mut d = load_note_draft(db_id, note_id);
+    let mut f = d.title.unwrap_or_default();
+
+    // Bump retry schedule.
+    f.retry_count = f.retry_count.saturating_add(1);
+    let delay = compute_retry_delay_ms(f.retry_count);
+    f.next_retry_ms = now_ms().saturating_add(delay);
+
+    d.title = Some(f);
+    d.updated_ms = now_ms();
+    save_note_draft(&d);
+}
+
 pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_ms: i64) {
     if db_id.trim().is_empty() || note_id.trim().is_empty() || nav_id.trim().is_empty() {
         return;
@@ -500,15 +520,17 @@ pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str)
     }
 
     let d = load_note_draft(db_id, note_id);
-    let Some(f) = d.title else {
-        return server_title.to_string();
-    };
-
-    if f.updated_ms > f.synced_ms {
-        f.value
-    } else {
-        server_title.to_string()
-    }
+    // Local-first: use draft if it has content, otherwise fallback to server title.
+    d.title
+        .and_then(|f| {
+            let v = f.value;
+            if v.trim().is_empty() {
+                None
+            } else {
+                Some(v)
+            }
+        })
+        .unwrap_or_else(|| server_title.to_string())
 }
 
 pub(crate) fn get_unsynced_nav_drafts(db_id: &str, note_id: &str) -> Vec<(String, String, i64)> {
