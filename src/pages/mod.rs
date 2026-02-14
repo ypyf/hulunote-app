@@ -2319,6 +2319,8 @@ pub fn NotePage() -> impl IntoView {
 
                 <OutlineEditor note_id=note_id focused_nav_id=focused_nav_id />
 
+                <hr class="my-4 border-border" />
+
                 {move || {
                     if all_db_navs_loading.get() {
                         // Avoid showing a loading card/spinner; only render backlinks once they exist.
@@ -2393,7 +2395,7 @@ pub fn NotePage() -> impl IntoView {
                                         let note_href = format!("/db/{}/note/{}", db, note_id);
 
                                         view! {
-                                            <div class="rounded-md border border-border bg-background p-2">
+                                            <div class="p-2">
                                                 <a
                                                     href=note_href
                                                     class="block truncate text-sm font-medium hover:underline"
