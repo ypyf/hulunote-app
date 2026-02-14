@@ -369,6 +369,37 @@ fn ensure_titles_loaded(app_state: &AppContext, ac: &AutocompleteCtx) {
     });
 }
 
+fn collect_visible_preorder_ids(all: &[Nav]) -> Vec<String> {
+    let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
+
+    fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
+        let mut out = all
+            .iter()
+            .filter(|n| !n.is_delete && n.parid == parid)
+            .cloned()
+            .collect::<Vec<_>>();
+        out.sort_by(|a, b| {
+            a.same_deep_order
+                .partial_cmp(&b.same_deep_order)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out
+    }
+
+    fn collect(all: &[Nav], parid: &str, out: &mut Vec<String>) {
+        for n in children_sorted(all, parid) {
+            out.push(n.id.clone());
+            if n.is_display {
+                collect(all, &n.id, out);
+            }
+        }
+    }
+
+    let mut out: Vec<String> = vec![];
+    collect(all, root_container_parent_id, &mut out);
+    out
+}
+
 fn build_ac_items(titles: &[String], q: &str) -> Vec<AcItem> {
     let q_norm = q.to_lowercase();
     let mut items: Vec<AcItem> = vec![];
@@ -1233,11 +1264,16 @@ pub fn OutlineNode(
                     return ().into_view().into_any();
                 };
 
+                // Soft-deleted nodes should never render.
+                if n.is_delete {
+                    return ().into_view().into_any();
+                }
+
                 // Compute children for this render.
                 let mut kids = navs
                     .get()
                     .into_iter()
-                    .filter(|x| x.parid == nav_id_for_render)
+                    .filter(|x| !x.is_delete && x.parid == nav_id_for_render)
                     .collect::<Vec<_>>();
                 kids.sort_by(|a, b| {
                     a.same_deep_order
@@ -2259,34 +2295,7 @@ pub fn OutlineNode(
                                                 };
 
                                                 fn visible_preorder(all: &[Nav]) -> Vec<String> {
-                                                    let root_container_parent_id = ROOT_CONTAINER_PARENT_ID;
-
-                                                    fn children_sorted(all: &[Nav], parid: &str) -> Vec<Nav> {
-                                                        let mut out = all
-                                                            .iter()
-                                                            .filter(|n| n.parid == parid)
-                                                            .cloned()
-                                                            .collect::<Vec<_>>();
-                                                        out.sort_by(|a, b| {
-                                                            a.same_deep_order
-                                                                .partial_cmp(&b.same_deep_order)
-                                                                .unwrap_or(std::cmp::Ordering::Equal)
-                                                        });
-                                                        out
-                                                    }
-
-                                                    fn collect(all: &[Nav], parid: &str, out: &mut Vec<String>) {
-                                                        for n in children_sorted(all, parid) {
-                                                            out.push(n.id.clone());
-                                                            if n.is_display {
-                                                                collect(all, &n.id, out);
-                                                            }
-                                                        }
-                                                    }
-
-                                                    let mut out: Vec<String> = vec![];
-                                                    collect(all, root_container_parent_id, &mut out);
-                                                    out
+                                                    collect_visible_preorder_ids(all)
                                                 }
 
                                                 // Alt+Up/Down: move current node among siblings (order only)
@@ -2853,16 +2862,34 @@ pub fn OutlineNode(
                                                         .get_untracked()
                                                         .unwrap_or_default();
 
-                                                    // Drop tmp nodes locally (they never existed on backend).
+                                                    // Local-first tombstones:
+                                                    // - tmp ids: drop from drafts/snapshot (they never existed on backend)
+                                                    // - real ids: keep a meta draft with is_delete=true so refresh can re-apply
+                                                    //   the local delete over the server list via apply_nav_meta_overrides().
+
+                                                    let tmp_ids: Vec<String> = subtree
+                                                        .iter()
+                                                        .filter(|id| is_tmp_nav_id(id))
+                                                        .cloned()
+                                                        .collect();
+
                                                     let real_ids: Vec<String> = subtree
                                                         .iter()
                                                         .filter(|id| !is_tmp_nav_id(id))
                                                         .cloned()
                                                         .collect();
 
-                                                    // Remove local drafts/snapshot so refresh doesn't resurrect deleted nodes.
-                                                    crate::drafts::remove_navs_from_drafts(&db_id_now, &note_id_now, &subtree);
-                                                    crate::cache::remove_navs_from_snapshot(&db_id_now, &note_id_now, &subtree);
+                                                    if !tmp_ids.is_empty() {
+                                                        crate::drafts::remove_navs_from_drafts(&db_id_now, &note_id_now, &tmp_ids);
+                                                        crate::cache::remove_navs_from_snapshot(&db_id_now, &note_id_now, &tmp_ids);
+                                                    }
+
+                                                    // Keep offline snapshot consistent too.
+                                                    crate::cache::mark_navs_deleted_in_snapshot(
+                                                        &db_id_now,
+                                                        &note_id_now,
+                                                        &real_ids,
+                                                    );
 
                                                     for id in real_ids.into_iter() {
                                                         if let Some(mut n) = all.iter().find(|n| n.id == id).cloned() {
@@ -3170,6 +3197,49 @@ pub fn OutlineNode(
 #[cfg(test)]
 mod editor_delete_behavior_tests {
     use super::*;
+
+    #[test]
+    fn test_collect_visible_preorder_ids_filters_deleted() {
+        let note_id = "note".to_string();
+        let root = ROOT_CONTAINER_PARENT_ID.to_string();
+
+        let a = Nav {
+            id: "a".to_string(),
+            note_id: note_id.clone(),
+            parid: root.clone(),
+            same_deep_order: 1.0,
+            content: "a".to_string(),
+            is_display: true,
+            is_delete: false,
+            properties: None,
+        };
+        let b_deleted = Nav {
+            id: "b".to_string(),
+            note_id: note_id.clone(),
+            parid: root.clone(),
+            same_deep_order: 2.0,
+            content: "b".to_string(),
+            is_display: true,
+            is_delete: true,
+            properties: None,
+        };
+        let c = Nav {
+            id: "c".to_string(),
+            note_id: note_id.clone(),
+            parid: "a".to_string(),
+            same_deep_order: 1.0,
+            content: "c".to_string(),
+            is_display: true,
+            is_delete: false,
+            properties: None,
+        };
+
+        let all = vec![b_deleted, c, a];
+        let ids = collect_visible_preorder_ids(&all);
+
+        // Deleted node is excluded; children of visible nodes are included.
+        assert_eq!(ids, vec!["a".to_string(), "c".to_string()]);
+    }
 
     #[test]
     fn test_has_any_text_content() {

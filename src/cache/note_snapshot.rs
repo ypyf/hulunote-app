@@ -88,3 +88,31 @@ pub(crate) fn remove_navs_from_snapshot(db_id: &str, note_id: &str, ids: &[Strin
         save_note_snapshot(db_id, note_id, snap.title, snap.navs, snap.saved_ms);
     }
 }
+
+/// Mark navs as soft-deleted in the offline snapshot.
+///
+/// This is used for local-first behavior: if a user deletes a node and refreshes before
+/// the backend sync completes, the snapshot should still reflect the local tombstone.
+pub(crate) fn mark_navs_deleted_in_snapshot(db_id: &str, note_id: &str, ids: &[String]) {
+    if db_id.trim().is_empty() || note_id.trim().is_empty() || ids.is_empty() {
+        return;
+    }
+
+    let Some(mut snap) = load_note_snapshot(db_id, note_id) else {
+        return;
+    };
+
+    let mut changed = false;
+    for n in snap.navs.iter_mut() {
+        if ids.iter().any(|id| id == &n.id) {
+            if !n.is_delete {
+                n.is_delete = true;
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        save_note_snapshot(db_id, note_id, snap.title, snap.navs, snap.saved_ms);
+    }
+}
