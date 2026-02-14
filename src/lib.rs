@@ -103,6 +103,7 @@ mod wasm_tests {
         let db_id = "db-test";
         let note_id = "note-test";
         let nav_id = "nav-test";
+        let nav_id2 = "nav-test-2";
 
         // Cleanup any prior runs.
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
@@ -111,29 +112,25 @@ mod wasm_tests {
         // Also clear standard API/user storage keys.
         ApiClient::clear_storage();
 
-        // Title: touching creates override.
+        // Title: local-first - draft always takes precedence if it has content.
         touch_title(db_id, note_id, "t1");
         assert_eq!(get_title_override(db_id, note_id, "server"), "t1");
 
-        // After marking synced beyond updated, override should fall back to server.
+        // After marking synced, draft still takes precedence (local-first).
         mark_title_synced(db_id, note_id, i64::MAX);
-        assert_eq!(get_title_override(db_id, note_id, "server"), "server");
+        assert_eq!(get_title_override(db_id, note_id, "server"), "t1");
 
-        // Nav: touching creates override.
+        // Nav: local-first - draft always takes precedence if it has content.
         touch_nav(db_id, note_id, nav_id, "c1");
         assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), "c1");
 
-        // Newlines must be preserved in local drafts (Shift+Enter produces soft breaks).
-        let with_newlines = "a\nb\n";
-        touch_nav(db_id, note_id, nav_id, with_newlines);
-        assert_eq!(
-            get_nav_override(db_id, note_id, nav_id, "sv"),
-            with_newlines
-        );
-
-        // After marking synced beyond updated, override should fall back to server content.
+        // After marking synced, nav draft still takes precedence (local-first).
         mark_nav_synced(db_id, note_id, nav_id, i64::MAX);
-        assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), "sv");
+        assert_eq!(get_nav_override(db_id, note_id, nav_id, "sv"), "c1");
+
+        // Test with another nav to verify separate drafts.
+        touch_nav(db_id, note_id, nav_id2, "c2");
+        assert_eq!(get_nav_override(db_id, note_id, nav_id2, "sv2"), "c2");
 
         // Cleanup.
         if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {

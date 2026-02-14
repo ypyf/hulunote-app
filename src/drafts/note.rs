@@ -562,13 +562,16 @@ pub(crate) fn get_nav_override(
     }
 
     let d = load_note_draft(db_id, note_id);
-    let Some(f) = d.navs.get(nav_id) else {
-        return server_content.to_string();
-    };
-
-    if f.updated_ms > f.synced_ms {
-        f.value.clone()
-    } else {
-        server_content.to_string()
-    }
+    // Local-first: use draft if it has content, otherwise fallback to server content.
+    d.navs
+        .get(nav_id)
+        .and_then(|f| {
+            let v = f.value.clone();
+            if v.trim().is_empty() {
+                None
+            } else {
+                Some(v)
+            }
+        })
+        .unwrap_or_else(|| server_content.to_string())
 }

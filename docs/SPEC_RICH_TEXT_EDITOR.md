@@ -186,6 +186,7 @@ Implement:
   - `set_route(db_id, note_id)`
   - `set_editing_nav(Some(nav_id)|None)`
   - `on_nav_changed(nav_id, content)`
+  - `on_title_changed(title)`
 
 ### 9.3 Invariants / rules
 

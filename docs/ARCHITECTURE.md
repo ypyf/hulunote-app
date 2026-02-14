@@ -37,7 +37,7 @@ impl NoteSyncController {
     // Write entry points
     fn on_nav_changed(&self, nav_id: &str, content: &str);
     fn on_nav_meta_changed(&self, nav: &Nav);
-    // TODO: on_title_changed(&self, title: &str); // P0
+    fn on_title_changed(&self, title: &str);
 }
 ```
 
@@ -54,7 +54,6 @@ impl NoteSyncController {
 
 ## 4. Known Debts (not actionable now)
 
-- Note title sync is still separate from `NoteSyncController`. (P0 after ARCHITECTURE.md)
 - `src/editor/mod.rs` and `src/pages/mod.rs` are large; splitting is deferred.
 
 ## 5. References
