@@ -346,3 +346,9 @@ Configure the backend API URL in your client settings.
 
 ### 8.3 Changelog
 - v0.1.0: First release (2026-02-07)
+
+## 8.4 Engineering docs
+
+- [Architecture](./ARCHITECTURE.md)
+- [API Contract](./API_REFERENCE.md)
+- [User Manual](./USER_MANUAL.md)

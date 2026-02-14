@@ -119,7 +119,7 @@ pub(crate) fn list_dirty_notes(limit: usize) -> Vec<(String, String)> {
         .collect()
 }
 
-fn load_note_draft(db_id: &str, note_id: &str) -> NoteDraft {
+pub(crate) fn load_note_draft(db_id: &str, note_id: &str) -> NoteDraft {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return NoteDraft::default();
     }

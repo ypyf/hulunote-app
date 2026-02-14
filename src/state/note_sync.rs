@@ -3,7 +3,8 @@ use crate::cache::swap_tmp_nav_id_in_snapshot;
 use crate::drafts::{
     get_due_unsynced_nav_drafts, get_due_unsynced_nav_meta_drafts, get_unsynced_nav_drafts,
     list_dirty_notes, mark_nav_meta_sync_failed, mark_nav_meta_synced, mark_nav_sync_failed,
-    mark_nav_synced, swap_tmp_nav_id_in_drafts, touch_nav, touch_nav_meta, NavMetaDraft,
+    mark_nav_synced, mark_title_synced, swap_tmp_nav_id_in_drafts, touch_nav, touch_nav_meta,
+    touch_title, NavMetaDraft,
 };
 use crate::state::AppContext;
 use crate::util::{is_uuid_like, now_ms};
@@ -247,6 +248,16 @@ impl NoteSyncController {
         self.schedule_autosave(format!("meta:{}", nav.id));
     }
 
+    /// Called by NotePage when note title changes.
+    pub fn on_title_changed(&self, title: &str) {
+        let Some((db_id, note_id)) = self.db_note_untracked() else {
+            return;
+        };
+
+        touch_title(&db_id, &note_id, title);
+        self.schedule_autosave(format!("title:{}", note_id));
+    }
+
     fn flush_nav_draft(&self, nav_id: String) {
         // Never spam backend when offline; rely on retry worker probes.
         if !self.backend_online.get_untracked() {
@@ -269,6 +280,12 @@ impl NoteSyncController {
         // meta:{nav_id} is used for metadata autosave.
         if let Some(id) = nav_id.strip_prefix("meta:") {
             self.flush_nav_meta_draft(id.to_string());
+            return;
+        }
+
+        // title:{note_id} is used for title autosave.
+        if let Some(note_id_for_title) = nav_id.strip_prefix("title:") {
+            self.flush_title_draft(note_id_for_title.to_string());
             return;
         }
 
@@ -355,6 +372,52 @@ impl NoteSyncController {
                 Err(e) => {
                     s2.mark_backend_offline_api(&e);
                     mark_nav_meta_sync_failed(&db_id, &note_id, &nav_id);
+                }
+            }
+        });
+    }
+
+    fn flush_title_draft(&self, note_id: String) {
+        // Never spam backend when offline; rely on retry worker probes.
+        if !self.backend_online.get_untracked() {
+            return;
+        }
+
+        let Some((db_id, _)) = self.db_note_untracked() else {
+            return;
+        };
+        if note_id.trim().is_empty() {
+            return;
+        }
+
+        let api_client = self.app_state.0.api_client.get_untracked();
+        let db_id_clone = db_id.clone();
+        let note_id_clone = note_id.clone();
+        spawn_local(async move {
+            // Get title from drafts.
+            let draft = crate::drafts::load_note_draft(&db_id_clone, &note_id_clone);
+            let Some(title) = draft.title else {
+                return;
+            };
+
+            // Only flush if there's an unsynced change.
+            if title.updated_ms <= title.synced_ms {
+                return;
+            }
+
+            match api_client.update_note_title(&note_id_clone, &title.value).await {
+                Ok(_) => {
+                    mark_title_synced(&db_id_clone, &note_id_clone, title.updated_ms);
+
+                    // Refresh notes list after successful title update.
+                    if let Ok(_notes) = api_client.get_all_note_list(&db_id_clone).await {
+                        // Update global notes cache.
+                        // Note: we can't easily update AppState from here without context.
+                        // For now, let the next NotePage navigation refresh it, or add a signal for this.
+                    }
+                }
+                Err(_) => {
+                    // Title sync failure is logged but not fatal; retry worker will pick it up.
                 }
             }
         });

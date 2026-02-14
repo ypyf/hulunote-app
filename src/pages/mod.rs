@@ -1995,7 +1995,6 @@ pub fn NotePage() -> impl IntoView {
             return;
         }
         let id = note_id_untracked();
-        let db = db_id_untracked();
         let new_title = title_value.get_untracked();
         if id.trim().is_empty() {
             return;
@@ -2010,30 +2009,11 @@ pub fn NotePage() -> impl IntoView {
             return;
         }
 
-        saving.set(true);
-        error.set(None);
+        // Update UI immediately for responsive feedback.
+        title_original.set(new_title.clone());
 
-        let api_client = app_state.0.api_client.get_untracked();
-        spawn_local(async move {
-            match api_client.update_note_title(&id, &new_title).await {
-                Ok(_) => {
-                    // Mark new title as saved.
-                    title_original.set(new_title.clone());
-                    mark_title_synced(&db, &id, crate::util::now_ms());
-
-                    // Refresh notes list.
-                    let c = app_state.0.api_client.get_untracked();
-                    if let Ok(notes) = c.get_all_note_list(&db).await {
-                        app_state.0.notes.set(notes);
-                    }
-                    app_state.0.api_client.set(c);
-                }
-                Err(e) => {
-                    error.set(Some(e));
-                }
-            }
-            saving.set(false);
-        });
+        // Route through NoteSyncController for debounce + retry + offline handling.
+        let _ = sync_sv.try_with_value(|s| s.on_title_changed(&new_title));
     };
 
     let _current_note = move || {
