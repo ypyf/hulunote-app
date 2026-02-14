@@ -19,6 +19,7 @@ use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_dom::helpers::window_event_listener;
+use leptos_router::components::A;
 use leptos_router::hooks::{use_location, use_navigate, use_query_map};
 use leptos_router::params::Params;
 use wasm_bindgen::JsCast;
@@ -326,7 +327,6 @@ pub fn RegistrationPage() -> impl IntoView {
 pub fn HomeRecentsPage() -> impl IntoView {
     let app_state = expect_context::<AppContext>();
     let actions = expect_context::<DbUiActions>();
-    let navigate = StoredValue::new(use_navigate());
 
     view! {
         <div class="space-y-3">
@@ -342,120 +342,111 @@ pub fn HomeRecentsPage() -> impl IntoView {
             </Show>
 
             <div class="grid gap-3 sm:grid-cols-2">
-                {move || {
-                    use leptos::prelude::IntoAny;
+                <For
+                    each=move || app_state.0.databases.get()
+                    key=|db| db.id.clone()
+                    children=move |db| {
+                        let id = db.id.clone();
+                        let name = db.name.clone();
+                        let desc = db.description.clone();
 
-                    let dbs = app_state.0.databases.get();
+                        let id_for_nav = id.clone();
+                        let id_for_rename = id.clone();
+                        let name_for_rename = name.clone();
+                        let id_for_delete = id.clone();
+                        let name_for_delete = name.clone();
 
-                    let placeholder = view! {
-                        <Card
-                            class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
-                            on:click=move |_| actions.open_create.run(())
-                        >
-                            <div class="flex flex-col items-center gap-2 p-6">
-                                <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
-                                    <span class="text-lg text-muted-foreground">"+"</span>
-                                </div>
-                                <div class="text-sm font-medium">"New database"</div>
-                            </div>
-                        </Card>
-                    }
-                    .into_any();
-
-                    dbs.into_iter()
-                        .map(|db| {
-                            let id = db.id.clone();
-                            let name = db.name.clone();
-                            let desc = db.description.clone();
-
-                            let id_for_nav = id.clone();
-                            let id_for_rename = id.clone();
-                            let name_for_rename = name.clone();
-                            let id_for_delete = id.clone();
-                            let name_for_delete = name.clone();
-
-                            view! {
-                                <Card
-                                    class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
-                                    on:click=move |_| {
-                                        navigate.with_value(|nav| {
-                                            nav(&format!("/db/{}", id_for_nav), Default::default());
-                                        });
-                                    }
+                        view! {
+                            <Card class="group relative h-40 cursor-pointer transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border">
+                                // Router-native navigation area.
+                                <A
+                                    href={format!("/db/{}", id_for_nav)}
+                                    {..}
+                                    attr:aria-label={format!("Open database {}", name_for_rename)}
+                                    class="block h-full"
                                 >
                                     <CardHeader class="p-4">
                                         <CardTitle class="truncate text-sm">{name}</CardTitle>
                                         <CardDescription class="line-clamp-2 text-xs">{desc}</CardDescription>
                                     </CardHeader>
+                                </A>
 
-                                    <div class="absolute bottom-2 right-2 hidden items-center gap-1 group-hover:flex">
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            size=ButtonSize::Icon
-                                            class="h-7 w-7"
-                                            attr:title="Rename"
-                                            on:click=move |ev: web_sys::MouseEvent| {
-                                                ev.stop_propagation();
-                                                actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
-                                            }
+                                // Actions (outside the <A/>).
+                                <div class="absolute bottom-2 right-2 z-20 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-within:opacity-100">
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        size=ButtonSize::Icon
+                                        class="h-7 w-7"
+                                        attr:title="Rename"
+                                        on:click=move |ev: web_sys::MouseEvent| {
+                                            ev.stop_propagation();
+                                            actions.open_rename.run((id_for_rename.clone(), name_for_rename.clone()));
+                                        }
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            class="text-muted-foreground"
+                                            aria-hidden="true"
                                         >
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                width="16"
-                                                height="16"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                class="text-muted-foreground"
-                                                aria-hidden="true"
-                                            >
-                                                <path d="M12 20h9" />
-                                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                            </svg>
-                                        </Button>
+                                            <path d="M12 20h9" />
+                                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                        </svg>
+                                    </Button>
 
-                                        <Button
-                                            variant=ButtonVariant::Ghost
-                                            size=ButtonSize::Icon
-                                            class="h-7 w-7 text-destructive"
-                                            attr:title="Delete"
-                                            on:click=move |ev: web_sys::MouseEvent| {
-                                                ev.stop_propagation();
-                                                actions
-                                                    .open_delete
-                                                    .run((id_for_delete.clone(), name_for_delete.clone()));
-                                            }
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        size=ButtonSize::Icon
+                                        class="h-7 w-7 text-destructive"
+                                        attr:title="Delete"
+                                        on:click=move |ev: web_sys::MouseEvent| {
+                                            ev.stop_propagation();
+                                            actions.open_delete.run((id_for_delete.clone(), name_for_delete.clone()));
+                                        }
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            aria-hidden="true"
                                         >
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                width="16"
-                                                height="16"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2"
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                aria-hidden="true"
-                                            >
-                                                <path d="M3 6h18" />
-                                                <path d="M8 6V4h8v2" />
-                                                <path d="M19 6l-1 14H6L5 6" />
-                                                <path d="M10 11v6" />
-                                                <path d="M14 11v6" />
-                                            </svg>
-                                        </Button>
-                                    </div>
-                                </Card>
-                            }
-                            .into_any()
-                        })
-                        .chain(std::iter::once(placeholder))
-                        .collect_view()
-                }}
+                                            <path d="M3 6h18" />
+                                            <path d="M8 6V4h8v2" />
+                                            <path d="M19 6l-1 14H6L5 6" />
+                                            <path d="M10 11v6" />
+                                            <path d="M14 11v6" />
+                                        </svg>
+                                    </Button>
+                                </div>
+                            </Card>
+                        }
+                    }
+                />
+
+                <Card
+                    class="group relative flex h-40 cursor-pointer items-center justify-center border-dashed transition-colors hover:bg-surface-hover hover:ring-1 hover:ring-border"
+                    on:click=move |_| actions.open_create.run(())
+                >
+                    <div class="flex flex-col items-center gap-2 p-6">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background">
+                            <span class="text-lg text-muted-foreground">"+"</span>
+                        </div>
+                        <div class="text-sm font-medium">"New database"</div>
+                    </div>
+                </Card>
             </div>
         </div>
     }

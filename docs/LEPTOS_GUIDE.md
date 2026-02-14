@@ -114,7 +114,47 @@ spawn_local(async move {
 });
 ```
 
+```
+
 ---
+
+### 3.3 Keyed lists: avoid event-handler “drift” after route changes/back
+
+When rendering a *dynamic list* (databases, notes, blocks, etc.), avoid building views with
+`into_iter().map(...).collect_view()` unless the list is truly static.
+
+Symptoms of an unkeyed list (especially after router navigation or browser Back/Forward):
+- You click a button and **nothing happens**.
+- Or the click triggers the **wrong item’s** handler.
+- Or a click on a child control behaves like a click on the parent card.
+
+Cause:
+- Without stable keys, the renderer is free to reuse/move DOM nodes across updates.
+  After navigation/back, that can leave you with DOM that “looks right” but has **handlers associated
+  with a different item**.
+
+Fix (recommended): use Leptos’ keyed `<For/>`.
+
+```rust
+view! {
+  <For
+    each=move || items.get()
+    key=|it| it.id.clone()
+    children=move |it| view! { /* row */ }
+  />
+}
+```
+
+### 3.4 Navigation + action buttons: don’t rely on `stop_propagation()`
+
+In Leptos (and in general with event delegation), `stop_propagation()` on a child control may not be
+sufficient to prevent a parent “click-to-navigate” handler from firing.
+
+Preferred structure:
+- Use router-native `<A/>` for navigation.
+- Keep action buttons (Rename/Delete/…) **outside** the `<A/>`.
+
+This avoids ambiguous click behavior and makes Back/Forward navigation more robust.
 
 ## 4) Event Handlers
 
