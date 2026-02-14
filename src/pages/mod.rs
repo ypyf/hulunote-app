@@ -3,7 +3,7 @@ use crate::components::ui::{
     Alert, AlertDescription, Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription,
     CardHeader, CardTitle, Input, Label, Spinner,
 };
-use crate::drafts::{get_title_override, mark_title_synced, touch_title};
+use crate::drafts::{get_title_override, touch_title};
 use crate::editor::OutlineEditor;
 use crate::models::{Nav, Note};
 use crate::state::{AppContext, DbUiActions};
@@ -2278,47 +2278,9 @@ pub fn NotePage() -> impl IntoView {
                                 .map(|t| t.value())
                                 .unwrap_or_else(|| title_value.get_untracked());
 
+                            // Write to draft immediately (local-first).
+                            // Sync is handled by NoteSyncController via save_title on blur.
                             touch_title(&db, &id, &v);
-
-                            // idle debounce server sync (1200ms)
-                            if let Some(win) = web_sys::window() {
-                                if let Some(tid) = title_debounce_timer_id.get_untracked() {
-                                    let _ = win.clear_timeout_with_handle(tid);
-                                }
-
-                                let api_client = app_state.0.api_client.get_untracked();
-                                let db2 = db.clone();
-                                let id2 = id.clone();
-                                let v2 = v.clone();
-
-                                let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
-                                    spawn_local(async move {
-                                        if api_client.update_note_title(&id2, &v2).await.is_ok() {
-                                            // Mark draft as synced.
-                                            mark_title_synced(&db2, &id2, crate::util::now_ms());
-
-                                            // Update in-memory note list so sidebar/Home/recents reflect immediately.
-                                            let ctx = expect_context::<AppContext>();
-                                            ctx.0.notes.update(|xs| {
-                                                if let Some(n) = xs.iter_mut().find(|n| n.id == id2) {
-                                                    n.title = v2.clone();
-                                                }
-                                            });
-
-                                            // Keep local recent note title fresh.
-                                            write_recent_note(&db2, &id2, &v2);
-                                        }
-                                    });
-                                });
-
-                                let tid = win
-                                    .set_timeout_with_callback_and_timeout_and_arguments_0(
-                                        cb.as_ref().unchecked_ref(),
-                                        1200,
-                                    )
-                                    .unwrap_or(0);
-                                title_debounce_timer_id.set(Some(tid));
-                            }
                         }
                         on:blur=move |_| save_title()
                         on:keydown=move |ev: web_sys::KeyboardEvent| {
