@@ -1126,7 +1126,6 @@ pub fn OutlineNode(
     let nav_id_for_nav = nav_id.clone();
     let nav_id_for_toggle = nav_id.clone();
     let nav_id_for_render = nav_id.clone();
-    // note_id_for_toggle removed (no direct backend sync here)
 
     // (handler ids are captured per-render; avoid moving values out of the render closure)
 
@@ -1245,7 +1244,7 @@ pub fn OutlineNode(
             }
         });
 
-        // Local-first: persist metadata change to local draft; sync controller handles network.
+        // Persist metadata change to local draft; sync controller handles network.
         if let Some(n) = navs
             .get_untracked()
             .into_iter()
@@ -1456,7 +1455,7 @@ pub fn OutlineNode(
                                         }
                                     });
 
-                                    // Local-first: persist metadata change to local draft; sync controller handles network.
+                                    // Persist metadata change to local draft; sync controller handles network.
                                     let mut nav_for_meta = None;
                                     navs.update(|xs| {
                                         if let Some(x) = xs.iter().find(|x| x.id == dragged_id) {
@@ -1586,7 +1585,7 @@ pub fn OutlineNode(
                                                             });
 
                                                         if should_save {
-                                                            // Local-first: save to local draft; network sync is handled by
+                                                            // Save to local draft; network sync is handled by
                                                             // NoteSyncController (debounce + retry + offline backoff).
                                                             let sync_sv = sync_sv;
                                                             let current_id2 = current_id.clone();
@@ -2003,7 +2002,7 @@ pub fn OutlineNode(
                                                 let v = ce_text(&el);
                                                 editing_value.set(v.clone());
 
-                                                // Local-first: store draft at note-level aggregate.
+                                                // Store draft at note-level aggregate.
                                                 let db_id = app_state_sv
                                                     .get_value()
                                                     .0
@@ -2144,7 +2143,7 @@ pub fn OutlineNode(
                                                         let _ = apply_nav_content(xs, &nav_id_now, &new_content);
                                                     });
 
-                                                    // Local-first: always persist to local draft. Network sync is handled
+                                                    // Always persist to local draft. Network sync is handled
                                                     // by the global NoteSyncController (debounce + retry + offline backoff).
                                                     let sync_sv = sync_sv;
                                                     let nav_id_now2 = nav_id_now.clone();
@@ -2241,7 +2240,7 @@ pub fn OutlineNode(
                                                                     ce_set_text(&input_el, &next);
                                                                     editing_value.set(next.clone());
 
-                                                                    // Local-first: persist immediately so refresh won't lose the completed token.
+                                                                    // Persist immediately so refresh won't lose the completed token.
                                                                     let nav_id_now = nav_id_sv.get_value();
                                                                     let sync_sv2 = sync_sv;
                                                                     let _ = sync_sv2.try_with_value(|s| {
@@ -2285,7 +2284,7 @@ pub fn OutlineNode(
                                                         });
 
                                                     if should_save {
-                                                        // Local-first: persist content to drafts; sync controller handles network.
+                                                        // Persist content to drafts; sync controller handles network.
                                                         let nav_id_now2 = nav_id_now.to_string();
                                                         let current_content2 = current_content.clone();
                                                         let _ = sync_sv.try_with_value(|s| {
@@ -2372,7 +2371,7 @@ pub fn OutlineNode(
                                                         // work (and gets slower as the outline grows).
                                                     });
 
-                                                    // Local-first: persist reorder meta; sync controller handles network.
+                                                    // Persist reorder meta; sync controller handles network.
                                                     navs.update(|xs| {
                                                         if let Some(x) = xs.iter_mut().find(|x| x.id == nav_id_now) {
                                                             x.same_deep_order = new_order;
@@ -2553,7 +2552,7 @@ pub fn OutlineNode(
                                                                     }
                                                                 });
 
-                                                                // Local-first: persist expand meta; sync controller handles network.
+                                                                // Persist expand meta; sync controller handles network.
                                                                 if let Some(n) = navs
                                                                     .get_untracked()
                                                                     .into_iter()
@@ -2647,7 +2646,7 @@ pub fn OutlineNode(
                                                             }
                                                         });
 
-                                                        // Local-first: persist meta; sync controller handles network.
+                                                        // Persist meta; sync controller handles network.
                                                         if let Some(n) = navs
                                                             .get_untracked()
                                                             .into_iter()
@@ -2697,7 +2696,7 @@ pub fn OutlineNode(
                                                             }
                                                         });
 
-                                                        // Local-first: persist meta; sync controller handles network.
+                                                        // Persist meta; sync controller handles network.
                                                         if let Some(n) = navs
                                                             .get_untracked()
                                                             .into_iter()
@@ -2855,7 +2854,7 @@ pub fn OutlineNode(
                                                         editing_id.set(None);
                                                     }
 
-                                                    // Local-first: persist deletes as meta drafts; sync controller handles network.
+                                                    // Persist deletes as meta drafts; sync controller handles network.
                                                     let db_id_now = app_state
                                                         .0
                                                         .current_database_id
@@ -2923,7 +2922,7 @@ pub fn OutlineNode(
                                                         }
                                                     });
 
-                                                    // Local-first: save current node content via sync controller.
+                                                    // Save current node content via sync controller.
                                                     let _ = sync_sv.try_with_value(|s| {
                                                         s.on_nav_changed(&nav_id_now, &current_content);
                                                     });
@@ -2981,7 +2980,7 @@ pub fn OutlineNode(
                                                     editing_snapshot.set(Some((tmp_id.clone(), String::new())));
                                                     target_cursor_col.set(Some(0));
 
-                                                    // Local-first: persist new node meta to drafts; retry worker will
+                                                    // Persist new node meta to drafts; retry worker will
                                                     // create it on the backend when online and swap tmp->real.
                                                     if let Some(n) = navs
                                                         .get_untracked()

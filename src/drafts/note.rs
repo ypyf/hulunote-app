@@ -520,7 +520,7 @@ pub(crate) fn get_title_override(db_id: &str, note_id: &str, server_title: &str)
     }
 
     let d = load_note_draft(db_id, note_id);
-    // Local-first: use draft if it has content, otherwise fallback to server title.
+    // Use draft if it has content, otherwise fallback to server title.
     d.title
         .and_then(|f| {
             let v = f.value;
@@ -562,7 +562,7 @@ pub(crate) fn get_nav_override(
     }
 
     let d = load_note_draft(db_id, note_id);
-    // Local-first: use draft if it has content, otherwise fallback to server content.
+    // Use draft if it has content, otherwise fallback to server content.
     d.navs
         .get(nav_id)
         .and_then(|f| {

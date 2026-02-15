@@ -1940,7 +1940,7 @@ pub fn NotePage() -> impl IntoView {
             return;
         }
 
-        // Local-first: always load draft from localStorage directly, regardless of notes state.
+        // Always load draft from localStorage directly, regardless of notes state.
         let draft = crate::drafts::load_note_draft(&db, &id);
         // Always use local draft if it exists - local data takes precedence over backend.
         let draft_title = draft.title

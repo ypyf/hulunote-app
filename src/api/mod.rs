@@ -50,8 +50,6 @@ impl ApiError {
             message: format!("{ctx} ({status}): {body}"),
         }
     }
-
-    // (removed) ApiError::other
 }
 
 pub(crate) type ApiResult<T> = Result<T, ApiError>;

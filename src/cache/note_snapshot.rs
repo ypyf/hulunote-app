@@ -45,8 +45,6 @@ pub(crate) fn load_note_snapshot(db_id: &str, note_id: &str) -> Option<NoteSnaps
     load_json_from_storage::<NoteSnapshot>(&key(db_id, note_id))
 }
 
-// snapshot_nav_meta removed (unused)
-
 pub(crate) fn swap_tmp_nav_id_in_snapshot(db_id: &str, note_id: &str, tmp_id: &str, real_id: &str) {
     if db_id.trim().is_empty() || note_id.trim().is_empty() || tmp_id.trim().is_empty() {
         return;

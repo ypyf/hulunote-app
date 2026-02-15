@@ -64,15 +64,11 @@ impl NoteSyncController {
         self.last_backend_error.get_untracked()
     }
 
-    // (removed) string-based network error detection; use ApiErrorKind::Network
-
     pub(crate) fn mark_backend_online(&self) {
         self.backend_online.set(true);
         self.last_backend_error.set(None);
         self.offline_next_probe_ms.set(0);
     }
-
-    // (removed) mark_backend_offline(&str); use mark_backend_offline_api(ApiError)
 
     pub(crate) fn mark_backend_offline_api(&self, e: &crate::api::ApiError) {
         if e.kind == crate::api::ApiErrorKind::Network {
