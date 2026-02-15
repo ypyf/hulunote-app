@@ -1940,15 +1940,14 @@ pub fn NotePage() -> impl IntoView {
             return;
         }
 
-        // Always load draft from localStorage directly, regardless of notes state.
+        // Load draft from localStorage; use if exists.
         let draft = crate::drafts::load_note_draft(&db, &id);
-        // Always use local draft if it exists - local data takes precedence over backend.
         let draft_title = draft.title
             .map(|f| f.value)
             .unwrap_or_default();
 
         if !draft_title.is_empty() {
-            // Local draft exists with unsynced changes - always use it (local-first priority).
+            // Use local draft (local-first priority).
             if title_note_id.get() != id {
                 title_note_id.set(id.clone());
                 // Clear any pending debounce.
