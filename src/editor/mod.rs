@@ -241,34 +241,35 @@ fn ce_current_line_info(el: &web_sys::HtmlElement) -> (u32, u32) {
         return (0, 0);
     }
 
+    let children = root_node.child_nodes();
     let mut line_number = 0u32;
     let mut total_br_count = 0u32;
-
-    let children = root_node.child_nodes();
-    let mut found_focus = false;
 
     for i in 0..children.length() {
         let Some(child) = children.get(i) else { continue };
 
-        let child_clone = child.clone();
-
-        if child == focus_node {
-            found_focus = true;
+        if child.is_same_node(Some(&focus_node)) {
+            break;
         }
 
         if child.node_type() == web_sys::Node::ELEMENT_NODE {
             if let Ok(el) = child.dyn_into::<web_sys::Element>() {
                 if el.tag_name().to_uppercase() == "BR" {
-                    total_br_count += 1;
-                    if !found_focus {
-                        line_number += 1;
-                    }
+                    line_number += 1;
                 }
             }
         }
+    }
 
-        if found_focus && child_clone == focus_node {
-            break;
+    for i in 0..children.length() {
+        let Some(child) = children.get(i) else { continue };
+
+        if child.node_type() == web_sys::Node::ELEMENT_NODE {
+            if let Ok(el) = child.dyn_into::<web_sys::Element>() {
+                if el.tag_name().to_uppercase() == "BR" {
+                    total_br_count += 1;
+                }
+            }
         }
     }
 
@@ -2447,12 +2448,13 @@ pub fn OutlineNode(
                                                     return;
                                                 }
 
-                                                // Arrow Up/Down: move between soft lines in block, or jump to adjacent block
-                                                if key == "ArrowUp" || key == "ArrowDown" {
+                                                // Arrow Up/Down with Ctrl/Cmd: jump to adjacent block
+                                                if (key == "ArrowUp" || key == "ArrowDown") && (ev.ctrl_key() || ev.meta_key()) {
                                                     ev.prevent_default();
 
                                                     let nav_id_now = nav_id_sv.get_value();
                                                     let note_id_now = note_id_sv.get_value();
+                                                    save_current(&nav_id_now, &note_id_now);
 
                                                     let all = navs.get_untracked();
                                                     let visible = visible_preorder(&all);
@@ -2460,8 +2462,52 @@ pub fn OutlineNode(
                                                     let idx = visible.iter().position(|id| id == &nav_id_now);
                                                     let Some(idx) = idx else { return; };
 
-                                                    if ev.ctrl_key() || ev.meta_key() {
+                                                    let next_id = if key == "ArrowUp" {
+                                                        if idx == 0 { None } else { Some(visible[idx - 1].clone()) }
+                                                    } else {
+                                                        if idx + 1 >= visible.len() { None } else { Some(visible[idx + 1].clone()) }
+                                                    };
+
+                                                    if let Some(next_id) = next_id {
+                                                        if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
+                                                            editing_id.set(Some(next_id.clone()));
+                                                            editing_value.set(next_nav.content.clone());
+                                                            editing_snapshot.set(Some((next_id, next_nav.content.clone())));
+                                                        }
+                                                    }
+                                                    return;
+                                                }
+
+                                                // Arrow Up/Down without modifiers: soft line navigation + adjacent block jump
+                                                // When cursor is at first line and ArrowUp, jump to previous block
+                                                // When cursor is at last line and ArrowDown, jump to next block
+                                                if (key == "ArrowUp" || key == "ArrowDown") && !ev.alt_key() && !ev.ctrl_key() && !ev.meta_key() && !ev.shift_key() {
+                                                    let Some(input_el) = input() else {
+                                                        return;
+                                                    };
+
+                                                    let (current_line, total_lines) = ce_current_line_info(&input_el);
+
+                                                    // ArrowUp at first line -> jump to previous block
+                                                    // ArrowDown at last line -> jump to next block
+                                                    let should_jump = if key == "ArrowUp" {
+                                                        current_line == 0
+                                                    } else {
+                                                        total_lines > 0 && current_line >= total_lines - 1
+                                                    };
+
+                                                    if should_jump {
+                                                        ev.prevent_default();
+
+                                                        let nav_id_now = nav_id_sv.get_value();
+                                                        let note_id_now = note_id_sv.get_value();
                                                         save_current(&nav_id_now, &note_id_now);
+
+                                                        let all = navs.get_untracked();
+                                                        let visible = visible_preorder(&all);
+
+                                                        let idx = visible.iter().position(|id| id == &nav_id_now);
+                                                        let Some(idx) = idx else { return; };
 
                                                         let next_id = if key == "ArrowUp" {
                                                             if idx == 0 { None } else { Some(visible[idx - 1].clone()) }
@@ -2478,47 +2524,7 @@ pub fn OutlineNode(
                                                         }
                                                         return;
                                                     }
-
-                                                    if let Some(el) = input() {
-                                                        let (current_line, total_lines) = ce_current_line_info(&el);
-
-                                                        if key == "ArrowUp" && current_line == 0 {
-                                                            save_current(&nav_id_now, &note_id_now);
-
-                                                            if idx > 0 {
-                                                                let prev_id = visible[idx - 1].clone();
-                                                                if let Some(prev_nav) = all.iter().find(|n| n.id == prev_id) {
-                                                                    editing_id.set(Some(prev_id.clone()));
-                                                                    editing_value.set(prev_nav.content.clone());
-                                                                    editing_snapshot.set(Some((prev_id, prev_nav.content.clone())));
-                                                                }
-                                                            }
-                                                            return;
-                                                        }
-
-                                                        if key == "ArrowDown" && current_line >= total_lines - 1 {
-                                                            save_current(&nav_id_now, &note_id_now);
-
-                                                            if idx + 1 < visible.len() {
-                                                                let next_id = visible[idx + 1].clone();
-                                                                if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
-                                                                    editing_id.set(Some(next_id.clone()));
-                                                                    editing_value.set(next_nav.content.clone());
-                                                                    editing_snapshot.set(Some((next_id, next_nav.content.clone())));
-                                                                }
-                                                            }
-                                                            return;
-                                                        }
-                                                    }
-
-                                                    let cursor_col = input()
-                                                        .as_ref()
-                                                        .map(|i| ce_selection_utf16(i).0)
-                                                        .unwrap_or(0);
-                                                    target_cursor_col.set(Some(cursor_col));
-                                                    save_current(&nav_id_now, &note_id_now);
-
-                                                    return;
+                                                    // Otherwise, let browser handle normal line navigation
                                                 }
 
                                                 // Arrow Left/Right: jump to prev/next visible node at boundaries
