@@ -88,7 +88,30 @@ Notes:
   - `error[E0277]: the trait bound RwSignal<String>: IntoRender is not satisfied`
   - `error[E0599]: method 'class' ... trait bounds were not satisfied` (often a follow-on error)
 
-### 3.2 Tracked vs untracked reads (rule of thumb)
+### 3.2 HTML attributes must use `prop:` prefix for reactive updates
+
+In Leptos, when you want an HTML attribute to update reactively when a signal changes, you must use the `prop:` prefix.
+
+Common mistake with `<input>`:
+
+```rust
+// ❌ Wrong - value won't update reactively
+<input value={move || title.get()} />
+
+// ✅ Correct - value will update reactively
+<input prop:value={move || title.get()} />
+```
+
+This applies to **all** HTML attributes that need to respond to signal changes:
+- `value` → `prop:value`
+- `checked` → `prop:checked`
+- `disabled` → `prop:disabled`
+- `placeholder` → `prop:placeholder`
+- etc.
+
+**Why?** Without `prop:`, Leptos treats the attribute as a one-time static value, not a reactive one.
+
+### 3.3 Keyed lists: avoid event-handler "drift" after route changes/back
 
 - **Inside `view!`**: prefer tracked reads via a closure (`move || signal.get()`).
 - **Inside event handlers / async tasks**: prefer **untracked** reads when you want “the current value now” without creating reactive dependencies.

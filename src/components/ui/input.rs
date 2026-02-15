@@ -60,7 +60,7 @@ pub fn Input(
             readonly=readonly
             required=required
             autofocus=autofocus
-            value=move || bind_value.get()
+            prop:value=move || bind_value.get()
             on:input=on_input
             node_ref=node_ref
         />
