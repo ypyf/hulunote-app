@@ -2470,6 +2470,7 @@ pub fn OutlineNode(
 
                                                     if let Some(next_id) = next_id {
                                                         if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
+                                                            target_cursor_col.set(Some(0));
                                                             editing_id.set(Some(next_id.clone()));
                                                             editing_value.set(next_nav.content.clone());
                                                             editing_snapshot.set(Some((next_id, next_nav.content.clone())));
@@ -2517,6 +2518,7 @@ pub fn OutlineNode(
 
                                                         if let Some(next_id) = next_id {
                                                             if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
+                                                                target_cursor_col.set(Some(0));
                                                                 editing_id.set(Some(next_id.clone()));
                                                                 editing_value.set(next_nav.content.clone());
                                                                 editing_snapshot.set(Some((next_id, next_nav.content.clone())));
