@@ -2240,7 +2240,7 @@ pub fn NotePage() -> impl IntoView {
                                     node_ref=draft_ref
                                     class="h-7 w-full min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                                     placeholder="Start typing…"
-                                    value=move || draft_value.get()
+                                    prop:value={move || draft_value.get()}
                                     on:input=move |ev: web_sys::Event| {
                                         if let Some(t) = ev
                                             .target()
