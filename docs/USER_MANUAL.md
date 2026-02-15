@@ -52,16 +52,18 @@ Navigation works inside the inline editor input.
 #### Up / Down (soft line navigation + adjacent block jump)
 
 - `ArrowUp` / `ArrowDown` moves the cursor between **soft lines** within the current block.
-- When the cursor is already at the **topmost line** of the block and `ArrowUp` is pressed, the cursor jumps to the **adjacent block** above.
-- When the cursor is already at the **bottommost line** of the block and `ArrowDown` is pressed, the cursor jumps to the **adjacent block** below.
-- The editor attempts to preserve the cursor column between lines.
+- When the cursor is already at the **first line** of the block and `ArrowUp` is pressed, the cursor jumps to the **last line** of the adjacent block above.
+- When the cursor is already at the **last line** of the block and `ArrowDown` is pressed, the cursor jumps to the **first line** of the adjacent block below.
+- **Column preservation**: The editor attempts to preserve the cursor column when moving between blocks.
+  - If the target line is shorter than the original column, the cursor is placed at the end of the target line.
+  - If the target line is empty, the cursor is placed at position 0.
 
 **Adjacent block** means the previous/next block in the **linear visible order** on the current page, regardless of hierarchy (parent/child level).
 
 #### Cmd/Ctrl + Up / Down (jump to adjacent block)
 
-- `Cmd/Ctrl + ArrowUp` jumps directly to the adjacent block above.
-- `Cmd/Ctrl + ArrowDown` jumps directly to the adjacent block below.
+- `Cmd/Ctrl + ArrowUp` jumps directly to the adjacent block above (cursor at first line).
+- `Cmd/Ctrl + ArrowDown` jumps directly to the adjacent block below (cursor at first line).
 - This works regardless of cursor position within the current block.
 
 #### Left (line start)

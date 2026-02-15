@@ -229,6 +229,37 @@ If no reusable knowledge was gained:
 
 ---
 
+## Lessons Learned
+
+### Outline Editor ArrowUp/Down Navigation (2026-02-15)
+
+**Problem**: Implementing soft line navigation with adjacent block jump for ArrowUp/Down keys.
+
+**Key Insights**:
+
+1. **Use `anchor_node` instead of `focus_node`**:
+   - `selection.anchor_node` gives the starting position of the selection
+   - `selection.focus_node` can be unreliable when cursor is at certain positions (e.g., after BR elements)
+   - For line navigation, anchor_node is more stable
+
+2. **Handle different DOM node types**:
+   - The cursor can be in a TEXT_NODE (most common)
+   - The cursor can be in the root contenteditable element itself (type=ELEMENT, check with `is_same_node`)
+   - The cursor can be at a BR element position
+
+3. **Counting lines correctly**:
+   - Cannot rely solely on `innerText.matches('\n')` - innerText may not include BR elements in some cases
+   - Must iterate through direct children of the contenteditable element
+   - For each BR element encountered before the cursor, increment line count
+   - For text nodes, count newlines in text content before cursor position
+
+4. **Cursor column preservation across blocks**:
+   - When jumping to previous block (ArrowUp): place cursor at end of target (last line)
+   - When jumping to next block (ArrowDown): place cursor at beginning of target (first line)
+   - Preserve original column if target line is long enough, otherwise clamp to end of line
+
+---
+
 ## Final Principle
 
 This file exists so that:

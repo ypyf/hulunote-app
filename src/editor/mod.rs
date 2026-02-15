@@ -233,49 +233,72 @@ fn ce_current_line_info(el: &web_sys::HtmlElement) -> (u32, u32) {
     }
 
     let root_node: web_sys::Node = el.clone().unchecked_into();
-    let Some(focus_node) = sel.focus_node() else {
+    
+    let Some(anchor_node) = sel.anchor_node() else {
         return (0, 0);
     };
 
-    if !root_node.contains(Some(&focus_node)) {
+    if !root_node.contains(Some(&anchor_node)) {
         return (0, 0);
     }
 
-    let children = root_node.child_nodes();
-    let mut line_number = 0u32;
-    let mut total_br_count = 0u32;
+    let anchor_offset = sel.anchor_offset() as usize;
+    let node_type = anchor_node.node_type();
+    
+    let inner_text = el.inner_text();
+    let total_lines = inner_text.lines().count().max(1) as u32;
 
-    for i in 0..children.length() {
-        let Some(child) = children.get(i) else { continue };
-
-        if child.is_same_node(Some(&focus_node)) {
-            break;
-        }
-
-        if child.node_type() == web_sys::Node::ELEMENT_NODE {
-            if let Ok(el) = child.dyn_into::<web_sys::Element>() {
-                if el.tag_name().to_uppercase() == "BR" {
-                    line_number += 1;
+    if anchor_node.is_same_node(Some(&root_node)) {
+        let mut line_number = 0u32;
+        let children = root_node.child_nodes();
+        for i in 0..anchor_offset.min(children.length() as usize) {
+            if let Some(child) = children.get(i as u32) {
+                if child.node_type() == web_sys::Node::ELEMENT_NODE {
+                    if let Ok(el) = child.clone().dyn_into::<web_sys::Element>() {
+                        if el.tag_name().to_uppercase() == "BR" {
+                            line_number += 1;
+                        }
+                    }
                 }
             }
         }
+        return (line_number, total_lines);
     }
 
-    for i in 0..children.length() {
-        let Some(child) = children.get(i) else { continue };
-
-        if child.node_type() == web_sys::Node::ELEMENT_NODE {
-            if let Ok(el) = child.dyn_into::<web_sys::Element>() {
-                if el.tag_name().to_uppercase() == "BR" {
-                    total_br_count += 1;
+    if node_type == web_sys::Node::TEXT_NODE {
+        let mut line_number = 0u32;
+        
+        let children = root_node.child_nodes();
+        for i in 0..children.length() {
+            if let Some(child) = children.get(i) {
+                if child.is_same_node(Some(&anchor_node)) {
+                    if let Some(text) = anchor_node.text_content() {
+                        let text_before: String = text.chars().take(anchor_offset).collect();
+                        line_number += text_before.matches('\n').count() as u32;
+                    }
+                    break;
+                }
+                
+                if child.node_type() == web_sys::Node::ELEMENT_NODE {
+                    if let Ok(el) = child.clone().dyn_into::<web_sys::Element>() {
+                        if el.tag_name().to_uppercase() == "BR" {
+                            line_number += 1;
+                        }
+                    }
+                }
+                
+                if child.node_type() == web_sys::Node::TEXT_NODE {
+                    if let Some(text) = child.text_content() {
+                        line_number += text.matches('\n').count() as u32;
+                    }
                 }
             }
         }
+        
+        return (line_number, total_lines);
     }
 
-    let total = if total_br_count > 0 { total_br_count + 1 } else { 1 };
-
-    (line_number, total)
+    (0, total_lines)
 }
 
 fn ce_set_caret_utf16(el: &web_sys::HtmlElement, pos_utf16: u32) {
@@ -2500,6 +2523,11 @@ pub fn OutlineNode(
                                                     if should_jump {
                                                         ev.prevent_default();
 
+                                                        let cursor_col = input()
+                                                            .as_ref()
+                                                            .map(|i| ce_selection_utf16(i).0)
+                                                            .unwrap_or(0);
+
                                                         let nav_id_now = nav_id_sv.get_value();
                                                         let note_id_now = note_id_sv.get_value();
                                                         save_current(&nav_id_now, &note_id_now);
@@ -2518,7 +2546,17 @@ pub fn OutlineNode(
 
                                                         if let Some(next_id) = next_id {
                                                             if let Some(next_nav) = all.iter().find(|n| n.id == next_id) {
-                                                                target_cursor_col.set(Some(0));
+                                                                let target_col = if key == "ArrowUp" {
+                                                                    let target_len = next_nav.content.encode_utf16().count() as u32;
+                                                                    if target_len == 0 {
+                                                                        0
+                                                                    } else {
+                                                                        cursor_col.min(target_len - 1)
+                                                                    }
+                                                                } else {
+                                                                    cursor_col
+                                                                };
+                                                                target_cursor_col.set(Some(target_col));
                                                                 editing_id.set(Some(next_id.clone()));
                                                                 editing_value.set(next_nav.content.clone());
                                                                 editing_snapshot.set(Some((next_id, next_nav.content.clone())));
