@@ -45,19 +45,24 @@ When editing a node:
   - The node becomes a sibling of its parent (i.e. parent’s parent becomes the new parent).
   - The node is placed immediately after its parent in sibling order.
 
-### 2.4 Arrow keys (strict Roam navigation)
+### 2.4 Arrow keys (block internal + adjacent block navigation)
 
 Navigation works inside the inline editor input.
 
-#### Up / Down
+#### Up / Down (soft line navigation + adjacent block jump)
 
-- `ArrowUp` moves to the previous **visible** node.
-- `ArrowDown` moves to the next **visible** node.
-- Before moving, the current node content is saved (local state + backend upsert).
+- `ArrowUp` / `ArrowDown` moves the cursor between **soft lines** within the current block.
+- When the cursor is already at the **topmost line** of the block and `ArrowUp` is pressed, the cursor jumps to the **adjacent block** above.
+- When the cursor is already at the **bottommost line** of the block and `ArrowDown` is pressed, the cursor jumps to the **adjacent block** below.
 - The editor attempts to preserve the cursor column between lines.
 
-“Visible” means preorder traversal of the outline tree, respecting collapse state:
-- a node’s children are included only when `is-display` is true.
+**Adjacent block** means the previous/next block in the **linear visible order** on the current page, regardless of hierarchy (parent/child level).
+
+#### Cmd/Ctrl + Up / Down (jump to adjacent block)
+
+- `Cmd/Ctrl + ArrowUp` jumps directly to the adjacent block above.
+- `Cmd/Ctrl + ArrowDown` jumps directly to the adjacent block below.
+- This works regardless of cursor position within the current block.
 
 #### Left (line start)
 
