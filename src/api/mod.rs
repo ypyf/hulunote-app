@@ -263,24 +263,10 @@ impl ApiClient {
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<LoginResponse, String> {
-        let client = reqwest::Client::new();
-        let res = client
-            .post(format!("{}/login/web-login", self.base_url))
-            .json(&LoginRequest {
-                email: email.to_string(),
-                password: password.to_string(),
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            res.json().await.map_err(|e| e.to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Login failed ({status}): {body}"))
-        }
+        self.request("POST", "/login/web-login", Some(&LoginRequest {
+            email: email.to_string(),
+            password: password.to_string(),
+        })).await
     }
 
     fn with_auth_headers(
@@ -293,22 +279,60 @@ impl ApiClient {
         req
     }
 
-    async fn request_database_list(
-        base_url: &str,
-        token: Option<String>,
-    ) -> Result<reqwest::Response, String> {
+    async fn request<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&impl serde::Serialize>,
+    ) -> Result<T, String> {
         let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/get-database-list", base_url));
-        let req = Self::with_auth_headers(req, token);
+        let url = format!("{}{}", self.base_url, path);
+        let mut req = client.request(method.parse().unwrap(), url);
+        req = Self::with_auth_headers(req, self.get_auth_token());
+        
+        if let Some(b) = body {
+            req = req.json(b);
+        }
 
-        req.json(&serde_json::json!({}))
-            .send()
-            .await
-            .map_err(|e| e.to_string())
+        let res = req.send().await.map_err(|e| e.to_string())?;
+        
+        if res.status().is_success() {
+            res.json().await.map_err(|e| e.to_string())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(format!("Request failed ({status}): {body}"))
+        }
+    }
+
+    async fn request_api<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&impl serde::Serialize>,
+    ) -> ApiResult<T> {
+        let client = reqwest::Client::new();
+        let url = format!("{}{}", self.base_url, path);
+        let mut req = client.post(url);
+        req = Self::with_auth_headers(req, self.get_auth_token());
+        
+        if let Some(b) = body {
+            req = req.json(b);
+        }
+
+        let res = req.send().await.map_err(ApiError::network)?;
+        
+        if res.status().is_success() {
+            res.json().await.map_err(ApiError::parse)
+        } else if res.status().as_u16() == 401 {
+            Err(ApiError::unauthorized())
+        } else {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            Err(ApiError::http(status, body, "Request failed"))
+        }
     }
 
     pub(crate) fn parse_database_list_response(data: serde_json::Value) -> Vec<Database> {
-        // Canonical contract: `get-database-list` returns `database-list` with namespaced keys.
         let list = data
             .get("database-list")
             .and_then(|v| v.as_array())
@@ -321,17 +345,14 @@ impl ApiClient {
 
             let id = get_s("hulunote-databases/id").unwrap_or_default();
             let name = get_s("hulunote-databases/name").unwrap_or_default();
-            let description = get_s("hulunote-databases/description").unwrap_or_default();
-            let created_at = get_s("hulunote-databases/created-at").unwrap_or_default();
-            let updated_at = get_s("hulunote-databases/updated-at").unwrap_or_default();
 
             if !id.trim().is_empty() && !name.trim().is_empty() {
                 out.push(Database {
                     id,
                     name,
-                    description,
-                    created_at,
-                    updated_at,
+                    description: get_s("hulunote-databases/description").unwrap_or_default(),
+                    created_at: get_s("hulunote-databases/created-at").unwrap_or_default(),
+                    updated_at: get_s("hulunote-databases/updated-at").unwrap_or_default(),
                 });
             }
         }
@@ -340,7 +361,6 @@ impl ApiClient {
     }
 
     pub(crate) fn parse_note_list_response(data: serde_json::Value) -> Vec<Note> {
-        // Canonical contract: `get-all-note-list` returns `note-list` with namespaced keys.
         let list = data
             .get("note-list")
             .and_then(|v| v.as_array())
@@ -353,18 +373,15 @@ impl ApiClient {
 
             let id = get_s("hulunote-notes/id").unwrap_or_default();
             let database_id = get_s("hulunote-notes/database-id").unwrap_or_default();
-            let title = get_s("hulunote-notes/title").unwrap_or_default();
-            let created_at = get_s("hulunote-notes/created-at").unwrap_or_default();
-            let updated_at = get_s("hulunote-notes/updated-at").unwrap_or_default();
 
             if !id.trim().is_empty() && !database_id.trim().is_empty() {
                 out.push(Note {
                     id,
                     database_id,
-                    title,
+                    title: get_s("hulunote-notes/title").unwrap_or_default(),
                     content: String::new(),
-                    created_at,
-                    updated_at,
+                    created_at: get_s("hulunote-notes/created-at").unwrap_or_default(),
+                    updated_at: get_s("hulunote-notes/updated-at").unwrap_or_default(),
                 });
             }
         }
@@ -373,46 +390,24 @@ impl ApiClient {
     }
 
     pub async fn get_all_note_list(&self, database_id: &str) -> ApiResult<Vec<Note>> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/get-all-note-list", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        // hulunote-rust handler expects kebab-case: `database-id`
-        let res = req
-            .json(&serde_json::json!({ "database-id": database_id }))
-            .send()
-            .await
-            .map_err(ApiError::network)?;
-
-        if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
-            Ok(Self::parse_note_list_response(data))
-        } else if res.status().as_u16() == 401 {
-            Err(ApiError::unauthorized())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(ApiError::http(status, body, "Failed to get notes"))
-        }
+        let data: serde_json::Value = self
+            .request_api(
+                "/hulunote/get-all-note-list",
+                Some(&serde_json::json!({ "database-id": database_id })),
+            )
+            .await?;
+        Ok(Self::parse_note_list_response(data))
     }
 
     pub async fn get_database_list(&mut self) -> Result<Vec<Database>, String> {
-        // First try with current token
-        let res = Self::request_database_list(&self.base_url, self.get_auth_token()).await?;
-
-        // Backend (hulunote-rust) does not provide a refresh-token endpoint.
-        // If token is invalid/expired, caller should force re-login.
-
-        if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-            Ok(Self::parse_database_list_response(data))
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Failed to get databases ({status}): {body}"))
-        }
+        let data: serde_json::Value = self
+            .request(
+                "POST",
+                "/hulunote/get-database-list",
+                Some(&serde_json::json!({})),
+            )
+            .await?;
+        Ok(Self::parse_database_list_response(data))
     }
 
     pub async fn create_database(
@@ -420,236 +415,124 @@ impl ApiClient {
         database_name: &str,
         description: &str,
     ) -> Result<serde_json::Value, String> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/new-database", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&CreateDatabaseRequest {
+        self.request(
+            "POST",
+            "/hulunote/new-database",
+            Some(&CreateDatabaseRequest {
                 database_name: database_name.to_string(),
                 description: description.to_string(),
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            res.json().await.map_err(|e| e.to_string())
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Create database failed ({status}): {body}"))
-        }
+            }),
+        )
+        .await
     }
 
     pub async fn rename_database(&self, database_id: &str, name: &str) -> Result<(), String> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/update-database", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&UpdateDatabaseRequest {
+        self.request::<()>(
+            "POST",
+            "/hulunote/update-database",
+            Some(&UpdateDatabaseRequest {
                 database_id: Some(database_id.to_string()),
                 id: None,
                 db_name: Some(name.to_string()),
                 is_public: None,
                 is_default: None,
                 is_delete: None,
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            Ok(())
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Rename database failed ({status}): {body}"))
-        }
+            }),
+        )
+        .await
     }
 
     pub async fn delete_database_by_id(&self, database_id: &str) -> Result<(), String> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/delete-database", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&DeleteDatabaseRequest {
+        self.request(
+            "POST",
+            "/hulunote/delete-database",
+            Some(&DeleteDatabaseRequest {
                 database_id: Some(database_id.to_string()),
                 database_name: None,
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            Ok(())
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Delete database failed ({status}): {body}"))
-        }
+            }),
+        )
+        .await
     }
 
     pub async fn create_note(&self, database_id: &str, title: &str) -> Result<Note, String> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/new-note", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&CreateNoteRequest {
+        let data: serde_json::Value = self.request(
+            "POST",
+            "/hulunote/new-note",
+            Some(&CreateNoteRequest {
                 database_id: database_id.to_string(),
                 title: title.to_string(),
+            }),
+        )
+        .await?;
+
+        // Backend response has been observed with different shapes; accept a few common forms.
+        let id = data
+            .get("note")
+            .and_then(|n| {
+                n.get("hulunote-notes/id")
+                    .or_else(|| n.get("id"))
+                    .or_else(|| n.get("note-id"))
             })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .or_else(|| data.get("hulunote-notes/id"))
+            .or_else(|| data.get("note-id"))
+            .or_else(|| data.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
 
-        if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-
-            // Backend response has been observed with different shapes; accept a few common forms.
-            // Expected: {"note": {"hulunote-notes/id": "..."}}
-            // Also seen: {"note": {"id": "..."}} or top-level {"note-id": "..."}
-            let id = data
-                .get("note")
-                .and_then(|n| {
-                    n.get("hulunote-notes/id")
-                        .or_else(|| n.get("id"))
-                        .or_else(|| n.get("note-id"))
-                })
-                // Some backends return the note object directly (no `note` wrapper).
-                .or_else(|| data.get("hulunote-notes/id"))
-                .or_else(|| data.get("note-id"))
-                .or_else(|| data.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-
-            if id.trim().is_empty() {
-                return Err(format!(
-                    "Create note succeeded but response is missing note id: {}",
-                    data
-                ));
-            }
-
-            Ok(Note {
-                id,
-                database_id: database_id.to_string(),
-                title: title.to_string(),
-                content: String::new(),
-                created_at: String::new(),
-                updated_at: String::new(),
-            })
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Create note failed ({status}): {body}"))
+        if id.trim().is_empty() {
+            return Err(format!(
+                "Create note succeeded but response is missing note id: {}",
+                data
+            ));
         }
+
+        Ok(Note {
+            id,
+            database_id: database_id.to_string(),
+            title: title.to_string(),
+            content: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        })
     }
 
     pub async fn update_note_title(&self, note_id: &str, title: &str) -> Result<(), String> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/update-hulunote-note", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&serde_json::json!({ "note-id": note_id, "title": title }))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            Ok(())
-        } else if res.status().as_u16() == 401 {
-            Err("Unauthorized".to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Update note failed ({status}): {body}"))
-        }
+        self.request::<()>(
+            "POST",
+            "/hulunote/update-hulunote-note",
+            Some(&serde_json::json!({ "note-id": note_id, "title": title })),
+        )
+        .await
     }
 
     pub async fn get_note_navs(&self, note_id: &str) -> ApiResult<Vec<Nav>> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/get-note-navs", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&GetNoteNavsRequest {
-                note_id: note_id.to_string(),
-            })
-            .send()
-            .await
-            .map_err(ApiError::network)?;
-
-        if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
-            Ok(Self::parse_nav_list_response(data))
-        } else if res.status().as_u16() == 401 {
-            Err(ApiError::unauthorized())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(ApiError::http(status, body, "Failed to get navs"))
-        }
+        let data: serde_json::Value = self
+            .request_api(
+                "/hulunote/get-note-navs",
+                Some(&GetNoteNavsRequest {
+                    note_id: note_id.to_string(),
+                }),
+            )
+            .await?;
+        Ok(Self::parse_nav_list_response(data))
     }
 
     pub async fn get_all_navs(&self, database_id: &str) -> ApiResult<Vec<Nav>> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/get-all-navs", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&serde_json::json!({ "database-id": database_id }))
-            .send()
-            .await
-            .map_err(ApiError::network)?;
-
-        if res.status().is_success() {
-            let data: serde_json::Value = res.json().await.map_err(ApiError::parse)?;
-            Ok(Self::parse_nav_list_response(data))
-        } else if res.status().as_u16() == 401 {
-            Err(ApiError::unauthorized())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(ApiError::http(status, body, "Failed to get navs"))
-        }
+        let data: serde_json::Value = self
+            .request_api(
+                "/hulunote/get-all-navs",
+                Some(&serde_json::json!({ "database-id": database_id })),
+            )
+            .await?;
+        Ok(Self::parse_nav_list_response(data))
     }
 
     pub async fn upsert_nav(
         &self,
         req_body: CreateOrUpdateNavRequest,
     ) -> ApiResult<serde_json::Value> {
-        let client = reqwest::Client::new();
-        let req = client.post(format!("{}/hulunote/create-or-update-nav", self.base_url));
-        let req = Self::with_auth_headers(req, self.get_auth_token());
-
-        let res = req
-            .json(&req_body)
-            .send()
-            .await
-            .map_err(ApiError::network)?;
-
-        if res.status().is_success() {
-            res.json().await.map_err(ApiError::parse)
-        } else if res.status().as_u16() == 401 {
-            Err(ApiError::unauthorized())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(ApiError::http(status, body, "Upsert nav failed"))
-        }
+        self.request_api("/hulunote/create-or-update-nav", Some(&req_body)).await
     }
 
     pub async fn signup(
@@ -659,27 +542,17 @@ impl ApiClient {
         password: &str,
         registration_code: &str,
     ) -> Result<SignupResponse, String> {
-        let client = reqwest::Client::new();
-
-        let res = client
-            .post(format!("{}/login/web-signup", self.base_url))
-            .json(&SignupRequest {
+        self.request(
+            "POST",
+            "/login/web-signup",
+            Some(&SignupRequest {
                 email: email.to_string(),
                 username: username.to_string(),
                 password: password.to_string(),
                 registration_code: registration_code.to_string(),
-            })
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if res.status().is_success() {
-            res.json().await.map_err(|e| e.to_string())
-        } else {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            Err(format!("Signup failed ({status}): {body}"))
-        }
+            }),
+        )
+        .await
     }
 
     pub fn logout(&mut self) {

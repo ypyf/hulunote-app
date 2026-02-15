@@ -222,6 +222,12 @@ pub(crate) fn touch_nav_meta(db_id: &str, note_id: &str, nav: &Nav) {
     save_note_draft(&d);
 }
 
+fn update_field_synced(f: &mut FieldDraft, synced_ms: i64) {
+    f.synced_ms = f.synced_ms.max(synced_ms);
+    f.retry_count = 0;
+    f.next_retry_ms = 0;
+}
+
 pub(crate) fn mark_title_synced(db_id: &str, note_id: &str, synced_ms: i64) {
     if db_id.trim().is_empty() || note_id.trim().is_empty() {
         return;
@@ -229,12 +235,7 @@ pub(crate) fn mark_title_synced(db_id: &str, note_id: &str, synced_ms: i64) {
 
     let mut d = load_note_draft(db_id, note_id);
     let mut f = d.title.unwrap_or_default();
-    f.synced_ms = f.synced_ms.max(synced_ms);
-
-    // Reset retry state on success.
-    f.retry_count = 0;
-    f.next_retry_ms = 0;
-
+    update_field_synced(&mut f, synced_ms);
     d.title = Some(f);
     d.updated_ms = now_ms();
     save_note_draft(&d);
@@ -252,7 +253,6 @@ pub(crate) fn mark_title_sync_failed(db_id: &str, note_id: &str) {
     let mut d = load_note_draft(db_id, note_id);
     let mut f = d.title.unwrap_or_default();
 
-    // Bump retry schedule.
     f.retry_count = f.retry_count.saturating_add(1);
     let delay = compute_retry_delay_ms(f.retry_count);
     f.next_retry_ms = now_ms().saturating_add(delay);
@@ -272,11 +272,7 @@ pub(crate) fn mark_nav_synced(db_id: &str, note_id: &str, nav_id: &str, synced_m
         .navs
         .entry(nav_id.to_string())
         .or_insert_with(FieldDraft::default);
-    f.synced_ms = f.synced_ms.max(synced_ms);
-
-    // Reset retry state on success.
-    f.retry_count = 0;
-    f.next_retry_ms = 0;
+    update_field_synced(f, synced_ms);
 
     d.updated_ms = now_ms();
     save_note_draft(&d);
@@ -294,11 +290,7 @@ pub(crate) fn mark_nav_meta_synced(db_id: &str, note_id: &str, nav_id: &str, syn
         .nav_meta
         .entry(nav_id.to_string())
         .or_insert_with(FieldDraft::default);
-    f.synced_ms = f.synced_ms.max(synced_ms);
-
-    // Reset retry state on success.
-    f.retry_count = 0;
-    f.next_retry_ms = 0;
+    update_field_synced(f, synced_ms);
 
     d.updated_ms = now_ms();
     save_note_draft(&d);
@@ -307,11 +299,16 @@ pub(crate) fn mark_nav_meta_synced(db_id: &str, note_id: &str, nav_id: &str, syn
 }
 
 fn compute_retry_delay_ms(retry_count: u32) -> i64 {
-    // Exponential backoff with cap (1s, 2s, 4s, ... up to 60s).
     let base = 1000_i64;
     let max = 60_000_i64;
     let exp = 2_i64.saturating_pow(retry_count.min(16));
     (base.saturating_mul(exp)).min(max)
+}
+
+fn bump_retry(f: &mut FieldDraft) {
+    f.retry_count = f.retry_count.saturating_add(1);
+    let delay = compute_retry_delay_ms(f.retry_count);
+    f.next_retry_ms = now_ms().saturating_add(delay);
 }
 
 pub(crate) fn mark_nav_sync_failed(db_id: &str, note_id: &str, nav_id: &str) {
@@ -327,10 +324,7 @@ pub(crate) fn mark_nav_sync_failed(db_id: &str, note_id: &str, nav_id: &str) {
         .entry(nav_id.to_string())
         .or_insert_with(FieldDraft::default);
 
-    // Bump retry schedule.
-    f.retry_count = f.retry_count.saturating_add(1);
-    let delay = compute_retry_delay_ms(f.retry_count);
-    f.next_retry_ms = now_ms().saturating_add(delay);
+    bump_retry(f);
 
     d.updated_ms = now_ms();
     save_note_draft(&d);
@@ -349,9 +343,7 @@ pub(crate) fn mark_nav_meta_sync_failed(db_id: &str, note_id: &str, nav_id: &str
         .entry(nav_id.to_string())
         .or_insert_with(FieldDraft::default);
 
-    f.retry_count = f.retry_count.saturating_add(1);
-    let delay = compute_retry_delay_ms(f.retry_count);
-    f.next_retry_ms = now_ms().saturating_add(delay);
+    bump_retry(f);
 
     d.updated_ms = now_ms();
     save_note_draft(&d);
